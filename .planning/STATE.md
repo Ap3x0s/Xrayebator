@@ -10,12 +10,12 @@ See: .planning/PROJECT.md (updated 2026-05-09)
 ## Current Position
 
 Milestone: v2.0 — Post-Quantum & HAPP
-Phase: 4 of 8 (Foundation — Audit Fixes) — COMPLETE (оба плана выполнены)
-Plan: 04-01 DONE, 04-02 DONE (wave 1, оба завершены)
-Status: Phase 4 executed ✓ (04-01: 3 tasks, 2 files; 04-02: 4 tasks, 1 file)
-Last activity: 2026-05-09 — 04-02 migration-helper-rollout выполнен: run_migration helper + DRY backup_config + main_menu рефакторинг + explicit return 0/1 в 2 fns
+Phase: 5 of 8 (Auto-update Xray-core + xmux explicit) — Plan 5.1 DONE, Plan 5.2 pending
+Plan: 5.2 (xmux explicit migration) — next to execute
+Status: Phase 4 ✓ done | Phase 5: Plan 5.1 ✓ COMPLETE | Plan 5.2: pending
+Last activity: 2026-05-09 — 05-01-auto-update-cli executed: 4 tasks, 4 commits, sync-test PASS
 
-Progress: [##########] 100% Phase 4 complete — готов к /gsd:plan-phase 5
+Progress: [#######...] 70% Phase 5 Plan 5.1 complete, Plan 5.2 remaining
 
 ## Performance Metrics
 
@@ -42,6 +42,7 @@ Progress: [##########] 100% Phase 4 complete — готов к /gsd:plan-phase 5
 |-------|----------|-------|-------|
 | Phase 04-foundation-audit-fixes P04-01 | ~2 min | 3 tasks | 2 files |
 | Phase 04-foundation-audit-fixes P04-02 | ~12 min | 4 tasks | 1 file |
+| Phase 05-auto-update-xmux-explicit P05-01 | 6 | 4 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -73,11 +74,38 @@ v2.0 scope decisions (post-research, pre-execution):
 - [04-02 backup_config]: Централизован в run_migration ДО вызова fn — race condition с auto-rollback устранён
 - [04-02 per-migration restart]: Restart после каждой changed-миграции (не один общий в конце) — маркер touch ТОЛЬКО при успехе
 
+**Phase 5 design decisions (post-discuss-phase 2026-05-09):**
+
+- [05 trigger]: CLI subcommand `xrayebator update` — НЕ menu item. Nag в main_menu пишет 'выполни sudo xrayebator update'.
+- [05 confirmation]: Сводка + y/N перед download (`25.2.0 -> 25.3.5, ~6.5MB. Downtime ~5 сек. Continue?`). Дефолт N.
+- [05 progress]: curl --progress-bar (живой transfer rate + ETA). Важно для медленных РФ-VPS.
+- [05 rollback]: Auto-rollback + log. Silent recovery без confirmation prompt'а.
+- [05 xmux skip rule]: Migration пропускает inbounds с УЖЕ существующим xmux-блоком — сохраняет юзерские твики.
+- [05 max_connections]: Remove deprecated + add defaults. Без этого Xray 25.3+ откажется грузить config.
+- [05 xmux defaults]: Хардкод (research-validated): maxConcurrency '1-1', hMaxRequestTimes '600-900', hMaxReusableSecs '1800-3000', hKeepAlivePeriod 30. БЕЗ menu для тонкой настройки.
+- [05 live clients]: Pre-flight НЕ проверяет — safe_restart_xray ~3 сек, клиенты авто-реконнектятся.
+
+**Phase 5 execution decisions (05-01 complete 2026-05-09):**
+
+- [05-01 install.sh strategy]: Option C (inline duplication + sync test) — zero bootstrap risk, machine-checked sync
+- [05-01 INSTALL_MODE]: INSTALL_MODE=1 env-var bypass'ит confirmation + активирует install-mode guards
+- [05-01 CLI trigger lock]: update.sh определяет update_xray_core НЕ вызывает, trigger = xrayebator update
+- [05-01 Step 13]: Прямой systemctl restart в update_xray_core (не safe_restart_xray) — разные responsibilities
+- [05-01 cache TTL]: 24h в /tmp/.xrayebator_xray_latest_check для nag GitHub API calls
+- [05-01 backup retention]: 3 последних xray.bak.<timestamp> через _cleanup_xray_backups
+
+**Deferred (НЕ Phase 5):**
+
+- [Phase 8 Plan 8.3 НОВЫЙ]: AdGuard Home cleanup — удалить упоминания + предложить uninstall existing AdGuard при `xrayebator update`. Причина: AdGuard был косячный/дырявый в прошлых релизах. Out of scope Phase 5.
+
 ### Pending Todos
 
 - 04-01 DONE (lifecycle-scripts-hardening)
 - 04-02 DONE (migration-helper-rollout)
-- Phase 4 COMPLETE — запустить `/gsd:plan-phase 5` (Auto-update + xmux)
+- Phase 4 COMPLETE
+- 05-01 DONE (auto-update-cli) — sync-test PASS, all 4 REQs satisfied
+- 05-02 PENDING (xmux-explicit-migration) — запустить `/gsd:execute-phase 5` для Plan 5.2
+- При планировании Phase 8 — добавить Plan 8.3 AdGuard cleanup (deferred from Phase 5)
 - ... далее по ROADMAP.md последовательно (5 → 6 → 7 → 8)
 
 ### Phase 4 plan artifacts
@@ -102,5 +130,6 @@ v2.0 scope decisions (post-research, pre-execution):
 ## Session Continuity
 
 Last session: 2026-05-09
-Stopped at: Completed 04-02-migration-helper-rollout-PLAN.md (4 tasks: run_migration helper + main_menu refactor + explicit return 0/1 + centralized backup_config). Phase 4 complete.
-Resume file: None
+Stopped at: Completed 05-01-auto-update-cli-PLAN.md (4 tasks, ~6 min, sync-test PASS)
+Resume file: .planning/phases/05-auto-update-xmux-explicit/05-02-xmux-explicit-migration-PLAN.md
+Next: `/gsd:execute-phase 5` — execute Plan 5.2 (xmux explicit migration)
