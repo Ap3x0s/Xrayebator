@@ -539,7 +539,7 @@ migrate_transport_profile_metadata() {
   local profile_file
 
   echo -e "${CYAN}Проверка transport metadata профилей...${NC}"
-  backup_config "transport_profile_metadata"
+  # backup_config удалён: централизован в run_migration (Phase 4 refactor, REQ-D07)
 
   for profile_file in "$PROFILES_DIR"/*.json; do
     [[ ! -f "$profile_file" ]] && continue
@@ -569,13 +569,15 @@ migrate_transport_profile_metadata() {
 
   fix_xray_permissions
 
+  # EXPLICIT return: 0=changed (restart нужен), 1=no-op (нечего мигрировать)
+  # Раньше всегда return 0 — принудительный restart даже когда migrated==0
   if [[ $migrated -gt 0 ]]; then
     echo -e "${GREEN}✓ Transport metadata backfill: $migrated профилей${NC}"
+    return 0
   else
     echo -e "${GREEN}✓ Transport metadata backfill не требуется${NC}"
+    return 1
   fi
-
-  return 0
 }
 
 # Migration function for existing XHTTP profiles
@@ -583,7 +585,7 @@ migrate_xhttp_profiles() {
   local migrated=0
 
   echo -e "${CYAN}Проверка XHTTP профилей для миграции...${NC}"
-  backup_config "xhttp_profiles"
+  # backup_config удалён: централизован в run_migration (Phase 4 refactor, REQ-D07)
 
   for profile_file in "$PROFILES_DIR"/*.json; do
     [[ ! -f "$profile_file" ]] && continue
@@ -610,11 +612,14 @@ migrate_xhttp_profiles() {
     fi
   done
 
+  # safe_restart_xray удалён: вызывается run_migration после fn (Phase 4 refactor)
+  # EXPLICIT return: 0=changed (restart нужен), 1=no-op (нечего мигрировать)
   if [[ $migrated -gt 0 ]]; then
     echo -e "${GREEN}✓ Мигрировано $migrated XHTTP профилей${NC}"
-    safe_restart_xray
+    return 0   # changed → run_migration вызовет safe_restart_xray
   else
-    echo -e "${GREEN}✓ Миграция не требуется${NC}"
+    echo -e "${GREEN}✓ Миграция XHTTP профилей не требуется${NC}"
+    return 1   # no-op → run_migration touch-ит marker без restart
   fi
 }
 
