@@ -50,7 +50,7 @@ sleep 2
 # [1/10] Установка зависимостей
 echo -e "${BLUE}[1/10]${NC} ${YELLOW}Установка необходимых пакетов...${NC}"
 apt update > /dev/null 2>&1
-apt install -y curl wget jq qrencode uuid-runtime ufw > /dev/null 2>&1
+apt install -y curl wget jq qrencode uuid-runtime ufw unzip > /dev/null 2>&1
 if [[ $? -eq 0 ]]; then
   echo -e "${GREEN}✓ Зависимости установлены${NC}\n"
 else
@@ -58,23 +58,281 @@ else
   exit 1
 fi
 
-# [2/10] Установка Xray-core
+# [2/10] Установка Xray-core (REQ-B03 single source of truth)
 echo -e "${BLUE}[2/10]${NC} ${YELLOW}Установка Xray-core...${NC}"
-INSTALL_SCRIPT=$(curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh 2>/dev/null)
-if [[ -z "$INSTALL_SCRIPT" ]]; then
-  echo -e "${RED}✗ Не удалось скачать установщик Xray (проблема с сетью или GitHub)${NC}"
-  echo -e "${YELLOW}  Проверьте доступность github.com с этого сервера${NC}"
+
+# Inline-копия update_xray_core() (синхронизирована с update.sh / xrayebator через
+# validation/test-update-xray-core-sync.sh).
+# На свежей установке /usr/local/bin/xray отсутствует → CURRENT_VERSION="неустановлено"
+# → flow становится «download + install», без compare/confirmation branch.
+# INSTALL_MODE=1 bypass'ит confirmation prompt и активирует install-mode guards
+# на Step 10 (config.json может отсутствовать) и Step 13 (systemd unit еще не настроен).
+
+# update_xray_core
+# Скачивает и атомарно устанавливает свежий Xray-core с GitHub Releases.
+# Использует: GitHub API → fallback redirect, SHA-256 verify, self-test нового binary,
+# atomic install -m 755, rollback бинарника на неудачу.
+#
+# Returns:
+#   0 — успешно обновлено (или уже на latest)
+#   1 — пропущено пользователем (y/N → N)
+#   2 — критическая ошибка (network / SHA / arch unsupported)
+#   3 — config несовместим с новой версией (rollback применен, Xray на старой)
+update_xray_core() {
+  local CURRENT_VERSION TARGET_TAG TARGET_VERSION MACHINE
+  local TMPDIR ZIP_URL DGST_URL ZIP_PATH DGST_PATH
+
+  # ── Step 1: Architecture detection ──────────────────────────────
+  case "$(uname -m)" in
+    x86_64|amd64)  MACHINE="64" ;;
+    aarch64|arm64) MACHINE="arm64-v8a" ;;
+    armv7l)        MACHINE="arm32-v7a" ;;
+    armv6l)        MACHINE="arm32-v6" ;;
+    *)
+      echo -e "${RED}✗ Архитектура $(uname -m) не поддерживается${NC}"
+      return 2
+      ;;
+  esac
+
+  # ── Step 2: Получить current version ───────────────────────────
+  if [[ -x /usr/local/bin/xray ]]; then
+    CURRENT_VERSION=$(/usr/local/bin/xray version 2>/dev/null | head -1 | awk '{print $2}')
+  fi
+  CURRENT_VERSION="${CURRENT_VERSION:-неустановлено}"
+
+  # ── Step 3: Получить latest tag (API → fallback redirect) ──────
+  TARGET_TAG=$(_fetch_latest_tag) || {
+    echo -e "${RED}✗ GitHub недоступен (API + redirect провалились)${NC}"
+    _print_manual_install_hint "$MACHINE"
+    return 2
+  }
+  TARGET_VERSION="${TARGET_TAG#v}"
+
+  # ── Step 4: Compare versions ────────────────────────────────────
+  if [[ "$CURRENT_VERSION" == "$TARGET_VERSION" ]]; then
+    echo -e "${GREEN}✓ Xray $CURRENT_VERSION — уже на latest${NC}"
+    return 0
+  fi
+
+  # Защита от downgrade: если текущая > целевой — пропускаем
+  if [[ "$CURRENT_VERSION" != "неустановлено" ]]; then
+    local cv_major cv_minor cv_patch tv_major tv_minor tv_patch
+    cv_major=$(echo "$CURRENT_VERSION" | awk -F. '{print $1+0}')
+    cv_minor=$(echo "$CURRENT_VERSION" | awk -F. '{print $2+0}')
+    cv_patch=$(echo "$CURRENT_VERSION" | awk -F. '{print $3+0}')
+    tv_major=$(echo "$TARGET_VERSION" | awk -F. '{print $1+0}')
+    tv_minor=$(echo "$TARGET_VERSION" | awk -F. '{print $2+0}')
+    tv_patch=$(echo "$TARGET_VERSION" | awk -F. '{print $3+0}')
+    if [[ $cv_major -gt $tv_major ]] || \
+       [[ $cv_major -eq $tv_major && $cv_minor -gt $tv_minor ]] || \
+       [[ $cv_major -eq $tv_major && $cv_minor -eq $tv_minor && $cv_patch -gt $tv_patch ]]; then
+      echo -e "${GREEN}✓ Xray $CURRENT_VERSION новее доступной $TARGET_VERSION — пропускаем${NC}"
+      return 0
+    fi
+  fi
+
+  # ── Step 5: Confirmation prompt (CONTEXT.md decision 2) ────────
+  echo -e "${CYAN}Доступно обновление Xray-core:${NC}"
+  echo -e "  ${YELLOW}Текущая:${NC} $CURRENT_VERSION"
+  echo -e "  ${GREEN}Новая:${NC}    $TARGET_VERSION"
+  echo -e "  ${CYAN}Размер:${NC}   ~6.5MB (zip)"
+  echo -e "  ${CYAN}Downtime:${NC} ~5 секунд"
+  echo ""
+  if [[ "${INSTALL_MODE:-0}" != "1" ]]; then
+    echo -n -e "${YELLOW}Continue? [y/N]: ${NC}"
+    read confirm
+    [[ ! "$confirm" =~ ^[yYдД]$ ]] && {
+      echo -e "${CYAN}Отменено пользователем${NC}"
+      return 1
+    }
+  fi
+
+  # ── Step 6: Download zip + dgst (с --progress-bar) ─────────────
+  TMPDIR=$(mktemp -d /tmp/xray_update.XXXXXX)
+  trap "rm -rf '$TMPDIR'" RETURN
+
+  ZIP_URL="https://github.com/XTLS/Xray-core/releases/download/${TARGET_TAG}/Xray-linux-${MACHINE}.zip"
+  DGST_URL="${ZIP_URL}.dgst"
+  ZIP_PATH="${TMPDIR}/xray.zip"
+  DGST_PATH="${ZIP_PATH}.dgst"
+
+  echo -e "${CYAN}Скачивание $TARGET_TAG...${NC}"
+  if ! curl -fL --progress-bar --connect-timeout 30 --max-time 300 \
+       -o "$ZIP_PATH" "$ZIP_URL"; then
+    echo -e "${RED}✗ Не удалось скачать $ZIP_URL${NC}"
+    return 2
+  fi
+
+  if ! curl -fsSL --connect-timeout 10 --max-time 30 \
+       -o "$DGST_PATH" "$DGST_URL"; then
+    echo -e "${RED}✗ Не удалось скачать .dgst (SHA-256 manifest обязателен)${NC}"
+    return 2
+  fi
+
+  # ── Step 7: SHA-256 verify (mandatory) ─────────────────────────
+  echo -e "${CYAN}Verifying SHA256...${NC}"
+  local expected actual
+  expected=$(awk -F '= ' '/^256=/ {print $2}' "$DGST_PATH" | tr -d '[:space:]')
+  actual=$(sha256sum "$ZIP_PATH" | awk '{print $1}')
+
+  if [[ -z "$expected" ]]; then
+    echo -e "${RED}✗ .dgst файл не содержит SHA256 (формат изменился?)${NC}"
+    return 2
+  fi
+  if [[ "$expected" != "$actual" ]]; then
+    echo -e "${RED}✗ SHA256 mismatch — отмена${NC}"
+    echo -e "${YELLOW}  Ожидалось: $expected${NC}"
+    echo -e "${YELLOW}  Получено:  $actual${NC}"
+    return 2
+  fi
+  echo -e "${GREEN}  ✓ SHA256 ok${NC}"
+
+  # ── Step 8: Unzip ──────────────────────────────────────────────
+  if ! unzip -q "$ZIP_PATH" -d "${TMPDIR}/extract"; then
+    echo -e "${RED}✗ Ошибка распаковки${NC}"
+    return 2
+  fi
+  if [[ ! -x "${TMPDIR}/extract/xray" ]]; then
+    echo -e "${RED}✗ Бинарник xray отсутствует в zip-архиве${NC}"
+    return 2
+  fi
+
+  # ── Step 9: Self-test нового бинарника ─────────────────────────
+  if ! "${TMPDIR}/extract/xray" version >/dev/null 2>&1; then
+    echo -e "${RED}✗ Новый бинарник не запускается (binary corrupt / arch mismatch)${NC}"
+    return 2
+  fi
+
+  # ── Step 10: Pre-validate config с НОВЫМ binary (catch breaking) ──
+  # Skip если config.json отсутствует — install mode
+  local CONFIG_FILE="/usr/local/etc/xray/config.json"
+  if [[ -f "$CONFIG_FILE" ]]; then
+    local test_output
+    test_output=$("${TMPDIR}/extract/xray" run -test -config "$CONFIG_FILE" 2>&1)
+    if ! grep -qx "Configuration OK." <<< "$test_output"; then
+      echo -e "${RED}✗ config.json не валиден против $TARGET_VERSION${NC}"
+      echo -e "${YELLOW}Подробности:${NC}"
+      echo "$test_output" | head -10
+      echo -e "${YELLOW}Update прерван — Xray продолжает работать на $CURRENT_VERSION${NC}"
+      return 3
+    fi
+  else
+    echo -e "${CYAN}  → config.json отсутствует (install mode), pre-validate пропущен${NC}"
+  fi
+
+  # ── Step 11: Backup старого binary ─────────────────────────────
+  local backup_path="/usr/local/bin/xray.bak.$(date +%s)"
+  if [[ -x /usr/local/bin/xray ]]; then
+    cp /usr/local/bin/xray "$backup_path"
+    chmod 755 "$backup_path"
+    echo -e "${CYAN}  → Бекап: $(basename "$backup_path")${NC}"
+  fi
+
+  # ── Step 12: Atomic install ────────────────────────────────────
+  if ! install -m 755 -o root -g root \
+       "${TMPDIR}/extract/xray" /usr/local/bin/xray; then
+    echo -e "${RED}✗ Ошибка install -m 755${NC}"
+    [[ -f "$backup_path" ]] && {
+      mv "$backup_path" /usr/local/bin/xray
+      echo -e "${YELLOW}  → Откат к $CURRENT_VERSION${NC}"
+    }
+    return 2
+  fi
+
+  # ── Step 13: Restart с systemd-unit-guard (skip в install mode) ──
+  # safe_restart_xray в update.sh недоступна (определена в xrayebator).
+  # Используем прямой systemctl + проверка is-active.
+  if systemctl list-unit-files xray.service >/dev/null 2>&1 && [[ -f /etc/systemd/system/xray.service.d/security.conf ]]; then
+    systemctl restart xray
+    sleep 2
+    if systemctl is-active --quiet xray; then
+      echo -e "${GREEN}✓ Xray-core обновлен: $CURRENT_VERSION → $TARGET_VERSION${NC}"
+      _cleanup_xray_backups
+      return 0
+    else
+      echo -e "${RED}✗ Xray не запустился после установки $TARGET_VERSION${NC}"
+      if [[ -f "$backup_path" ]]; then
+        mv "$backup_path" /usr/local/bin/xray
+        systemctl restart xray
+        sleep 2
+        if systemctl is-active --quiet xray; then
+          echo -e "${YELLOW}  → Откат binary к $CURRENT_VERSION выполнен${NC}"
+        else
+          echo -e "${RED}  ✗ Откат не помог — ручное вмешательство${NC}"
+        fi
+      fi
+      return 3
+    fi
+  else
+    # Install mode: systemd unit будет создан позже в [3/10].
+    echo -e "${CYAN}  → Xray-core установлен. Сервис настроен в [3/10].${NC}"
+    _cleanup_xray_backups
+    return 0
+  fi
+}
+
+_fetch_latest_tag() {
+  # Пробуем GitHub API первым
+  local api_json tag
+  api_json=$(curl -fsSL --connect-timeout 10 --max-time 20 \
+    -H "Accept: application/vnd.github+json" \
+    -H "X-GitHub-Api-Version: 2022-11-28" \
+    "https://api.github.com/repos/XTLS/Xray-core/releases/latest" 2>/dev/null)
+  tag=$(echo "$api_json" | jq -r '.tag_name // ""' 2>/dev/null)
+  if [[ -n "$tag" && "$tag" != "null" ]]; then
+    echo "$tag"
+    return 0
+  fi
+
+  # Fallback: 302 redirect parse
+  local redirect_url
+  redirect_url=$(curl -fso /dev/null -w '%{url_effective}' \
+    --connect-timeout 10 --max-time 15 -L --max-redirs 1 \
+    "https://github.com/XTLS/Xray-core/releases/latest" 2>/dev/null)
+  tag="${redirect_url##*/}"
+  if [[ -n "$tag" && "$tag" =~ ^v[0-9]+\. ]]; then
+    echo "$tag"
+    return 0
+  fi
+
+  return 1
+}
+
+_print_manual_install_hint() {
+  local arch="$1"
+  echo -e "${YELLOW}  Ручная установка:${NC}"
+  echo -e "${CYAN}    1. https://github.com/XTLS/Xray-core/releases/latest${NC}"
+  echo -e "${CYAN}    2. Скачайте Xray-linux-${arch}.zip + .dgst${NC}"
+  echo -e "${CYAN}    3. unzip xray.zip && проверьте sha256sum${NC}"
+  echo -e "${CYAN}    4. install -m 755 ./xray /usr/local/bin/xray${NC}"
+  echo -e "${CYAN}    5. systemctl restart xray${NC}"
+}
+
+_cleanup_xray_backups() {
+  # Оставить 3 последних xray.bak.<timestamp>, остальные удалить.
+  local backups
+  mapfile -t backups < <(ls -t /usr/local/bin/xray.bak.* 2>/dev/null)
+
+  if [[ ${#backups[@]} -gt 3 ]]; then
+    local to_remove=("${backups[@]:3}")
+    for f in "${to_remove[@]}"; do
+      rm -f "$f"
+    done
+    echo -e "${CYAN}  → Старые бекапы удалены (оставлено 3)${NC}"
+  fi
+}
+
+INSTALL_MODE=1 update_xray_core
+UPDATE_RC=$?
+if [[ $UPDATE_RC -ne 0 ]]; then
+  echo -e "${RED}✗ Не удалось установить Xray-core (код $UPDATE_RC)${NC}"
+  echo -e "${YELLOW}  Ручная установка: https://github.com/XTLS/Xray-core/releases/latest${NC}"
   exit 1
 fi
-bash -c "$INSTALL_SCRIPT" @ install > /dev/null 2>&1
-if [[ $? -ne 0 ]]; then
-  echo -e "${RED}✗ Ошибка установки Xray-core${NC}"
-  exit 1
-fi
-# Проверяем, что бинарник действительно появился
-if ! command -v xray &>/dev/null && [[ ! -x /usr/local/bin/xray ]]; then
+
+# Проверка что бинарник появился
+if [[ ! -x /usr/local/bin/xray ]]; then
   echo -e "${RED}✗ Бинарник Xray не найден после установки${NC}"
-  echo -e "${YELLOW}  Попробуйте установить вручную: https://github.com/XTLS/Xray-install${NC}"
   exit 1
 fi
 XRAY_VERSION=$(/usr/local/bin/xray version 2>/dev/null | head -1)
