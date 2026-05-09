@@ -454,6 +454,86 @@ update_all_profiles_on_port() {
   done
 }
 
+# run_migration <marker_basename> <description> <fn_name>
+# Centralized migration runner: backup → run fn → safe_restart → touch marker.
+# Marker is created ONLY if all phases succeed (idempotency guarantee).
+#
+# Three-valued return contract for migration fns:
+#   fn returns 0 = config changed → safe_restart_xray + touch marker
+#   fn returns 1 = no-op (nothing to migrate) → touch marker WITHOUT restart
+#   fn returns ≥2 = FAILED → do NOT touch marker (миграция повторится)
+#
+# Why three-valued: 5 of 6 existing fns return `return 1` для no-op case (нечего
+# мигрировать на v2.0+ установке). Binary contract (0=ok, ≥1=fail) приводил бы к
+# 5 RED false-positive ошибкам на каждом launch'е v2.0 системы и маркеры никогда
+# не выставлялись бы — миграции бесконечно перепроверялись.
+#
+# Args:
+#   marker_basename — file inside /usr/local/etc/xray/, WITHOUT leading dot
+#                     (e.g. "xhttp_migrated" → marker /usr/local/etc/xray/.xhttp_migrated)
+#   description     — human-readable for logging (Russian, для пользователя)
+#   fn_name         — bash function to call. Function MUST:
+#                       - return 0 если config changed (рестарт нужен)
+#                       - return 1 если no-op (нечего мигрировать, рестарт не нужен)
+#                       - return ≥2 если миграция ФАЛЛЕНУЛА (НЕ touch marker)
+#                     Function MUST NOT call backup_config or safe_restart_xray itself
+#                     (helper делает это централизованно).
+#
+# Returns: 0=ok (marker set), 1=fn failed (≥2), 2=restart failed
+run_migration() {
+  local marker_basename="$1"
+  local description="$2"
+  local fn_name="$3"
+
+  local marker="/usr/local/etc/xray/.${marker_basename}"
+
+  # Skip if already done (idempotent)
+  if [[ -f "$marker" ]]; then
+    return 0
+  fi
+
+  echo -e "${MAGENTA}[migration] ${description}${NC}"
+
+  # Step 1: backup BEFORE any mutation (centralized per REQ-D07).
+  # safe_restart_xray's auto-rollback использует latest backup, поэтому
+  # backup ДОЛЖЕН быть создан до того, как fn начнёт мутировать config.
+  backup_config "$marker_basename"
+
+  # Step 2: run user-supplied migration fn
+  "$fn_name"
+  local fn_rc=$?
+
+  case $fn_rc in
+    0)
+      # Changed config — needs restart
+      if safe_restart_xray; then
+        touch "$marker"
+        chown xray:xray "$marker" 2>/dev/null || true
+        echo -e "${GREEN}  ✓ Migration applied: ${marker_basename}${NC}"
+        return 0
+      else
+        echo -e "${RED}  ✗ safe_restart_xray failed для ${description}${NC}"
+        echo -e "${YELLOW}    Маркер НЕ выставлен — config откачен (auto-rollback), миграция повторится${NC}"
+        return 2
+      fi
+      ;;
+    1)
+      # No change — skip restart, but still mark as done (idempotent no-op for next runs).
+      # Без этого touch'а fn re-проверял бы (зря) каждый launch.
+      touch "$marker"
+      chown xray:xray "$marker" 2>/dev/null || true
+      echo -e "${CYAN}  ✓ Nothing to migrate: ${marker_basename}${NC}"
+      return 0
+      ;;
+    *)
+      # fn вернула ≥2 — реальная ошибка (НЕ no-op).
+      echo -e "${RED}  ✗ Migration fn '$fn_name' returned $fn_rc${NC}"
+      echo -e "${YELLOW}    Маркер НЕ выставлен — миграция повторится при следующем запуске${NC}"
+      return 1
+      ;;
+  esac
+}
+
 migrate_transport_profile_metadata() {
   local migrated=0
   local profile_file
