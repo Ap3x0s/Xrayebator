@@ -10,12 +10,12 @@ See: .planning/PROJECT.md (updated 2026-05-09)
 ## Current Position
 
 Milestone: v2.0 — Post-Quantum & HAPP
-Phase: 5 of 8 (Auto-update Xray-core + xmux explicit) — Plan 5.1 DONE, Plan 5.2 pending
-Plan: 5.2 (xmux explicit migration) — next to execute
-Status: Phase 4 ✓ done | Phase 5: Plan 5.1 ✓ COMPLETE | Plan 5.2: pending
-Last activity: 2026-05-09 — 05-01-auto-update-cli executed: 4 tasks, 4 commits, sync-test PASS
+Phase: 5 of 8 (Auto-update Xray-core + xmux explicit) — PHASE COMPLETE
+Plan: Phase 5 DONE — next: Phase 6 (Subscription server)
+Status: Phase 4 ✓ done | Phase 5: Plan 5.1 ✓ COMPLETE | Plan 5.2 ✓ COMPLETE | Phase 5 DONE
+Last activity: 2026-05-09 — 05-02-xmux-explicit-migration executed: 2 tasks, 1 commit, REQ-B04 PASS
 
-Progress: [#######...] 70% Phase 5 Plan 5.1 complete, Plan 5.2 remaining
+Progress: [########..] 80% Phase 5 COMPLETE, Phase 6 pending
 
 ## Performance Metrics
 
@@ -43,6 +43,7 @@ Progress: [#######...] 70% Phase 5 Plan 5.1 complete, Plan 5.2 remaining
 | Phase 04-foundation-audit-fixes P04-01 | ~2 min | 3 tasks | 2 files |
 | Phase 04-foundation-audit-fixes P04-02 | ~12 min | 4 tasks | 1 file |
 | Phase 05-auto-update-xmux-explicit P05-01 | 6 | 4 tasks | 4 files |
+| Phase 05-auto-update-xmux-explicit P05-02 | 8 | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -104,9 +105,10 @@ v2.0 scope decisions (post-research, pre-execution):
 - 04-02 DONE (migration-helper-rollout)
 - Phase 4 COMPLETE
 - 05-01 DONE (auto-update-cli) — sync-test PASS, all 4 REQs satisfied
-- 05-02 PENDING (xmux-explicit-migration) — запустить `/gsd:execute-phase 5` для Plan 5.2
+- 05-02 DONE (xmux-explicit-migration) — REQ-B04 PASS, Phase 5 COMPLETE
+- Phase 5 COMPLETE — все REQ-B* удовлетворены
 - При планировании Phase 8 — добавить Plan 8.3 AdGuard cleanup (deferred from Phase 5)
-- ... далее по ROADMAP.md последовательно (5 → 6 → 7 → 8)
+- ... далее по ROADMAP.md последовательно (6 → 7 → 8)
 
 ### Phase 4 plan artifacts
 
@@ -130,6 +132,6 @@ v2.0 scope decisions (post-research, pre-execution):
 ## Session Continuity
 
 Last session: 2026-05-09
-Stopped at: Completed 05-01-auto-update-cli-PLAN.md (4 tasks, ~6 min, sync-test PASS)
-Resume file: .planning/phases/05-auto-update-xmux-explicit/05-02-xmux-explicit-migration-PLAN.md
-Next: `/gsd:execute-phase 5` — execute Plan 5.2 (xmux explicit migration)
+Stopped at: Completed 05-02-xmux-explicit-migration-PLAN.md (2 tasks, ~8 min, REQ-B04 PASS) — Phase 5 DONE
+Resume file: .planning/phases/06-subscription-server/ (следующая фаза)
+Next: `/gsd:execute-phase 6` — Phase 6 (Subscription server)
