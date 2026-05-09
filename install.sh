@@ -174,14 +174,40 @@ fi
 #   Старый (до v25.8):     Private key: ... / Public key: ...
 #   Средний (v25.8-v26.3): PrivateKey: ...  / Password: ...
 #   Новый (v26.3.27+):     PrivateKey: ...  / Password (PublicKey): ...
+# Layer 1: known field names (поддерживает все 3 формата вывода xray x25519:
+#   Старый (до v25.8):     Private key: ... / Public key: ...
+#   Средний (v25.8-v26.3): PrivateKey: ...  / Password: ...
+#   Новый (v26.3.27+):     PrivateKey: ...  / Password (PublicKey): ...
 PRIVATE_KEY=$(echo "$KEYS_OUTPUT" | awk -F': ' '/^Private [Kk]ey:/ || /^PrivateKey:/ {print $2; exit}')
 PUBLIC_KEY=$(echo "$KEYS_OUTPUT" | awk -F': ' '/^Public [Kk]ey:/ || /^Password/ {print $2; exit}')
 
-if [[ -z "$PRIVATE_KEY" ]] || [[ -z "$PUBLIC_KEY" ]]; then
-  echo -e "${RED}✗ Не удалось распарсить ключи из вывода xray x25519${NC}"
+# Layer 2 (fallback): если field-name parser не сработал — найти строки base64 shape.
+# x25519 keys = 32 байта = 43 символа base64.RawURLEncoding (без padding, алфавит [A-Za-z0-9_-])
+# ИЛИ 44 символа base64.StdEncoding (с одним '=' padding, алфавит [A-Za-z0-9+/=]).
+# Расширенный regex покрывает оба алфавита: [A-Za-z0-9_+/=-] длиной 43-44.
+if [[ -z "$PRIVATE_KEY" || -z "$PUBLIC_KEY" ]]; then
+  echo -e "${YELLOW}⚠ Field-based парсер не нашёл ключи, пробую base64-shape fallback${NC}"
+  KEY_CANDIDATES=$(echo "$KEYS_OUTPUT" | grep -oE '[A-Za-z0-9_+/=-]{43,44}' | head -2)
+  PRIVATE_KEY=$(echo "$KEY_CANDIDATES" | sed -n '1p')
+  PUBLIC_KEY=$(echo "$KEY_CANDIDATES" | sed -n '2p')
+fi
+
+# Layer 3 (validator): оба ключа должны быть base64 (RawURL или Std) длиной 43-44.
+# RawURL (Xray default): 43 chars, алфавит [A-Za-z0-9_-]
+# Std (legacy/edge): 44 chars (с '=' padding), алфавит [A-Za-z0-9+/=]
+# Объединённый regex покрывает оба варианта.
+validate_x25519_key() {
+  local key="$1"
+  [[ "$key" =~ ^[A-Za-z0-9_+/=-]{43,44}$ ]]
+}
+
+if ! validate_x25519_key "$PRIVATE_KEY" || ! validate_x25519_key "$PUBLIC_KEY"; then
+  echo -e "${RED}✗ Ключи не прошли base64-валидацию (ожидаются 43-44 символа base64-url или base64-std)${NC}"
   echo -e "${YELLOW}Вывод команды:${NC}"
   echo "$KEYS_OUTPUT"
-  echo -e "${YELLOW}Возможно, формат вывода изменился в новой версии Xray${NC}"
+  echo -e "${YELLOW}Распарсено:${NC}"
+  echo -e "  Private (${#PRIVATE_KEY} chars): ${PRIVATE_KEY:0:20}..."
+  echo -e "  Public  (${#PUBLIC_KEY} chars): ${PUBLIC_KEY:0:20}..."
   exit 1
 fi
 
