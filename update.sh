@@ -402,6 +402,48 @@ fi
 
 # Перезапуск Xray (если работает)
 if systemctl is-active --quiet xray; then
+  echo -e "${YELLOW}Проверка config.json перед перезапуском Xray...${NC}"
+
+  # Guard #1: файл существует и не пуст
+  if [[ ! -f /usr/local/etc/xray/config.json || ! -s /usr/local/etc/xray/config.json ]]; then
+    echo -e "${RED}✗ config.json отсутствует или пуст после миграций${NC}"
+    LATEST_BACKUP=$(ls -t /usr/local/etc/xray/backups/config.json.* 2>/dev/null | head -1)
+    if [[ -n "$LATEST_BACKUP" && -s "$LATEST_BACKUP" ]]; then
+      echo -e "${YELLOW}Восстановление из $LATEST_BACKUP...${NC}"
+      cp "$LATEST_BACKUP" /usr/local/etc/xray/config.json
+      chown xray:xray /usr/local/etc/xray/config.json
+      chmod 644 /usr/local/etc/xray/config.json
+      echo -e "${GREEN}✓ config.json восстановлен из backup${NC}"
+    else
+      echo -e "${RED}✗ Backup не найден в /usr/local/etc/xray/backups/${NC}"
+    fi
+    echo -e "${RED}Update прерван. Xray продолжает работать на старом конфиге.${NC}"
+    exit 1
+  fi
+
+  # Guard #2: xray run -test (grep stdout — exit code ненадёжен: возвращает 0 на missing file)
+  if ! xray run -test -config /usr/local/etc/xray/config.json 2>&1 | grep -q "^Configuration OK\.$"; then
+    echo -e "${RED}✗ config.json не валиден после миграций${NC}"
+    echo -e "${YELLOW}Вывод xray:${NC}"
+    xray run -test -config /usr/local/etc/xray/config.json 2>&1 | head -20
+
+    # Restore latest backup (REQ-D04)
+    LATEST_BACKUP=$(ls -t /usr/local/etc/xray/backups/config.json.* 2>/dev/null | head -1)
+    if [[ -n "$LATEST_BACKUP" && -s "$LATEST_BACKUP" ]]; then
+      echo -e "${YELLOW}Восстановление из $LATEST_BACKUP...${NC}"
+      cp "$LATEST_BACKUP" /usr/local/etc/xray/config.json
+      chown xray:xray /usr/local/etc/xray/config.json
+      chmod 644 /usr/local/etc/xray/config.json
+      echo -e "${GREEN}✓ config.json восстановлен из backup${NC}"
+      echo -e "${RED}Update прерван. Xray продолжает работать на старом конфиге.${NC}"
+    else
+      echo -e "${RED}✗ Backup не найден в /usr/local/etc/xray/backups/${NC}"
+      echo -e "${RED}Update прерван. Конфиг возможно повреждён, проверьте вручную.${NC}"
+    fi
+    exit 1
+  fi
+  echo -e "${GREEN}✓ config.json прошёл validation${NC}"
+
   echo -e "${YELLOW}Перезапуск Xray...${NC}"
   systemctl restart xray
   sleep 2

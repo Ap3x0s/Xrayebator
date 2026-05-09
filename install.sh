@@ -381,6 +381,27 @@ echo -e "${GREEN}✓ Скрипты установлены${NC}\n"
 
 # Запуск Xray
 systemctl enable xray > /dev/null 2>&1
+
+# Pre-validate config перед restart (REQ-D03)
+echo -e "${YELLOW}Проверка config.json перед запуском Xray...${NC}"
+
+# Guard #1: файл существует и не пуст
+if [[ ! -f /usr/local/etc/xray/config.json || ! -s /usr/local/etc/xray/config.json ]]; then
+  echo -e "${RED}✗ config.json отсутствует или пуст${NC}"
+  echo -e "${RED}Установка прервана. Проверьте /usr/local/etc/xray/config.json вручную.${NC}"
+  exit 1
+fi
+
+# Guard #2: xray run -test (grep stdout — exit code ненадёжен: возвращает 0 на missing file)
+if ! xray run -test -config /usr/local/etc/xray/config.json 2>&1 | grep -q "^Configuration OK\.$"; then
+  echo -e "${RED}✗ config.json не валиден (xray run -test failed)${NC}"
+  echo -e "${YELLOW}Вывод xray:${NC}"
+  xray run -test -config /usr/local/etc/xray/config.json 2>&1 | head -20
+  echo -e "${RED}Установка прервана. Проверьте /usr/local/etc/xray/config.json вручную.${NC}"
+  exit 1
+fi
+echo -e "${GREEN}✓ config.json прошёл validation${NC}"
+
 systemctl restart xray > /dev/null 2>&1
 if systemctl is-active --quiet xray; then
   echo -e "${GREEN}✓ Xray успешно запущен${NC}\n"
