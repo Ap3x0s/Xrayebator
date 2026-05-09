@@ -348,12 +348,21 @@ if [[ -f "$CONFIG_FILE" ]]; then
     }'
 
     # Обновляем DNS секцию в конфиге
-    if jq --argjson dns "$NEW_DNS" '.dns = $dns' "$CONFIG_FILE" > "${CONFIG_FILE}.tmp" 2>/dev/null && [[ -s "${CONFIG_FILE}.tmp" ]]; then
-      mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
+    TMP_FILE=$(mktemp /tmp/xray-cfg.XXXXXX) || {
+      echo -e "${YELLOW}  ⚠ mktemp failed (DNS обновление пропущено)${NC}"
+      true
+    }
+    if [[ -n "$TMP_FILE" ]] && jq --argjson dns "$NEW_DNS" '.dns = $dns' "$CONFIG_FILE" > "$TMP_FILE" 2>/dev/null \
+       && [[ -s "$TMP_FILE" ]] \
+       && xray run -test -config "$TMP_FILE" 2>&1 | grep -q "^Configuration OK\.$"; then
+      mv "$TMP_FILE" "$CONFIG_FILE"
+      # Restore mode/owner (mktemp создаёт с mode 600, mv наследует root)
+      chmod 644 "$CONFIG_FILE"
+      chown xray:xray "$CONFIG_FILE" 2>/dev/null || true
       echo -e "${GREEN}  ✓ DNS обновлён на DoH Local (https+local://1.1.1.1)${NC}"
     else
-      rm -f "${CONFIG_FILE}.tmp"
-      echo -e "${YELLOW}  ⚠ Не удалось обновить DNS (конфиг без изменений)${NC}"
+      rm -f "$TMP_FILE"
+      echo -e "${YELLOW}  ⚠ Не удалось обновить DNS (size-check или xray test failed, конфиг без изменений)${NC}"
     fi
   else
     echo -e "${GREEN}  ✓ AdGuard DNS уже настроен${NC}"
@@ -367,14 +376,23 @@ if [[ -f "$CONFIG_FILE" ]]; then
     # Добавляем правило блокировки QUIC перед последним правилом (direct)
     QUIC_RULE='{"type": "field", "network": "udp", "port": 443, "outboundTag": "block"}'
 
-    if jq --argjson rule "$QUIC_RULE" '
+    TMP_FILE=$(mktemp /tmp/xray-cfg.XXXXXX) || {
+      echo -e "${YELLOW}  ⚠ mktemp failed (QUIC правило пропущено)${NC}"
+      true
+    }
+    if [[ -n "$TMP_FILE" ]] && jq --argjson rule "$QUIC_RULE" '
       .routing.rules = [.routing.rules[:-1][], $rule, .routing.rules[-1]]
-    ' "$CONFIG_FILE" > "${CONFIG_FILE}.tmp" 2>/dev/null; then
-      mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
+    ' "$CONFIG_FILE" > "$TMP_FILE" 2>/dev/null \
+       && [[ -s "$TMP_FILE" ]] \
+       && xray run -test -config "$TMP_FILE" 2>&1 | grep -q "^Configuration OK\.$"; then
+      mv "$TMP_FILE" "$CONFIG_FILE"
+      # Restore mode/owner (mktemp создаёт с mode 600, mv наследует root)
+      chmod 644 "$CONFIG_FILE"
+      chown xray:xray "$CONFIG_FILE" 2>/dev/null || true
       echo -e "${GREEN}  ✓ QUIC заблокирован (реклама не сможет обойти DNS)${NC}"
     else
-      rm -f "${CONFIG_FILE}.tmp"
-      echo -e "${YELLOW}  ⚠ Не удалось добавить правило QUIC${NC}"
+      rm -f "$TMP_FILE"
+      echo -e "${YELLOW}  ⚠ Не удалось добавить правило QUIC (size-check или xray test failed, конфиг без изменений)${NC}"
     fi
   else
     echo -e "${GREEN}  ✓ QUIC уже заблокирован${NC}"
