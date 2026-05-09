@@ -861,6 +861,101 @@ migrate_config_optimization() {
   return 1
 }
 
+# Migration: explicit xmux block для всех XHTTP inbounds (Phase 5, REQ-B04)
+# Marker: /usr/local/etc/xray/.xmux_explicit_2026
+# Защищает от Сибирского behavioral DPI: maxConcurrency=1-1 + hMax* полей.
+# Skip-rule (CONTEXT.md decision 5): inbound с already-existing xmux пропускается
+# (preserves пользовательские твики, в т.ч. Phase 4 значения 16-32).
+# Three-valued return contract:
+#   0 — изменения внесены, restart нужен
+#   1 — no-op, все XHTTP inbound'ы уже корректны (или их нет)
+#   ≥2 — fail (safe_jq_write провалился где-то)
+migrate_xmux_explicit_2026() {
+  echo -e "${CYAN}Проверка XHTTP inbounds для explicit xmux...${NC}"
+  # backup_config удален: централизован в run_migration (Phase 4 REQ-D07)
+
+  local migrated=0 skipped=0 failed=0
+
+  # Все XHTTP inbound'ы (по network в streamSettings)
+  local xhttp_ports
+  xhttp_ports=$(jq -r '.inbounds[] | select(.streamSettings.network == "xhttp") | .port' \
+    "$CONFIG_FILE" 2>/dev/null)
+
+  # Edge case: ни одного XHTTP inbound'а — миграция не нужна, return 1.
+  if [[ -z "$xhttp_ports" ]]; then
+    echo -e "${GREEN}✓ XHTTP inbound'ов не найдено, миграция не требуется${NC}"
+    return 1
+  fi
+
+  for port in $xhttp_ports; do
+    [[ -z "$port" ]] && continue
+
+    # Detection: xmux уже есть? (CONTEXT.md decision 5: skip-if-exists)
+    # Robust check: extra может отсутствовать целиком, // {} guard'ит, .xmux может быть null/empty obj.
+    local has_xmux
+    has_xmux=$(jq -r --argjson port "$port" '
+      (.inbounds[] | select(.port == $port) | .streamSettings.xhttpSettings.extra // {} | .xmux) // null
+      | if . == null or . == {} then "false" else "true" end
+    ' "$CONFIG_FILE" 2>/dev/null)
+
+    if [[ "$has_xmux" == "true" ]]; then
+      echo -e "${CYAN}  → Порт $port: xmux уже есть, skip${NC}"
+      ((skipped++))
+      continue
+    fi
+
+    # Detection: deprecated max_connections (для логирования)
+    local has_max_connections
+    has_max_connections=$(jq -r --argjson port "$port" '
+      (.inbounds[] | select(.port == $port) | .streamSettings.xhttpSettings.extra // {} | .max_connections) // null
+      | if . == null then "false" else "true" end
+    ' "$CONFIG_FILE" 2>/dev/null)
+
+    if [[ "$has_max_connections" == "true" ]]; then
+      echo -e "${YELLOW}  → Порт $port: удаляю deprecated max_connections${NC}"
+    fi
+
+    echo -e "${YELLOW}  → Порт $port: добавляю explicit xmux block${NC}"
+
+    # Atomic transformation через safe_jq_write (Phase 4 helper).
+    # |= update-в-place на subtree extra.
+    # (. // {}) — promote null/missing extra в {} для дальнейшего .xmux assignment.
+    # del(.max_connections) — idempotent: no-op если поля нет.
+    # .xmux = { ... } — explicit block с research-validated значениями.
+    if safe_jq_write --argjson port "$port" '
+      (.inbounds[] | select(.port == $port) | .streamSettings.xhttpSettings.extra) |= (
+        (. // {})
+        | del(.max_connections)
+        | .xmux = {
+            "maxConcurrency":   "1-1",
+            "hMaxRequestTimes": "600-900",
+            "hMaxReusableSecs": "1800-3000",
+            "hKeepAlivePeriod": 30
+          }
+      )
+    ' "$CONFIG_FILE"; then
+      ((migrated++))
+    else
+      echo -e "${RED}  ✗ safe_jq_write провалился для порта $port${NC}"
+      ((failed++))
+    fi
+  done
+
+  # Three-valued return:
+  if [[ $failed -gt 0 ]]; then
+    echo -e "${RED}✗ xmux explicit миграция: $failed inbound(ов) с ошибкой, $migrated успешно, $skipped skip${NC}"
+    return 2  # fail — marker НЕ создается, повторится при следующем запуске
+  fi
+
+  if [[ $migrated -gt 0 ]]; then
+    echo -e "${GREEN}✓ xmux explicit добавлен для $migrated XHTTP inbound(ов), skip $skipped${NC}"
+    return 0  # changed → restart needed
+  else
+    echo -e "${GREEN}✓ xmux explicit миграция не требуется (все $skipped XHTTP уже корректны)${NC}"
+    return 1  # no-op → marker создается, restart НЕ нужен
+  fi
+}
+
 # ═══════════════════════════════════════════════════════════
 # END HELPER FUNCTIONS
 # ═══════════════════════════════════════════════════════════
@@ -1245,6 +1340,7 @@ main_menu() {
   run_migration "xhttp_extra_restored"                 "XHTTP extra anti-DPI restore"     migrate_xhttp_extra_restore        || ((migration_failures++))
   run_migration "transport_profile_metadata_migrated"  "Transport profile metadata"        migrate_transport_profile_metadata || ((migration_failures++))
   run_migration "config_optimized"                     "Config optimization (DNS/log)"     migrate_config_optimization        || ((migration_failures++))
+  run_migration "xmux_explicit_2026"                   "Explicit xmux block для XHTTP"     migrate_xmux_explicit_2026         || ((migration_failures++))
 
   # Aggregate report (RESEARCH §«Error reporting»): чтобы пользователь не пропустил
   # failure среди скроллящегося TUI вывода.
@@ -1736,8 +1832,10 @@ GRPCEOF
       "extra": {
         "xPaddingBytes": "100-1000",
         "xmux": {
-          "maxConcurrency": "16-32",
-          "cMaxLifetimeMs": "10000-30000"
+          "maxConcurrency": "1-1",
+          "hMaxRequestTimes": "600-900",
+          "hMaxReusableSecs": "1800-3000",
+          "hKeepAlivePeriod": 30
         },
         "noSSEHeader": true,
         "scMaxEachPostBytes": "1000000-2000000",
