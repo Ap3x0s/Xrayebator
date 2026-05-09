@@ -890,58 +890,28 @@ show_ascii() {
 
 # Главное меню
 main_menu() {
-  # Run migrations on first launch after upgrade
-  local needs_restart=false
+  # Run migrations on first launch after upgrade.
+  # Каждая миграция: marker check → backup → fn → safe_restart_xray (если fn вернула 0)
+  # → touch marker. При failure любого шага — marker НЕ выставляется, миграция повторится.
+  # Three-valued contract: fn returns 0=changed, 1=no-op, ≥2=fail.
 
-  if [[ ! -f /usr/local/etc/xray/.xhttp_migrated ]]; then
-    if migrate_xhttp_profiles; then
-      touch /usr/local/etc/xray/.xhttp_migrated
-      needs_restart=true
-    fi
-  fi
+  local migration_failures=0
 
-  # v1.3.2: Routing migration
-  if [[ ! -f /usr/local/etc/xray/.routing_v132_migrated ]]; then
-    if migrate_routing_config; then
-      touch /usr/local/etc/xray/.routing_v132_migrated
-      needs_restart=true
-    fi
-  fi
+  run_migration "xhttp_migrated"                       "XHTTP host/SNI sync"             migrate_xhttp_profiles             || ((migration_failures++))
+  run_migration "routing_v132_migrated"                "Routing default direct rule"      migrate_routing_config             || ((migration_failures++))
+  run_migration "xhttp_mode_migrated"                  "XHTTP mode stream→auto"           migrate_xhttp_mode                 || ((migration_failures++))
+  run_migration "xhttp_extra_restored"                 "XHTTP extra anti-DPI restore"     migrate_xhttp_extra_restore        || ((migration_failures++))
+  run_migration "transport_profile_metadata_migrated"  "Transport profile metadata"        migrate_transport_profile_metadata || ((migration_failures++))
+  run_migration "config_optimized"                     "Config optimization (DNS/log)"     migrate_config_optimization        || ((migration_failures++))
 
-  # XHTTP mode migration (stream -> auto for sing-box compatibility)
-  if [[ ! -f /usr/local/etc/xray/.xhttp_mode_migrated ]]; then
-    if migrate_xhttp_mode; then
-      touch /usr/local/etc/xray/.xhttp_mode_migrated
-      needs_restart=true
-    fi
-  fi
-
-  # XHTTP extra restore (fix for previous migration that wiped anti-DPI settings)
-  if [[ ! -f /usr/local/etc/xray/.xhttp_extra_restored ]]; then
-    if migrate_xhttp_extra_restore; then
-      touch /usr/local/etc/xray/.xhttp_extra_restored
-      needs_restart=true
-    fi
-  fi
-
-  if [[ ! -f /usr/local/etc/xray/.transport_profile_metadata_migrated ]]; then
-    if migrate_transport_profile_metadata; then
-      touch /usr/local/etc/xray/.transport_profile_metadata_migrated
-    fi
-  fi
-
-  # Config optimization migration (Phase 2)
-  if [[ ! -f /usr/local/etc/xray/.config_optimized ]]; then
-    if migrate_config_optimization; then
-      touch /usr/local/etc/xray/.config_optimized
-      needs_restart=true
-    fi
-  fi
-
-  if [[ "$needs_restart" == "true" ]]; then
-    echo -e "${CYAN}Перезапуск Xray после миграций...${NC}"
-    safe_restart_xray
-    sleep 2
+  # Aggregate report (RESEARCH §«Error reporting»): чтобы пользователь не пропустил
+  # failure среди скроллящегося TUI вывода.
+  if [[ $migration_failures -gt 0 ]]; then
+    echo
+    echo -e "${YELLOW}⚠ $migration_failures миграций не завершились — повторятся при следующем запуске${NC}"
+    echo -e "${YELLOW}  Логи бэкапов: /usr/local/etc/xray/backups/${NC}"
+    read -n 1 -p "Нажмите любую клавишу для продолжения..."
+    echo
   fi
 
   fix_xray_permissions
