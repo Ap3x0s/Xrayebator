@@ -348,11 +348,12 @@ grep -q '^_migrate_mlkem_keys() {$' xrayebator && echo "OK function defined"
 # Проверка: в теле функции есть ровно два `return 1` (после `if уже есть` и в конце после успеха)
 # и хотя бы три `return 2` (failures)
 [[ $(grep -c "    return 1" xrayebator) -ge 2 ]] && echo "OK return 1 used for no-op/done"
-grep -A 100 '^_migrate_mlkem_keys() {' xrayebator | head -100 | grep -c 'return 2' | grep -qE '^[3-9]|^[0-9]{2,}' && echo "OK return 2 used for failures"
+# L5 fix: extract function body via awk range (robust as function grows), not grep -A N | head
+awk '/^_migrate_mlkem_keys\(\) \{/,/^\}/' xrayebator | grep -c 'return 2' | grep -qE '^[3-9]|^[0-9]{2,}' && echo "OK return 2 used for failures"
 
-# 4. Версия-чек присутствует
-grep -A 80 '^_migrate_mlkem_keys() {' xrayebator | grep -q 'xray version' && echo "OK version check present"
-grep -A 80 '^_migrate_mlkem_keys() {' xrayebator | grep -q 'xray_major.*-lt 25' && echo "OK 25.3 minimum enforced"
+# 4. Версия-чек присутствует (awk range — same robustness reason as above)
+awk '/^_migrate_mlkem_keys\(\) \{/,/^\}/' xrayebator | grep -q 'xray version' && echo "OK version check present"
+awk '/^_migrate_mlkem_keys\(\) \{/,/^\}/' xrayebator | grep -q 'xray_major.*-lt 25' && echo "OK 25.3 minimum enforced"
 
 # 5. Регистрация в main_menu
 grep -q 'run_migration "mlkem_keys_generated".*_migrate_mlkem_keys' xrayebator && echo "OK migration registered"

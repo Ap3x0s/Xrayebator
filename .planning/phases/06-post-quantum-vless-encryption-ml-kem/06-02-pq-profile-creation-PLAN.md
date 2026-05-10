@@ -238,6 +238,8 @@ awk '/case \$transport in/,/esac/' xrayebator | grep -A 30 '^    tcp\|tcp\\\\|tc
 
 (переменная `pq_enabled` уже определена в xhttp-кейсе case-блока выше; для других транспортов default через `:-false` даст none).
 
+⚠ Implementation note (M4): НЕ поднимать `local pq_enabled` на верх `generate_connection()` — оставить scoped внутри `xhttp)` case-ветки. `${pq_enabled:-false}` корректно даёт `false` для tcp/grpc/tcp-mux/tcp-utls/tcp-xudp веток, где переменная не объявлена. Если в будущем включится `set -u` и появятся ошибки unbound variable — исправлять через `${pq_enabled:-false}` в point-of-use, не через хостинг `local` объявления.
+
 **Часть Б: create_profile() — добавить schema_version:2 + pq_enabled:true для xhttp**
 
 В `create_profile()` (строки 1494-1606) есть jq_args/jq_expr блок (строки 1548-1566), который собирает profile JSON. Для XHTTP сейчас добавляется только `xhttp_path`. Расширить — при `transport == "xhttp"` добавить `schema_version: 2` и `pq_enabled: true`.

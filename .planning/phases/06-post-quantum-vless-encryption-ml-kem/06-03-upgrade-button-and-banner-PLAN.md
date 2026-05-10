@@ -18,6 +18,7 @@ must_haves:
     - "Перед апгрейдом пользователю показывается ЯВНОЕ предупреждение: ‘Старая vless:// ссылка перестанет работать. Все клиенты, подключённые к этому профилю, потеряют связь и должны быть переимпортированы (или для них нужно создать отдельный legacy-профиль)’ — и требуется явное подтверждение y/Y/д/Д"
     - "После подтверждения: profile JSON получает schema_version:2, pq_enabled:true, transport:‘xhttp’; config.json inbound на этом порту перезаписывается на XHTTP+Reality+pq (decryption из $VLESS_DECRYPTION_FILE); safe_restart_xray() вызывается; на успехе — выводится новая vless:// ссылка с encryption= query-param"
     - "Если на порту были другие профили (sharing inbound) — пользователь предупреждается ОТДЕЛЬНО: ‘ВСЕ профили на порту $port будут переведены на XHTTP+PQ (общий inbound). Затронуты: $list’ — апгрейд либо отменяется, либо все профили на порту получают pq_enabled:true в их JSON"
+    - "На shared inbound операция МАССОВАЯ и НЕОБРАТИМАЯ — все TCP+Vision профили на этом порту тоже становятся XHTTP+PQ (теряют flow=xtls-rprx-vision), их транспорт принудительно меняется на xhttp, их vless:// URL становится невалидным; для каждого профиля нужно переимпортировать клиента с новым URL; путь обратно — ТОЛЬКО через ручное пересоздание профиля"
     - "Профили, уже имеющие pq_enabled=true, исключены из списка (или показаны как ‘уже PQ’ без возможности повторного апгрейда)"
     - "Первый запуск main_menu после установки v2.0 (отсутствует marker .pq_banner_shown) показывает баннер post-quantum: краткое объяснение PQ + матрица совместимости клиентов на 2026-05-10 (✓ HAPP 2.10+, v2rayNG 1.10+, v2rayN PR #7782, Shadowrocket App Store 2026-05-10; ✗ sing-box, Hiddify, mihomo, NekoBox; ? Streisand) + рекомендация: ‘Если ваш клиент в строке ✗ — создайте отдельный legacy TCP+Vision профиль через пункт меню «Создать профиль»’; затем touch /usr/local/etc/xray/.pq_banner_shown"
     - "Баннер показывается ровно ОДИН раз — последующие запуски main_menu не выводят его (marker check)"
@@ -99,9 +100,18 @@ CRITICAL constraints (from STATE.md 2026-05-10):
 <tasks>
 
 <task type="auto">
-  <name>Task 1: Функция upgrade_profile_to_pq_menu() — IN-PLACE апгрейд профиля до XHTTP+PQ (REQ-A09 REVISED)</name>
+  <name>Task 1: Функция upgrade_profile_to_pq_menu() — IN-PLACE апгрейд профиля до XHTTP+PQ (REQ-A09 REVISED) [внутренне разбита на три фазы 1a/1b/1c для checkpoint-recoverability]</name>
   <files>xrayebator</files>
   <action>
+M3 split note: эта задача внутренне делится на три последовательные фазы. Каждая фаза — атомарный шаг, который можно прервать без поломки сервера. Если 1b упадёт — 1a уже валиден (UI собрал данные); если 1c упадёт — config.json и Xray уже на новом PQ-инбаунде, восстановить можно вручную обновив profile JSON. Реализовать ВСЁ в одной функции `upgrade_profile_to_pq_menu()`, но разбить тело на три помеченных секции `# === Phase 1a UI ===`, `# === Phase 1b MUTATION ===`, `# === Phase 1c POST-MUTATION ===`. После каждой фазы — явный echo прогресса для оператора.
+
+Phases:
+- **1a (UI/validation):** show_ascii + ML-KEM keys pre-check + список профилей с PQ-фильтром + selection input + extraction (port, uuid, sni, fingerprint, short_id из inbound) + shared-inbound detection + полное warning UI + явное y/Y/д/Д подтверждение. Output: validated `$pname`, `$port`, `$uuid`, `$sni`, `$fingerprint`, `$short_id`, `$profiles_on_port[]`, user `confirmed=yes`. Если confirmed=no — return без мутаций.
+- **1b (mutation):** backup_config → читаем `$VLESS_DECRYPTION` → строим new_inbound heredoc UPGEOF (XHTTP+PQ) → если shared, пересобираем clients[] из всех profile JSON на порту → safe_jq_write atomic del-by-port + append → safe_restart_xray (с auto-rollback на failure). Output: config.json содержит новый XHTTP+PQ inbound на $port, Xray слушает с новой конфигурацией. ❗ Если safe_restart_xray fails — config откатывается автоматически, profile JSON ещё НЕ менялся → return.
+- **1c (post-mutation):** loop по `$profiles_on_port[]` — safe_jq_write transport=xhttp + schema_version=2 + pq_enabled=true + xhttp_path → fix_xray_permissions → generate_connection "$selected" для показа новой vless:// + QR. Output: profile JSONs синхронизированы со state'ом config.json, оператор видит новую ссылку.
+
+Future refactor opportunity (не делать в этом плане): извлечь helper `_build_xhttp_pq_inbound()` который принимает port/sni/fingerprint/short_id/uuid_list и возвращает inbound heredoc — переиспользуем из add_inbound (Plan 6.2 Task 1, место heredoc XHTTPEOF). Сейчас оставляем дублирование heredoc для скорости итерации; вынос — задача Phase 7 рефакторинга.
+
 Создать новую функцию `upgrade_profile_to_pq_menu()` РЯДОМ с другими per-profile меню (`change_sni_menu`, `change_fingerprint_menu`, `change_port_menu`) — поместить ПОСЛЕ `change_port_menu()` (примерно строка ~2700+, перед `adguard_home_menu`). Зарегистрировать в `main_menu()` как новый пункт.
 
 ШАГ 1 — Регистрация в main_menu():
@@ -119,6 +129,9 @@ CRITICAL constraints (from STATE.md 2026-05-10):
 
 ```bash
 upgrade_profile_to_pq_menu() {
+  # === Phase 1a: UI / VALIDATION ===
+  # Цель: собрать и провалидировать все входные данные ДО любых мутаций.
+  # Если оператор прерывает (Ctrl+C / выбор 0 / "n" в подтверждении) — НИЧЕГО не изменено.
   show_ascii
   echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
   echo -e "${BLUE}   ОБНОВЛЕНИЕ ПРОФИЛЯ ДО POST-QUANTUM         ${NC}"
@@ -176,11 +189,20 @@ upgrade_profile_to_pq_menu() {
   local uuid=$(jq -r '.uuid' "$pfile")
   local sni=$(jq -r '.sni // "www.ozon.ru"' "$pfile")
   local fingerprint=$(jq -r '.fingerprint // "chrome"' "$pfile")
-  local short_id=$(jq -r '.short_id // ""' "$pfile")
   local old_transport=$(jq -r '.transport // "tcp"' "$pfile")
 
-  # Если short_id отсутствует — генерируем (legacy профили могут не иметь)
+  # H1 fix: short_id ЧИТАЕМ ИЗ СУЩЕСТВУЮЩЕГО INBOUND (config.json), НЕ из profile JSON.
+  # create_profile() в xrayebator (~строки 1548-1566) НИКОГДА не сохраняет short_id в profile JSON
+  # (поля: name/uuid/transport/port/fingerprint/sni/grpc_service_name/xhttp_path/created).
+  # Если на shared inbound сгенерировать новый short_id — Reality порвёт ВСЕ остальные клиенты на порту.
+  # Зеркалим логику generate_connection() (xrayebator:2015-2018): берём первый shortIds[0] из инбаунда.
+  local short_id
+  short_id=$(jq -r --argjson p "$port" \
+    '.inbounds[] | select(.port == $p) | .streamSettings.realitySettings.shortIds[0]' \
+    "$CONFIG_FILE" 2>/dev/null)
   if [[ -z "$short_id" || "$short_id" == "null" ]]; then
+    # Inbound не содержит shortIds (corrupted/legacy без Reality?) — генерируем как last resort.
+    # На shared inbound этот fallback ОБЫЧНО НЕ срабатывает: Phase 1 install.sh всегда пишет shortIds.
     short_id=$(openssl rand -hex 8)
   fi
 
@@ -200,7 +222,14 @@ upgrade_profile_to_pq_menu() {
   echo -e "  ${YELLOW}• UUID и порт сохранятся: $uuid / $port${NC}"
   echo ""
   if [[ ${#profiles_on_port[@]} -gt 1 ]]; then
-    echo -e "${RED}⚠ На порту $port размещены ОБЩИЕ inbound — ВСЕ эти профили будут переведены на XHTTP+PQ:${NC}"
+    echo -e "${RED}⚠ На порту $port размещён ОБЩИЙ inbound — операция МАССОВАЯ и НЕОБРАТИМАЯ:${NC}"
+    echo -e "  ${RED}• ВСЕ перечисленные ниже профили будут переведены на XHTTP+PQ${NC}"
+    echo -e "  ${RED}• TCP+Vision профили на этом порту потеряют flow=xtls-rprx-vision${NC}"
+    echo -e "  ${RED}• Транспорт принудительно меняется tcp/grpc → xhttp в profile JSON${NC}"
+    echo -e "  ${RED}• Каждому из этих профилей нужно переимпортировать клиента с НОВОЙ vless:// ссылкой${NC}"
+    echo -e "  ${RED}• Путь обратно (XHTTP+PQ → TCP+Vision) ТОЛЬКО через ручное пересоздание профиля${NC}"
+    echo ""
+    echo -e "${YELLOW}Затронутые профили на порту $port:${NC}"
     for p in "${profiles_on_port[@]}"; do
       echo -e "  ${CYAN}•${NC} $p"
     done
@@ -212,6 +241,12 @@ upgrade_profile_to_pq_menu() {
     echo -e "${YELLOW}Апгрейд отменён.${NC}"; sleep 2; return
   fi
 
+  # === Phase 1b: MUTATION ===
+  # Цель: атомарно заменить inbound на XHTTP+PQ + рестартнуть Xray.
+  # Все мутации защищены backup + safe_jq_write + safe_restart_xray (auto-rollback).
+  # Если safe_restart_xray fails — config откачен, Xray работает на старой конфигурации,
+  # profile JSON ещё НЕ менялся (Phase 1c не достигнута) — состояние согласовано.
+  echo -e "${CYAN}→ Phase 1b: бэкап и замена inbound в config.json${NC}"
   # === IN-PLACE замена inbound в config.json ===
   # Шаг A: бэкап (на случай ошибки)
   backup_config "upgrade_profile_pq_$selected"
@@ -297,10 +332,21 @@ UPGEOF
     echo -e "${RED}✗ Ошибка обновления config.json${NC}"; sleep 2; return
   fi
 
+  # === Phase 1c: POST-MUTATION ===
+  # Цель: синхронизировать profile JSON со state'ом config.json + показать новую ссылку.
+  # Достигается ТОЛЬКО если Phase 1b прошла полностью (config.json обновлён + Xray рестартнул).
+  # Если safe_jq_write на profile JSON фейлится — config.json уже на новом inbound, оператор
+  # увидит ошибку и сможет исправить profile JSON вручную (jq + safe_jq_write helper).
+  echo -e "${CYAN}→ Phase 1c: синхронизация profile JSON и вывод новой vless:// ссылки${NC}"
   # Шаг F: обновить profile JSON (selected И всех на порту, если shared)
+  # H1 fix: НЕ записываем short_id в profile JSON. Schema v1 не имела этого поля,
+  # schema v2 НЕ должна вводить новое поле без явного решения. short_id живёт в
+  # config.json:.inbounds[].streamSettings.realitySettings.shortIds[0] — один источник истины.
+  # generate_connection() читает оттуда же (xrayebator:2015-2018), profile JSON хранит только
+  # user-facing метаданные (uuid, port, transport, sni, fingerprint, xhttp_path, schema_version, pq_enabled).
   for p in "${profiles_on_port[@]}"; do
-    if ! safe_jq_write --arg path "$xhttp_path" --arg sid "$short_id" \
-      '.transport = "xhttp" | .schema_version = 2 | .pq_enabled = true | .xhttp_path = $path | .short_id = $sid' \
+    if ! safe_jq_write --arg path "$xhttp_path" \
+      '.transport = "xhttp" | .schema_version = 2 | .pq_enabled = true | .xhttp_path = $path' \
       "$PROFILES_DIR/$p.json"; then
       echo -e "${RED}  ✗ Ошибка обновления profile JSON: $p${NC}"
     else
@@ -340,7 +386,7 @@ Edge cases:
 - Если `$VLESS_DECRYPTION` пуст — abort до мутации config.
 - Если профиль уже PQ (`pq_enabled:true`) — он не показывается в списке выбора.
 - Если `safe_restart_xray` фейлится — config откатывается, но profile JSON уже обновлён → пользователю сказать.
-- Если short_id legacy-профиля отсутствует — генерируем новый (`openssl rand -hex 8`), иначе Reality не запустится.
+- Если в config.json inbound на этом порту нет `streamSettings.realitySettings.shortIds[0]` (broken/legacy) — генерируем новый через `openssl rand -hex 8` как fallback. После записи нового inbound он становится единственным `shortIds[0]` для всех клиентов на порту.
 
 Не трогаем здесь: client compatibility checks (это работа баннера в Task 2), массовый апгрейд (только по одному профилю за раз).
   </action>
@@ -361,6 +407,11 @@ Edge cases:
    - В TUI после успеха выводится новая vless:// с `?encryption=...`
 8. (manual edge case) Профиль уже PQ → в списке помечен `[уже PQ]` без числового индекса.
 9. (manual edge case) Удалить ML-KEM ключи `rm /usr/local/etc/xray/.vless_decryption` → запустить меню 8 → должна выйти ошибка с подсказкой `xrayebator update`.
+10. M3 phase-mapping verify (тело функции содержит все три phase markers — checkpoint-recoverability):
+    ```bash
+    awk '/^upgrade_profile_to_pq_menu\(\) \{/,/^\}/' /home/kosya/xrayebator/xrayebator | grep -c '# === Phase 1[abc]: ' | grep -qx '3' && echo "OK Phase 1a/1b/1c markers present" || echo "FAIL phase markers"
+    ```
+    Pass: выводится `OK Phase 1a/1b/1c markers present` (ровно три маркера).
   </verify>
   <done>
 Функция `upgrade_profile_to_pq_menu()` определена в `xrayebator`, привязана к пункту 8 главного меню. Выбор non-PQ профиля → подтверждение → IN-PLACE замена транспорта на XHTTP+Reality+PQ с СОХРАНЕНИЕМ UUID и port. Profile JSON получает `schema_version:2, pq_enabled:true, transport:"xhttp"`. config.json inbound на этом порту получает `decryption=<vlessenc-string>` и xhttp+reality streamSettings. Если на порту shared inbound — все профили обновляются и их UUID сохраняются в `clients[]`. После: `safe_restart_xray` + вывод новой vless:// ссылки. Все мутации через `safe_jq_write`. На любом фейле — auto-rollback config.json через `safe_restart_xray`. Ключи vlessenc проверяются ДО апгрейда. `bash -n` проходит.
@@ -481,7 +532,18 @@ Edge cases:
 1. `bash -n /home/kosya/xrayebator/xrayebator` — синтаксис проходит.
 2. `grep -n "show_pq_banner_once" /home/kosya/xrayebator/xrayebator` — функция определена И вызывается в main_menu (минимум 2 совпадения: define + call).
 3. `grep -n "\.pq_banner_shown" /home/kosya/xrayebator/xrayebator` — marker используется (минимум 2: проверка `[[ -f ... ]]` + `touch`).
-4. `grep -n "ML-KEM-768\|HAPP\|v2rayNG\|sing-box" /home/kosya/xrayebator/xrayebator` — строки матрицы совместимости присутствуют.
+4. Полная проверка всех меток баннера+меню (L6 fix — было 4 grep, стало loop по 13+ меткам):
+   ```bash
+   missing=0
+   for label in "ML-KEM-768" "HAPP 2.10+" "v2rayNG 1.10+" "v2rayN" "PR #7782" "Shadowrocket" "sing-box" "Hiddify" "mihomo" "NekoBox" "Streisand" "Создать профиль" "Обновить профиль до post-quantum"; do
+     if ! grep -q "$label" /home/kosya/xrayebator/xrayebator; then
+       echo "MISSING: $label"
+       missing=1
+     fi
+   done
+   [[ $missing -eq 0 ]] && echo "OK all banner+menu labels present"
+   ```
+   Pass условие: ни одной строки `MISSING:` не выводится — выводится `OK all banner+menu labels present`.
 5. (manual on test VPS, fresh install) `rm -f /usr/local/etc/xray/.pq_banner_shown && xrayebator` → баннер показан → нажать Enter → проверить `ls -la /usr/local/etc/xray/.pq_banner_shown` (existing, owner xray:xray).
 6. (manual second-launch) `xrayebator` (не удаляя marker) → баннер НЕ показан, главное меню сразу видно.
 7. (manual upgrade scenario) симулировать v1.x→v2.0 апгрейд: `rm /usr/local/etc/xray/.pq_banner_shown && xrayebator` → баннер показан с правильной матрицей и рекомендацией.
