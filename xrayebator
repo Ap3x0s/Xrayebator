@@ -1760,6 +1760,25 @@ add_inbound() {
   local xhttp_path=$7
   local short_id=$(openssl rand -hex 4)
 
+  # Phase 6 REQ-A04: для XHTTP-инбаундов читаем PQ decryption из файла.
+  # Файл создан Plan 6.1 (install.sh при свежей установке ИЛИ миграция .mlkem_keys_generated).
+  # Если файл отсутствует — это runtime-ошибка: миграция должна была сработать.
+  local vless_decryption=""
+  if [[ "$transport" == "xhttp" ]]; then
+    if [[ ! -f "$VLESS_DECRYPTION_FILE" ]]; then
+      echo -e "${RED}✗ PQ ключи отсутствуют: $VLESS_DECRYPTION_FILE${NC}"
+      echo -e "${YELLOW}  Перезапустите xrayebator — миграция .mlkem_keys_generated должна сгенерировать ключи${NC}"
+      echo -e "${YELLOW}  Если миграция падает — проверьте: sudo /usr/local/bin/xray version (нужен ≥ 25.9.5)${NC}"
+      return 1
+    fi
+    vless_decryption=$(cat "$VLESS_DECRYPTION_FILE")
+    if [[ ! "$vless_decryption" =~ ^mlkem768x25519plus\. ]]; then
+      echo -e "${RED}✗ $VLESS_DECRYPTION_FILE содержит невалидную PQ строку${NC}"
+      echo -e "${YELLOW}  Удалите файл и перезапустите xrayebator для регенерации${NC}"
+      return 1
+    fi
+  fi
+
   local existing_tag=$(jq -r --argjson port "$port" '.inbounds[] | select(.port == $port) | .tag' "$CONFIG_FILE" 2>/dev/null)
   if [[ -n "$existing_tag" ]]; then
     # Check transport compatibility
@@ -1847,6 +1866,11 @@ add_inbound() {
     fi
 
     echo -e "${CYAN} → Добавление клиента в существующий inbound на порту $port${NC}"
+    # Phase 6 note: decryption инбаунда НЕ меняется здесь.
+    # Если existing inbound имеет decryption: "none", а транспорт xhttp — новый клиент
+    # технически добавится в clients[], но его vless:// URL без encryption= НЕ будет работать.
+    # Plan 6.3 даёт кнопку "Upgrade to post-quantum" для переключения профиля на PQ.
+    # REQ-A08: миграции НЕ трогают существующие inbound'ы автоматически.
     # Определяем flow по типу транспорта нового профиля (не копируем слепо от первого клиента)
     local client_flow=""
     case "$transport" in
@@ -1964,7 +1988,7 @@ GRPCEOF
   "protocol": "vless",
   "settings": {
     "clients": [{"id": "$uuid", "flow": ""}],
-    "decryption": "none"
+    "decryption": "$vless_decryption"
   },
   "streamSettings": {
     "network": "xhttp",
