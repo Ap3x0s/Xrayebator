@@ -1458,6 +1458,64 @@ _emit_nag_if_outdated() {
   fi
 }
 
+# Одноразовый баннер о post-quantum encryption (REQ-A10).
+# Показывается РОВНО ОДИН РАЗ — на первом запуске после установки/обновления v2.0.
+# Маркер: /usr/local/etc/xray/.pq_banner_shown
+# Содержит: краткое объяснение PQ + матрица совместимости клиентов на 2026-05-10
+# + рекомендация для пользователей не-PQ клиентов создать отдельный legacy профиль.
+show_pq_banner_once() {
+  local marker="/usr/local/etc/xray/.pq_banner_shown"
+  if [[ -f "$marker" ]]; then
+    return 0
+  fi
+
+  echo ""
+  echo -e "${MAGENTA}╔════════════════════════════════════════════════════════════════════╗${NC}"
+  echo -e "${MAGENTA}║       🔐 POST-QUANTUM ENCRYPTION (ML-KEM-768) ВКЛЮЧЕНА            ║${NC}"
+  echo -e "${MAGENTA}╚════════════════════════════════════════════════════════════════════╝${NC}"
+  echo ""
+  echo -e "${CYAN}Что это:${NC}"
+  echo -e "  Все НОВЫЕ XHTTP-профили теперь защищены от 'Harvest Now, Decrypt Later' —"
+  echo -e "  атак, где трафик записывают сегодня, чтобы расшифровать на квантовом"
+  echo -e "  компьютере через 5-10 лет. Используется ML-KEM-768 поверх Reality."
+  echo ""
+  echo -e "${YELLOW}Совместимость клиентов на 2026-05-10:${NC}"
+  echo ""
+  echo -e "  ${GREEN}✓ Поддерживают:${NC}"
+  echo -e "    ${GREEN}•${NC} HAPP 2.10+ (Android/iOS)"
+  echo -e "    ${GREEN}•${NC} v2rayNG 1.10+ (Android)"
+  echo -e "    ${GREEN}•${NC} v2rayN (Windows/macOS, PR #7782 merged)"
+  echo -e "    ${GREEN}•${NC} Shadowrocket (iOS, App Store с 2026-05-10)"
+  echo ""
+  echo -e "  ${RED}✗ НЕ поддерживают (используйте legacy TCP+Vision):${NC}"
+  echo -e "    ${RED}•${NC} sing-box (все форки)"
+  echo -e "    ${RED}•${NC} Hiddify"
+  echo -e "    ${RED}•${NC} mihomo (Clash Meta)"
+  echo -e "    ${RED}•${NC} NekoBox / NekoRay"
+  echo ""
+  echo -e "  ${YELLOW}? Статус неизвестен:${NC}"
+  echo -e "    ${YELLOW}•${NC} Streisand (iOS) — проверьте журнал релизов"
+  echo ""
+  echo -e "${BLUE}╔════════════════════════════════════════════════════════════════════╗${NC}"
+  echo -e "${BLUE}║ РЕКОМЕНДАЦИЯ:                                                      ║${NC}"
+  echo -e "${BLUE}║ Если ваш клиент в строке ✗ — создайте отдельный legacy профиль:    ║${NC}"
+  echo -e "${BLUE}║   меню → 1 (Создать профиль) → выберите 'TCP+Vision (legacy)'      ║${NC}"
+  echo -e "${BLUE}║ для совместимых клиентов используйте новый PQ XHTTP-профиль        ║${NC}"
+  echo -e "${BLUE}║ (создаётся по умолчанию).                                          ║${NC}"
+  echo -e "${BLUE}║                                                                    ║${NC}"
+  echo -e "${BLUE}║ Существующие profile-файлы можно перевести на PQ через пункт       ║${NC}"
+  echo -e "${BLUE}║   меню → 8 (Обновить профиль до post-quantum)                      ║${NC}"
+  echo -e "${BLUE}╚════════════════════════════════════════════════════════════════════╝${NC}"
+  echo ""
+  echo -n -e "${YELLOW}Этот баннер больше не появится. Нажмите Enter для продолжения...${NC}"
+  read
+
+  # Mark as shown — touch + chown как в run_migration helper.
+  # Если touch упадёт (broken /usr/local/etc/xray/) — баннер появится снова. OK.
+  touch "$marker" 2>/dev/null || true
+  chown xray:xray "$marker" 2>/dev/null || true
+}
+
 # Главное меню
 main_menu() {
   # Run migrations on first launch after upgrade.
@@ -1490,6 +1548,10 @@ main_menu() {
   # Phase 5 nag: Xray-core отстает на 2+ minor versions (REQ-B02)
   # Запускается раз за сессию (вне while loop), не блокирует если GitHub недоступен.
   _check_xray_outdated_nag
+
+  # Phase 6 first-run banner: показываем один раз после установки v2.0 (REQ-A10).
+  # Marker: /usr/local/etc/xray/.pq_banner_shown
+  show_pq_banner_once
 
   fix_xray_permissions
 
