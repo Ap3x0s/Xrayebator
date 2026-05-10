@@ -990,6 +990,93 @@ migrate_xmux_explicit_2026() {
   fi
 }
 
+# Phase 6 REQ-A02: догенерация PQ ключей VLESS Encryption на v1.0-апгрейде.
+# НЕ мутирует config.json — только создаёт два файла ключей. Поэтому
+# return 1 (no-op/mark, без restart) даже когда ключи реально сгенерированы.
+# Restart Xray не нужен — config.json не изменился, ключи будут использованы
+# при следующем add_inbound (Plan 6.2).
+#
+# Three-valued return contract:
+#   1 — done (ключи уже есть ИЛИ успешно сгенерированы — в обоих случаях marker ставится)
+#   ≥2 — fail (Xray-core < 25.9.5 ИЛИ vlessenc ошибка ИЛИ парсер не справился)
+_migrate_mlkem_keys() {
+  echo -e "${CYAN}Проверка наличия PQ ключей VLESS Encryption...${NC}"
+
+  # Уже есть оба файла + они валидны? — no-op.
+  if [[ -f "$VLESS_DECRYPTION_FILE" ]] && [[ -f "$VLESS_ENCRYPTION_FILE" ]] && \
+     grep -q '^mlkem768x25519plus\.' "$VLESS_DECRYPTION_FILE" 2>/dev/null && \
+     grep -q '^mlkem768x25519plus\.' "$VLESS_ENCRYPTION_FILE" 2>/dev/null; then
+    echo -e "${GREEN}✓ PQ ключи уже сгенерированы${NC}"
+    return 1
+  fi
+
+  # Version-check: vlessenc появился в Xray-core 25.9.5.
+  # Парсим major.minor.patch из `xray version` (формат: "Xray 25.9.5 (Xray, ...)").
+  local xray_ver_full xray_major xray_minor xray_patch
+  xray_ver_full=$(/usr/local/bin/xray version 2>/dev/null | grep -oE 'Xray [0-9]+\.[0-9]+\.[0-9]+' | head -1 | awk '{print $2}')
+  if [[ -z "$xray_ver_full" ]]; then
+    echo -e "${RED}✗ Не удалось определить версию Xray-core${NC}"
+    echo -e "${YELLOW}  Запустите: /usr/local/bin/xray version${NC}"
+    return 2
+  fi
+  xray_major=$(echo "$xray_ver_full" | cut -d. -f1)
+  xray_minor=$(echo "$xray_ver_full" | cut -d. -f2)
+  xray_patch=$(echo "$xray_ver_full" | cut -d. -f3)
+  if [[ "$xray_major" -lt 25 ]] || \
+     { [[ "$xray_major" -eq 25 ]] && [[ "$xray_minor" -lt 9 ]]; } || \
+     { [[ "$xray_major" -eq 25 ]] && [[ "$xray_minor" -eq 9 ]] && [[ "$xray_patch" -lt 5 ]]; }; then
+    echo -e "${RED}✗ Xray-core $xray_ver_full < 25.9.5 — vlessenc недоступен${NC}"
+    echo -e "${YELLOW}  Обновите Xray-core: sudo xrayebator update${NC}"
+    echo -e "${YELLOW}  После обновления миграция повторится автоматически${NC}"
+    return 2
+  fi
+
+  # Запуск vlessenc (тот же 3-layer парсер что в install.sh — keep in sync).
+  echo -e "${CYAN}  → Запуск xray vlessenc${NC}"
+  local vlessenc_output vlessenc_rc
+  vlessenc_output=$(/usr/local/bin/xray vlessenc 2>&1)
+  vlessenc_rc=$?
+  if [[ $vlessenc_rc -ne 0 ]]; then
+    echo -e "${RED}✗ xray vlessenc rc=$vlessenc_rc${NC}"
+    echo "$vlessenc_output"
+    return 2
+  fi
+
+  local decryption encryption
+  decryption=$(echo "$vlessenc_output" | awk -F'"' '
+    /^Authentication: ML-KEM-768/ { in_mlkem=1; next }
+    in_mlkem && /^"decryption":/ { print $4; exit }
+  ' | tr -d '[:space:]')
+  encryption=$(echo "$vlessenc_output" | awk -F'"' '
+    /^Authentication: ML-KEM-768/ { in_mlkem=1; next }
+    in_mlkem && /^"encryption":/ { print $4; exit }
+  ' | tr -d '[:space:]')
+
+  if [[ ! "$decryption" =~ ^mlkem768x25519plus\. ]] || [[ ! "$encryption" =~ ^mlkem768x25519plus\. ]]; then
+    local mlkem_lines
+    mlkem_lines=$(echo "$vlessenc_output" | grep -oE 'mlkem768x25519plus\.[^"[:space:]]+')
+    decryption=$(echo "$mlkem_lines" | tail -2 | sed -n '1p')
+    encryption=$(echo "$mlkem_lines" | tail -1)
+  fi
+
+  if [[ ! "$decryption" =~ ^mlkem768x25519plus\. ]] || [[ ! "$encryption" =~ ^mlkem768x25519plus\. ]]; then
+    echo -e "${RED}✗ Не удалось распарсить mlkem768x25519plus ключи${NC}"
+    echo -e "${YELLOW}Полный вывод vlessenc:${NC}"; echo "$vlessenc_output"
+    return 2
+  fi
+
+  printf "%s" "$decryption" > "$VLESS_DECRYPTION_FILE"
+  printf "%s" "$encryption" > "$VLESS_ENCRYPTION_FILE"
+  chmod 600 "$VLESS_DECRYPTION_FILE" "$VLESS_ENCRYPTION_FILE"
+  chown xray:xray "$VLESS_DECRYPTION_FILE" "$VLESS_ENCRYPTION_FILE" 2>/dev/null || true
+
+  echo -e "${GREEN}✓ PQ ключи сгенерированы (mlkem768x25519plus.native)${NC}"
+
+  # IMPORTANT: return 1, не 0. Config.json не мутировал — restart не нужен.
+  # run_migration touch-нет marker без вызова safe_restart_xray.
+  return 1
+}
+
 # ═══════════════════════════════════════════════════════════
 # END HELPER FUNCTIONS
 # ═══════════════════════════════════════════════════════════
@@ -1375,6 +1462,7 @@ main_menu() {
   run_migration "transport_profile_metadata_migrated"  "Transport profile metadata"        migrate_transport_profile_metadata || ((migration_failures++))
   run_migration "config_optimized"                     "Config optimization (DNS/log)"     migrate_config_optimization        || ((migration_failures++))
   run_migration "xmux_explicit_2026"                   "Explicit xmux block для XHTTP"     migrate_xmux_explicit_2026         || ((migration_failures++))
+  run_migration "mlkem_keys_generated"                 "PQ ключи VLESS Encryption (mlkem768x25519plus)" _migrate_mlkem_keys || ((migration_failures++))
 
   # Aggregate report (RESEARCH §«Error reporting»): чтобы пользователь не пропустил
   # failure среди скроллящегося TUI вывода.
