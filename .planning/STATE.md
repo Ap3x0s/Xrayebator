@@ -5,17 +5,17 @@
 See: .planning/PROJECT.md (updated 2026-05-09)
 
 **Core value:** VPN стабильно и быстро работает через ТСПУ — соединение не падает, блокировки обходятся надёжно
-**Current focus:** v2.0 Phase 6 — plans 06-01 + 06-02 DONE; next plan 06-03 (upgrade button + first-run banner).
+**Current focus:** v2.0 Phase 6 ✓ COMPLETE (06-01, 06-02, 06-03 DONE) → ready for verifier → next Phase 7 (subscription server).
 
 ## Current Position
 
 Milestone: v2.0 — Post-Quantum & HAPP
-Phase: 6 of 8 (Post-Quantum VLESS Encryption + ML-KEM) — plans 06-01 + 06-02 complete, plan 06-03 next
-Plan: 06-01 ✓ DONE (3/3 tasks, commits df6ba7f + eeb1e72); 06-02 ✓ DONE (3/3 tasks, commits aa33d8c + d7575bf + 6c9bf44); 06-03 pending
-Status: Phase 4 ✓ | Phase 5 ✓ | Phase 6 plans 06-01 ✓ + 06-02 ✓ → continue with 06-03 (upgrade button + first-run banner)
-Last activity: 2026-05-10 — Plan 06-02 executed: add_inbound XHTTP подставляет PQ decryption из VLESS_DECRYPTION_FILE, generate_connection добавляет PQ encryption= в vless URL через jq @uri, create_profile пишет schema_version:2 + pq_enabled:true для xhttp, create_profile_menu пункт #1 = XHTTP+PQ, _migrate_xhttp_default_2026 (no-op marker, REQ-A08). REQ-A04/A05/A06/A08 удовлетворены.
+Phase: 6 of 8 (Post-Quantum VLESS Encryption + ML-KEM) — ВСЕ 3 плана DONE
+Plan: 06-01 ✓ DONE (3/3 tasks, commits df6ba7f + eeb1e72); 06-02 ✓ DONE (3/3 tasks, commits aa33d8c + d7575bf + 6c9bf44); 06-03 ✓ DONE (2/2 tasks, commits de798df + 1a08bf9)
+Status: Phase 4 ✓ | Phase 5 ✓ | Phase 6 ✓ ALL PLANS DONE → ready for verifier (REQ-A09 + REQ-A10 satisfied) → next Phase 7
+Last activity: 2026-05-10 — Plan 06-03 executed: upgrade_profile_to_pq_menu() (меню→8) с фазами 1a/1b/1c для checkpoint-recoverability, IN-PLACE замена через del-by-port + append (НЕ object merge), short_id ЧИТАЕТСЯ из config.json (H1 fix), shared inbound массовое обновление clients[] + profile JSON; show_pq_banner_once() с матрицей совместимости 2026-05-10 (HAPP/v2rayNG/v2rayN/Shadowrocket vs sing-box/Hiddify/mihomo/NekoBox) + marker .pq_banner_shown.
 
-Progress: [#######...] 70% (Phases 4+5 ✓ + Phase 6 plans 2/3; Phase 6 in progress)
+Progress: [########] 80% (Phases 4+5 ✓ + Phase 6 ✓ ALL DONE; готов к Phase 7)
 
 ## Performance Metrics
 
@@ -38,6 +38,7 @@ Progress: [#######...] 70% (Phases 4+5 ✓ + Phase 6 plans 2/3; Phase 6 in progr
 | Phase 05-auto-update-xmux-explicit P05-02 | 8 | 2 tasks | 1 files |
 | Phase 06-post-quantum-vless-encryption-ml-kem P01 | 19 | 3 tasks | 2 files |
 | Phase 06-post-quantum-vless-encryption-ml-kem P02 | 25 min | 3 tasks | 1 files |
+| Phase 06-post-quantum-vless-encryption-ml-kem P03 | 10min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -116,6 +117,10 @@ v2.0 scope decisions (post-research, pre-execution):
 - [Phase 06-post-quantum-vless-encryption-ml-kem]: [06-02 URL-encoding]: encryption= в vless:// URL формируется через jq -nr '$enc|@uri' — RFC 3986 compliant, точки unreserved
 - [Phase 06-post-quantum-vless-encryption-ml-kem]: [06-02 .xhttp_default_2026]: миграция строго no-op для config.json (REQ-A08) — только marker, существующие inbound'ы не модифицируются
 - [Phase 06-post-quantum-vless-encryption-ml-kem]: [06-02 hidden xorpub]: введён как stub-case (ведёт на native + warning) — реальная xorpub-генерация defer to v2.1
+- [Phase 06-post-quantum-vless-encryption-ml-kem]: [06-03 in-place strategy]: del-by-port + append через safe_jq_write (НЕ object merge) — атомарная замена inbound, защищает freedom outbound и пользовательские поля
+- [Phase 06-post-quantum-vless-encryption-ml-kem]: [06-03 short_id source]: ЧИТАЕМ из config.json:.inbounds[].streamSettings.realitySettings.shortIds[0] (H1 fix) — НЕ регенерируем openssl rand; на shared inbound regen порвал бы Reality для остальных клиентов
+- [Phase 06-post-quantum-vless-encryption-ml-kem]: [06-03 phase markers]: внутренние Phase 1a/1b/1c (UI / mutation / post-mutation) для checkpoint-recoverability — heredoc closing brace indented для совместимости с awk-pattern verify
+- [Phase 06-post-quantum-vless-encryption-ml-kem]: [06-03 banner one-shot]: marker /usr/local/etc/xray/.pq_banner_shown — touch только после успешного read; broken FS не блокирует main_menu (touch || true)
 
 ### Pending Todos
 
@@ -132,9 +137,11 @@ v2.0 scope decisions (post-research, pre-execution):
 - 06 EXECUTE UNBLOCKED BY AUDIT (2026-05-10) — use updated 06-01 PLAN parser; continue implementation tasks.
 - 06-01 DONE (2026-05-10) — vlessenc generator, _migrate_mlkem_keys, VLESS_*_FILE constants. REQ-A01/A02/A03 ✓. Commits df6ba7f + eeb1e72.
 - 06-02 DONE (2026-05-10) — add_inbound XHTTP PQ decryption, generate_connection PQ encryption, schema_version:2/pq_enabled:true для xhttp, create_profile_menu PQ дефолт, _migrate_xhttp_default_2026 (no-op marker). REQ-A04/A05/A06/A08 ✓. Commits aa33d8c + d7575bf + 6c9bf44.
-- 06-03 NEXT — upgrade button + first-run banner для миграции существующих XHTTP-профилей на PQ
+- 06-03 DONE (2026-05-10) — upgrade_profile_to_pq_menu() (меню→8) IN-PLACE замена транспорта (UUID/port сохраняются), Phase 1a/1b/1c markers для checkpoint-recoverability, short_id из config.json (H1 fix), shared inbound массовое обновление, show_pq_banner_once() с матрицей совместимости 2026-05-10 + marker .pq_banner_shown. REQ-A09/A10 ✓. Commits de798df + 1a08bf9.
+- Phase 6 COMPLETE — все REQ-A* удовлетворены, готов к verifier и Phase 7
+- Phase 7 NEXT — subscription server (HAPP routing payload + nginx + Let's Encrypt; читает pq_enabled:true для дискриминации vless URL)
 - При планировании Phase 8 — добавить Plan 8.3 AdGuard cleanup (deferred from Phase 5)
-- ... далее по ROADMAP.md последовательно (6 → 7 → 8)
+- ... далее по ROADMAP.md последовательно (7 → 8)
 
 ### Phase 4 plan artifacts
 
@@ -159,6 +166,6 @@ v2.0 scope decisions (post-research, pre-execution):
 ## Session Continuity
 
 Last session: 2026-05-10
-Stopped at: Plan 06-02 DONE (3/3 tasks committed: aa33d8c add_inbound PQ decryption, d7575bf generate_connection PQ encryption + schema v2, 6c9bf44 create_profile_menu PQ дефолт + miграция xhttp_default_2026). SUMMARY.md создан.
-Resume file: .planning/phases/06-post-quantum-vless-encryption-ml-kem/06-03-upgrade-button-and-banner-PLAN.md
-Next: `/gsd:execute-phase 6` — continue with plan 06-03 (upgrade button per-profile + first-run banner для PQ).
+Stopped at: Plan 06-03 DONE (2/2 tasks committed: de798df upgrade_profile_to_pq_menu + меню 8, 1a08bf9 show_pq_banner_once + регистрация в main_menu prologue). Phase 6 ALL PLANS DONE — готов к verifier. SUMMARY.md создан.
+Resume file: .planning/phases/07-*-PLAN.md (после verifier)
+Next: запустить verifier для Phase 6 (REQ-A09 + REQ-A10 проверка), затем `/gsd:plan-phase 7` для subscription server.
