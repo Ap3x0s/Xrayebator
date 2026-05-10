@@ -5,17 +5,17 @@
 See: .planning/PROJECT.md (updated 2026-05-09)
 
 **Core value:** VPN стабильно и быстро работает через ТСПУ — соединение не падает, блокировки обходятся надёжно
-**Current focus:** v2.0 — Post-Quantum & HAPP (research → requirements → roadmap)
+**Current focus:** v2.0 Phase 6 — Post-Quantum (VLESS Encryption + ML-KEM): planning COMPLETE 2026-05-10, ready to execute
 
 ## Current Position
 
 Milestone: v2.0 — Post-Quantum & HAPP
-Phase: 5 of 8 (Auto-update Xray-core + xmux explicit) — PHASE COMPLETE
-Plan: Phase 5 DONE — next: Phase 6 (Subscription server)
-Status: Phase 4 ✓ done | Phase 5: Plan 5.1 ✓ COMPLETE | Plan 5.2 ✓ COMPLETE | Phase 5 DONE
-Last activity: 2026-05-09 — 05-02-xmux-explicit-migration executed: 2 tasks, 1 commit, REQ-B04 PASS
+Phase: 6 of 8 (Post-Quantum VLESS Encryption + ML-KEM) — PLANNING COMPLETE, execute pending
+Plan: 6.1 / 6.2 / 6.3 (3 plans) ALL CREATED — wave structure 1→2→3, plan 6.1 имеет MANDATORY checkpoint на vlessenc stdout формат
+Status: Phase 4 ✓ | Phase 5 ✓ | Phase 6 RESEARCH ✓ + PLANS ✓ (3 PLAN.md, frontmatter+structure validated) — REQ-A07 DROPPED, REQ-A09 REVISED, REQ-C11 REVISED
+Last activity: 2026-05-10 — Phase 6 planning завершён: создано 3 PLAN.md, ROADMAP обновлён, всё закоммичено
 
-Progress: [########..] 80% Phase 5 COMPLETE, Phase 6 pending
+Progress: [######....] 60% (Phases 4+5 ✓ из 5 v2.0 фаз; Phase 6 готов к execute)
 
 ## Performance Metrics
 
@@ -95,6 +95,17 @@ v2.0 scope decisions (post-research, pre-execution):
 - [05-01 cache TTL]: 24h в /tmp/.xrayebator_xray_latest_check для nag GitHub API calls
 - [05-01 backup retention]: 3 последних xray.bak.<timestamp> через _cleanup_xray_backups
 
+**Phase 6 research decisions (post-research 2026-05-10):**
+
+- [06 D2 REVISED — REQ-A07 DROPPED]: Parallel legacy fallback inbound на одном порту нереализуем в Xray (Issue #2108, Discussion #2631 — два инбаунда на одном порту требуют nginx stream впереди, что нарушает single-file constraint и усложняет security model). Org fallback переезжает на уровень отдельных профилей: REQ-A06 уже даёт юзеру выбор PQ vs legacy при создании профиля.
+- [06 REQ-A09 REVISED]: Кнопка "Upgrade to post-quantum" теперь in-place заменяет transport+settings профиля на XHTTP+Reality+native (сохраняя UUID и порт), legacy-клиенты этого профиля отвалятся — explicit warning перед apply. Никакого parallel-inbound.
+- [06 REQ-C11 REVISED Phase 7]: Subscription отдаёт ОДНУ vless:// на профиль (не две), parallel ссылки сняты вместе с REQ-A07.
+- [06 decryption placement]: `inbound.settings.decryption` (string, инбаунд-уровень) — НЕ `clients[].decryption`. Все клиенты на PQ-инбаунде обязаны использовать шифрование (verified Discussion #5372/#5716).
+- [06 client compat matrix 2026-05-10]: HAPP 2.10+ ✓, v2rayNG 1.10+ ✓, v2rayN ✓ (PR #7782), Shadowrocket ✓ (App Store update 2026-05-10), sing-box ✗, Hiddify ✗ (Issue 2026-03-09), mihomo ✗, NekoBox ✗, Streisand ?
+- [06 vlessenc parser checkpoint]: Точный stdout формат `xray vlessenc` НЕ подтверждён из исходников (MEDIUM confidence). Plan 6.1 ОБЯЗАН содержать checkpoint-задачу: запустить команду на Xray-core 25.3+ и зафиксировать формат до написания парсера.
+- [06 mlkem migration return]: `.mlkem_keys_generated` возвращает run_migration code `1` (no-op/mark) — не мутирует config.json, только создаёт файлы ключей. Не делает лишний safe_restart_xray.
+- [06 plan structure]: 3 plans (6.1 keys + 6.2 profile creation simplified + 6.3 UX). Complexity downgrade L → M после drop REQ-A07.
+
 **Deferred (НЕ Phase 5):**
 
 - [Phase 8 Plan 8.3 НОВЫЙ]: AdGuard Home cleanup — удалить упоминания + предложить uninstall existing AdGuard при `xrayebator update`. Причина: AdGuard был косячный/дырявый в прошлых релизах. Out of scope Phase 5.
@@ -107,6 +118,9 @@ v2.0 scope decisions (post-research, pre-execution):
 - 05-01 DONE (auto-update-cli) — sync-test PASS, all 4 REQs satisfied
 - 05-02 DONE (xmux-explicit-migration) — REQ-B04 PASS, Phase 5 COMPLETE
 - Phase 5 COMPLETE — все REQ-B* удовлетворены
+- 06-RESEARCH DONE (2026-05-10) — REQ-A07 DROPPED, REQ-A09/C11 REVISED, scope adjusted
+- 06 PLANS DONE (2026-05-10) — 3 PLAN.md созданы и валидированы, ROADMAP обновлён
+- ⏭ NEXT: `/gsd:execute-phase 6` — execute Plan 6.1 (с checkpoint на vlessenc stdout) → 6.2 → 6.3
 - При планировании Phase 8 — добавить Plan 8.3 AdGuard cleanup (deferred from Phase 5)
 - ... далее по ROADMAP.md последовательно (6 → 7 → 8)
 
@@ -131,7 +145,7 @@ v2.0 scope decisions (post-research, pre-execution):
 
 ## Session Continuity
 
-Last session: 2026-05-09
-Stopped at: Completed 05-02-xmux-explicit-migration-PLAN.md (2 tasks, ~8 min, REQ-B04 PASS) — Phase 5 DONE
-Resume file: .planning/phases/06-subscription-server/ (следующая фаза)
-Next: `/gsd:execute-phase 6` — Phase 6 (Subscription server)
+Last session: 2026-05-10
+Stopped at: Phase 6 PLANNING complete — созданы 06-01-PLAN.md (REQ-A01/A02/A03 + MANDATORY checkpoint на vlessenc stdout формат), 06-02-PLAN.md (REQ-A04/A05/A06/A08, autonomous, миграция .xhttp_default_2026 строго no-op), 06-03-PLAN.md (REQ-A09 REVISED in-place + REQ-A10 banner с матрицей 2026-05-10). Frontmatter+structure validated. ROADMAP.md обновлён.
+Resume file: .planning/phases/06-post-quantum-vless-encryption-ml-kem/06-01-pq-key-infrastructure-PLAN.md
+Next: `/gsd:execute-phase 6` — wave 1 (Plan 6.1: checkpoint → vlessenc generation в install.sh + миграция .mlkem_keys_generated)

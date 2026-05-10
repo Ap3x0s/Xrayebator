@@ -6,6 +6,32 @@
 
 ---
 
+## ⚠️ SCOPE UPDATE 2026-05-10 (post user review — must read before planning)
+
+После презентации этого RESEARCH user принял следующие решения, применённые к REQUIREMENTS.md / ROADMAP.md / STATE.md:
+
+- **REQ-A07 DROPPED.** Two-port pattern (`port_pq` + `port_legacy = port_pq + 1`), описанный ниже как primary recommendation, **НЕ принят**. Org fallback переезжает на уровень отдельных профилей: REQ-A06 уже даёт юзеру выбор PQ vs legacy при создании профиля через `create_profile_menu`. Если юзеру нужен legacy fallback — он создаёт отдельный legacy TCP+Vision профиль.
+- **REQ-A09 REVISED → in-place replace.** Кнопка "Upgrade to post-quantum" теперь in-place заменяет transport+settings профиля на XHTTP+Reality+native (сохраняя UUID и порт). Legacy-клиенты этого профиля отвалятся — explicit warning перед apply.
+- **REQ-C11 REVISED → одна vless:// строка на профиль** (не две). Phase 7 update.
+- **Profile JSON schema v2 упрощается:** НЕ хранит `uuid_legacy` / `port_legacy` (REQ-A07 снят) — только флаг `pq_enabled` (или эквивалент в transport-блоке) для определения наличия `encryption=` в vless URL.
+- **Complexity downgrade:** L → M.
+
+**Что в этом файле остаётся актуальным:**
+- §Standard Stack (vlessenc subcommand, файлы ключей, jq patterns)
+- §Architecture Patterns: **только** `decryption` placement (`inbound.settings.decryption`, инбаунд-уровень) и схема профиля для **одного** PQ-инбаунда
+- §Don't Hand-Roll, §Common Pitfalls, §Confidence Levels
+- §Code Examples — vlessenc parsing, add_inbound XHTTP+pq (без parallel-legacy), schema migration (упрощённая: только PQ-метаданные), vless URL с encryption param
+- §Per-Plan Guidance — **читать с коррекцией**: 6.2 без parallel-legacy инфраструктуры, 6.3 без add-parallel-pq логики
+- §Verification Checks — **исключить** проверки на existence двух инбаундов / двух vless URL
+- §Open Questions — **vlessenc parser checkpoint критичен в 6.1**
+
+**Что игнорировать (obsolete):**
+- Любые упоминания `port_legacy = port_pq + 1` / two-port pattern
+- Profile JSON fields `uuid_legacy`, `port_legacy`, parallel inbound creation
+- "`generate_connection` возвращает обе vless:// ссылки" — теперь одна
+
+---
+
 ## Summary
 
 Phase 6 добавляет post-quantum шифрование поверх уже существующего XHTTP+Reality стека. Ключевые компоненты: `xray vlessenc` генерирует пару `decryption`/`encryption` строк в формате `mlkem768x25519plus.native.<ttl>.<padding>.<keys>...`, которые хранятся в двух файлах на сервере (chmod 600). `decryption` идет в `inbound.settings.decryption` (инбаунд-уровень, не клиент-уровень). `encryption` идет в VLESS URL как параметр `encryption=<url-encoded-value>` и в клиентский config.
