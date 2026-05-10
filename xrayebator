@@ -1077,6 +1077,18 @@ _migrate_mlkem_keys() {
   return 1
 }
 
+# Phase 6 REQ-A08: маркер «новый дефолт create_profile_menu применён».
+# СТРОГО no-op для config.json — REQ-A08 явно запрещает трогать существующие inbound'ы.
+# Дефолт create_profile_menu (XHTTP+PQ как #1) зашит в код Task 3А — миграция здесь
+# нужна только чтобы не показывать first-run-баннер ещё раз (Plan 6.3 повторно использует
+# тот же паттерн pq_banner_shown).
+# Возвращает 1 (no-op/mark) — run_migration ставит маркер без safe_restart_xray.
+_migrate_xhttp_default_2026() {
+  echo -e "${CYAN}Маркируем default-template create_profile_menu как XHTTP+PQ...${NC}"
+  echo -e "${GREEN}✓ Default template обновлён в коде (REQ-A08: existing inbounds не тронуты)${NC}"
+  return 1
+}
+
 # ═══════════════════════════════════════════════════════════
 # END HELPER FUNCTIONS
 # ═══════════════════════════════════════════════════════════
@@ -1463,6 +1475,7 @@ main_menu() {
   run_migration "config_optimized"                     "Config optimization (DNS/log)"     migrate_config_optimization        || ((migration_failures++))
   run_migration "xmux_explicit_2026"                   "Explicit xmux block для XHTTP"     migrate_xmux_explicit_2026         || ((migration_failures++))
   run_migration "mlkem_keys_generated"                 "PQ ключи VLESS Encryption (mlkem768x25519plus)" _migrate_mlkem_keys || ((migration_failures++))
+  run_migration "xhttp_default_2026"                   "XHTTP+PQ как дефолтный пресет создания профиля" _migrate_xhttp_default_2026 || ((migration_failures++))
 
   # Aggregate report (RESEARCH §«Error reporting»): чтобы пользователь не пропустил
   # failure среди скроллящегося TUI вывода.
@@ -1564,10 +1577,13 @@ create_profile_menu() {
   echo -e "${BLUE}║              ВЫБЕРИТЕ ТИП МАРШРУТА                        ║${NC}"
   echo -e "${BLUE}╚════════════════════════════════════════════════════════════╝${NC}"
   echo ""
-  echo -e "${CYAN} 1)${NC} VLESS + XHTTP + Reality ${GREEN}(случайный высокий порт)${NC} ${MAGENTA}— РЕКОМЕНДУЕТСЯ${NC}"
+  echo -e "${CYAN} 1)${NC} VLESS + XHTTP + Reality + ${MAGENTA}Post-Quantum (mlkem768x25519plus.native)${NC} ${GREEN}— РЕКОМЕНДУЕТСЯ${NC}"
+  echo -e "    ${GREEN}✓${NC} ML-KEM-768 защита от harvest-now-decrypt-later атак"
   echo -e "    ${GREEN}✓${NC} Самый ровный вариант под ТСПУ-2026: мобильные сети и домашние ISP"
   echo -e "    ${GREEN}✓${NC} Path и порт генерируются случайно, host берётся из текущего SNI"
-  echo -e "    ${YELLOW}⚠${NC} Нужен свежий клиент с поддержкой XHTTP"
+  echo -e "    ${YELLOW}⚠${NC} Клиент должен поддерживать VLESS PQ encryption:"
+  echo -e "       ${GREEN}✓${NC} HAPP 2.10+, v2rayNG 1.10+, v2rayN PR#7782+, Shadowrocket (последние версии)"
+  echo -e "       ${RED}✗${NC} sing-box, NekoBox, Hiddify, mihomo — для них выберите пункт 4 (TCP+Vision legacy)"
   echo ""
   echo -e "${CYAN} 2)${NC} VLESS + TCP + Reality + Mux ${GREEN}(случайный высокий порт)${NC}"
   echo -e "    ${GREEN}✓${NC} Хороший запасной вариант, если XHTTP-клиента нет"
@@ -1607,6 +1623,17 @@ create_profile_menu() {
     4) create_profile "$profile_name" "tcp" "" "chrome" ;;
     5) create_profile "$profile_name" "tcp-utls" "" "firefox" ;;
     6) create_profile "$profile_name" "tcp-xudp" "" "chrome" "api-maps.yandex.ru" ;;
+    xorpub)
+      # Hidden advanced opt-in (research §«Code Examples» #8 / D1 second-opinion).
+      # xorpub mode = security theater в контексте Reality (codex+kimi подтвердили 2026-05-09).
+      # Доступен ТОЛЬКО через ввод буквенного "xorpub" в TUI (обычный юзер не наберёт).
+      echo -e "${MAGENTA}[ADVANCED] xorpub режим выбран${NC}"
+      echo -e "${YELLOW}⚠ xorpub = security theater для Reality. Только для отладки/тестирования.${NC}"
+      echo -e "${YELLOW}  Plan 6.2 не реализует отдельный xorpub-параметр vlessenc — профиль будет создан${NC}"
+      echo -e "${YELLOW}  с дефолтным native ключом. xorpub-генерация — backlog (defer to v2.1).${NC}"
+      sleep 3
+      create_profile "$profile_name" "xhttp" "" "chrome"
+      ;;
     0) return ;;
     *) echo -e "${RED}Неверный выбор${NC}"; sleep 2; return ;;
   esac
