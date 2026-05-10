@@ -7,7 +7,7 @@ depends_on: []
 files_modified:
   - install.sh
   - xrayebator
-autonomous: false
+autonomous: true
 requirements:
   - REQ-A01
   - REQ-A02
@@ -17,7 +17,7 @@ must_haves:
   truths:
     - "На свежей установке файлы /usr/local/etc/xray/.vless_decryption и .vless_encryption существуют, начинаются с 'mlkem768x25519plus.', имеют chmod 600 и owner xray:xray"
     - "На v1.0-апгрейде (без файлов ключей) первый запуск xrayebator после Phase 5 догенерирует те же два файла через миграцию .mlkem_keys_generated"
-    - "Если Xray-core < 25.3 — миграция .mlkem_keys_generated НЕ ставит маркер (возвращает ≥2), оператор видит сообщение 'Обновите Xray-core'"
+    - "Если Xray-core < 25.9.5 — миграция .mlkem_keys_generated НЕ ставит маркер (возвращает ≥2), оператор видит сообщение 'Обновите Xray-core'"
     - "В xrayebator объявлены константы VLESS_DECRYPTION_FILE и VLESS_ENCRYPTION_FILE рядом с PRIVATE_KEY_FILE/PUBLIC_KEY_FILE"
     - "bash -n install.sh и bash -n xrayebator проходят без ошибок"
     - "Точный stdout-формат `xray vlessenc` зафиксирован в /tmp/vlessenc-sample.txt и парсер адаптирован под него до коммита"
@@ -37,20 +37,20 @@ must_haves:
   key_links:
     - from: "install.sh post-x25519 block"
       to: "/usr/local/etc/xray/.vless_decryption + .vless_encryption"
-      via: "xray vlessenc -mode native + 3-layer parser + printf > file + chmod 600 + chown xray:xray"
-      pattern: "xray vlessenc.*-mode native"
+      via: "xray vlessenc без флагов + section-aware ML-KEM-768 parser + printf > file + chmod 600 + chown xray:xray"
+      pattern: "xray vlessenc"
     - from: "xrayebator main_menu()"
       to: "_migrate_mlkem_keys() через run_migration"
       via: "run_migration \"mlkem_keys_generated\" \"...\" _migrate_mlkem_keys"
       pattern: "run_migration \"mlkem_keys_generated\""
     - from: "_migrate_mlkem_keys"
-      to: "Xray-core version check (≥ 25.3)"
+      to: "Xray-core version check (≥ 25.9.5)"
       via: "xray version | grep -oE '[0-9]+\\.[0-9]+', return 2 если меньше"
       pattern: "xray version"
 ---
 
 <objective>
-Заложить инфраструктуру post-quantum ключей для Phase 6: install.sh после генерации x25519 вызывает `xray vlessenc -mode native`, парсит вывод (трёхуровневый парсер), сохраняет decryption/encryption в два файла. Миграция `.mlkem_keys_generated` догенерирует ключи на v1.0-установках с защитой по версии Xray-core. xrayebator получает два новых constants рядом с существующими x25519 файлами.
+Заложить инфраструктуру post-quantum ключей для Phase 6: install.sh после генерации x25519 вызывает `xray vlessenc` без флагов, выбирает JSON-fragment пару из секции `Authentication: ML-KEM-768`, сохраняет decryption/encryption в два файла. Миграция `.mlkem_keys_generated` догенерирует ключи на v1.0-установках с защитой по версии Xray-core. xrayebator получает два новых constants рядом с существующими x25519 файлами.
 
 Purpose: Без файлов ключей Phase 6.2 (decryption в inbound) и 6.3 (upgrade button) физически не могут работать. Это foundational shim — минимальный, но критичный.
 Output:
@@ -81,59 +81,25 @@ Output:
 
 <tasks>
 
-<task type="checkpoint:human-verify" gate="blocking">
-  <name>Task 1: Зафиксировать точный stdout-формат `xray vlessenc` на реальном Xray-core 25.3+</name>
+<task type="auto">
+  <name>Task 1: Принять field research `xray vlessenc` как parser contract</name>
   <what-built>
-    До этого checkpoint исполнитель НЕ должен писать парсер. Researcher 06-RESEARCH.md явно отметил MEDIUM confidence по формату вывода: предполагаемые лейблы `decryption:` / `encryption:` (lowercase, по аналогии с `xray x25519` v25.8+ "PrivateKey:" формата) могут отличаться. Это обязательный verification step.
+    Blocking checkpoint уже выполнен и зафиксирован в `06-FIELD-RESEARCH-vlessenc.md` + `STATE.md`.
 
-    Исполнитель должен:
-
-    1. Убедиться что на хосте установлен Xray-core ≥ 25.3 (Phase 5 это гарантирует, но проверить):
-       ```bash
-       /usr/local/bin/xray version | head -1
-       # Должно быть Xray 25.3.x или новее
-       ```
-       Если меньше — выполнить `xrayebator update` (Phase 5 CLI subcommand) и дождаться обновления до 25.3+.
-
-    2. Запустить ОБА варианта для полноты:
-       ```bash
-       /usr/local/bin/xray vlessenc 2>&1 | tee /tmp/vlessenc-default.txt
-       /usr/local/bin/xray vlessenc -mode native 2>&1 | tee /tmp/vlessenc-native.txt
-       /usr/local/bin/xray help vlessenc 2>&1 | tee /tmp/vlessenc-help.txt
-       ```
-
-    3. Зафиксировать точные лейблы (без угадывания):
-       ```bash
-       head -20 /tmp/vlessenc-native.txt
-       # → визуально проверить:
-       #   - Какой regex описывает decryption-строку? (^decryption:|^Decryption:|JSON-ключ?)
-       #   - Какой regex описывает encryption-строку?
-       #   - Есть ли лидирующие пробелы/таб? Скобки? "="?
-       #   - Точно ли две строки с mlkem768x25519plus.<...>?
-       ```
-
-    4. Если формат СОВПАДАЕТ с предположением researcher (`/^[Dd]ecryption: <value>/` + `/^[Ee]ncryption: <value>/`), парсер из 06-RESEARCH.md §"Code Examples" #1 пишется как есть.
-
-    5. Если формат ОТЛИЧАЕТСЯ — адаптировать Layer 1 awk-pattern. Layer 2 (mlkem-shape grep) и Layer 3 (validator regex `^mlkem768x25519plus\.`) останутся как safety net.
-
-    6. Записать в STATE.md (под существующий блок "Phase 6 research decisions") строку:
-       ```
-       - [06-01 vlessenc format VERIFIED YYYY-MM-DD]: <одна строка с реальным форматом или "соответствует RESEARCH §10">
-       ```
+    Директива реализации:
+    1. Minimum Xray-core для `vlessenc`: ≥ 25.9.5.
+    2. Запуск: `/usr/local/bin/xray vlessenc` без флагов.
+    3. НЕ использовать `-mode native`.
+    4. Выбирать вторую/PQ-auth пару через секционный маркер `Authentication: ML-KEM-768`.
+    5. Строки имеют JSON-fragment формат: `"decryption": "..."` и `"encryption": "..."`.
   </what-built>
   <how-to-verify>
-    Оператор подтверждает:
-    1. /tmp/vlessenc-native.txt содержит ровно две непустые строки с mlkem768x25519plus
-    2. Layer 1 awk-паттерн в задаче 2 соответствует реальному формату (или адаптирован)
-    3. STATE.md обновлён записью о формате vlessenc
-
-    Resume signal: "approved" (формат совпадает с RESEARCH) ИЛИ конкретное описание расхождения (например: "labels are 'Decryption Key:' / 'Encryption Key:' — adapt parser")
+    Проверить, что Task 2/3 используют `xray vlessenc` без `-mode`, а парсер входит в секцию `Authentication: ML-KEM-768` перед чтением ключей.
   </how-to-verify>
-  <resume-signal>Type "approved" if format matches RESEARCH §10, OR paste corrected awk-pattern + adjusted Layer 1 regex.</resume-signal>
   <files>none (verification-only checkpoint; no files modified)</files>
-  <action>Verify `xray vlessenc` stdout format on real Xray-core 25.3+ host as detailed in &lt;what-built&gt; above. Run vlessenc commands, capture output to /tmp/vlessenc-native.txt, compare against RESEARCH §10 expected labels, adapt Layer 1 awk-pattern in Task 2 if format differs, update STATE.md with verified format string.</action>
-  <verify>Operator confirms (per &lt;how-to-verify&gt;): /tmp/vlessenc-native.txt has exactly two non-empty lines containing `mlkem768x25519plus`; Task 2 awk-pattern matches real format (or adapted); STATE.md contains a new line `[06-01 vlessenc format VERIFIED YYYY-MM-DD]: ...`.</verify>
-  <done>User typed "approved" (format matches RESEARCH §10), OR provided concrete adaptation directive (corrected awk-pattern + adjusted Layer 1 regex) which has been incorporated into Task 2 action before Task 2 begins.</done>
+  <action>Use `06-FIELD-RESEARCH-vlessenc.md` as the parser contract; continue directly to Task 2.</action>
+  <verify>`rg -- "-mode native" install.sh xrayebator` returns no matches after implementation.</verify>
+  <done>Task 2 parser is based on the ML-KEM-768 section format from field research.</done>
 </task>
 
 <task type="auto">
@@ -142,18 +108,18 @@ Output:
   <action>
 **Файл 1: install.sh** — после строки 484 (после блока x25519 chmod 600/644) ВСТАВИТЬ блок генерации VLESS Encryption ключей. ВАЖНО: вставлять ПОСЛЕ существующего chmod 600/644 на x25519 ключи, ДО создания config.json (строка 487 `cat > "$CONFIG_FILE"`).
 
-Использовать парсер ПОДТВЕРЖДЁННОГО (из Task 1) формата. Шаблон (адаптировать Layer 1 если Task 1 показал другой формат):
+Использовать подтверждённый field-research parser contract из Task 1:
 
 ```bash
 # ── VLESS Encryption keys (Phase 6 REQ-A01) ────────────────────
 # Генерация PQ decryption/encryption пары через xray vlessenc.
-# Требует Xray-core ≥ 25.3 (гарантируется install.sh шагом «Установка Xray-core»).
+# Требует Xray-core ≥ 25.9.5 (гарантируется install.sh шагом «Установка Xray-core» latest stable).
 echo -e "${BLUE}[5b/10]${NC} ${YELLOW}Генерация VLESS Encryption ключей (mlkem768x25519plus.native)...${NC}"
 
 VLESS_DECRYPTION_FILE="/usr/local/etc/xray/.vless_decryption"
 VLESS_ENCRYPTION_FILE="/usr/local/etc/xray/.vless_encryption"
 
-VLESSENC_OUTPUT=$(/usr/local/bin/xray vlessenc -mode native 2>&1)
+VLESSENC_OUTPUT=$(/usr/local/bin/xray vlessenc 2>&1)
 VLESSENC_EXIT=$?
 
 if [[ $VLESSENC_EXIT -ne 0 ]]; then
@@ -162,22 +128,29 @@ if [[ $VLESSENC_EXIT -ne 0 ]]; then
   exit 1
 fi
 
-# Layer 1: field-name парсер (формат подтверждён в Task 1 — адаптируйте если другой)
-VLESS_DECRYPTION=$(echo "$VLESSENC_OUTPUT" | awk -F': ' '/^[Dd]ecryption:/ {print $2; exit}' | tr -d '[:space:]')
-VLESS_ENCRYPTION=$(echo "$VLESSENC_OUTPUT" | awk -F': ' '/^[Ee]ncryption:/ {print $2; exit}' | tr -d '[:space:]')
+# Layer 1: section-aware parser — берём именно ML-KEM-768 auth pair, не X25519 pair.
+VLESS_DECRYPTION=$(echo "$VLESSENC_OUTPUT" | awk -F'"' '
+  /^Authentication: ML-KEM-768/ { in_mlkem=1; next }
+  in_mlkem && /^"decryption":/ { print $4; exit }
+' | tr -d '[:space:]')
+VLESS_ENCRYPTION=$(echo "$VLESSENC_OUTPUT" | awk -F'"' '
+  /^Authentication: ML-KEM-768/ { in_mlkem=1; next }
+  in_mlkem && /^"encryption":/ { print $4; exit }
+' | tr -d '[:space:]')
 
-# Layer 2: mlkem-shape fallback (если field-name парсер не сработал)
+# Layer 2: mlkem-shape fallback. Если Xray в будущей версии уберёт section labels,
+# tail -2 выбирает последнюю пару; в current output это ML-KEM-768.
 if [[ ! "$VLESS_DECRYPTION" =~ ^mlkem768x25519plus\. ]] || [[ ! "$VLESS_ENCRYPTION" =~ ^mlkem768x25519plus\. ]]; then
-  echo -e "${YELLOW}⚠ Field-парсер не нашёл ключи, пробую mlkem-shape fallback${NC}"
-  MLKEM_LINES=$(echo "$VLESSENC_OUTPUT" | grep -oE 'mlkem768x25519plus\.[^[:space:]]+')
-  VLESS_DECRYPTION=$(echo "$MLKEM_LINES" | sed -n '1p')
-  VLESS_ENCRYPTION=$(echo "$MLKEM_LINES" | sed -n '2p')
+  echo -e "${YELLOW}⚠ Section-парсер не нашёл ключи, пробую mlkem-shape fallback${NC}"
+  MLKEM_LINES=$(echo "$VLESSENC_OUTPUT" | grep -oE 'mlkem768x25519plus\.[^"[:space:]]+')
+  VLESS_DECRYPTION=$(echo "$MLKEM_LINES" | tail -2 | sed -n '1p')
+  VLESS_ENCRYPTION=$(echo "$MLKEM_LINES" | tail -1)
 fi
 
 # Layer 3: validator
 if [[ ! "$VLESS_DECRYPTION" =~ ^mlkem768x25519plus\. ]] || [[ ! "$VLESS_ENCRYPTION" =~ ^mlkem768x25519plus\. ]]; then
   echo -e "${RED}✗ Не удалось распарсить mlkem768x25519plus ключи${NC}"
-  echo -e "${YELLOW}  Убедитесь что Xray-core ≥ 25.3 установлен${NC}"
+  echo -e "${YELLOW}  Убедитесь что Xray-core ≥ 25.9.5 установлен${NC}"
   echo -e "${YELLOW}Полный вывод vlessenc:${NC}"; echo "$VLESSENC_OUTPUT"
   exit 1
 fi
@@ -191,7 +164,7 @@ echo -e "${GREEN}✓ VLESS Encryption ключи сгенерированы${NC}
 echo -e "${CYAN}  decryption: ${VLESS_DECRYPTION:0:48}...${NC}"
 ```
 
-ПОЧЕМУ `-mode native`: D1 решение research (mlkem768x25519plus.native), `xorpub` security-theater + замедляет, `random` конфликтует с Vision-padding.
+ПОЧЕМУ без `-mode`: официальный CLI usage — `xray vlessenc`; `native` уже зашит в generated value. Передача `-mode native` ломает Xray 26.x.
 
 ПОЧЕМУ `printf "%s"` без `\n`: чтобы `cat $VLESS_DECRYPTION_FILE` в add_inbound (Plan 6.2) не давал хвостовой newline, который убивает JSON-валидность строки в config.json.
 
@@ -219,7 +192,8 @@ grep -q '^VLESS_DECRYPTION_FILE="/usr/local/etc/xray/.vless_decryption"$' xrayeb
 grep -q '^VLESS_ENCRYPTION_FILE="/usr/local/etc/xray/.vless_encryption"$' xrayebator && echo "OK VLESS_ENCRYPTION_FILE constant"
 
 # 3. install.sh содержит блок vlessenc
-grep -q 'xray vlessenc -mode native' install.sh && echo "OK vlessenc -mode native call"
+grep -q '/usr/local/bin/xray vlessenc' install.sh && echo "OK vlessenc call"
+! grep -q 'vlessenc -mode' install.sh && echo "OK no unsupported -mode flag"
 grep -q 'mlkem768x25519plus' install.sh && echo "OK mlkem regex check present"
 grep -q 'chmod 600 "$VLESS_DECRYPTION_FILE"' install.sh && echo "OK chmod 600 explicit"
 
@@ -253,7 +227,7 @@ awk '/chmod 644 "\$PUBLIC_KEY_FILE"/{found_x25519=NR} /xray vlessenc/{found_vles
 #
 # Three-valued return contract:
 #   1 — done (либо ключи уже есть, либо успешно сгенерированы — в обоих случаях marker ставится)
-#   ≥2 — fail (Xray-core < 25.3 ИЛИ vlessenc ошибка ИЛИ парсер не справился)
+#   ≥2 — fail (Xray-core < 25.9.5 ИЛИ vlessenc ошибка ИЛИ парсер не справился)
 _migrate_mlkem_keys() {
   echo -e "${CYAN}Проверка наличия PQ ключей VLESS Encryption...${NC}"
 
@@ -265,9 +239,9 @@ _migrate_mlkem_keys() {
     return 1
   fi
 
-  # Version-check: vlessenc появился в Xray-core 25.3.
-  # Парсим major.minor из `xray version` (формат: "Xray 25.3.5 (Xray, ...)").
-  local xray_ver_full xray_major xray_minor
+  # Version-check: vlessenc появился в Xray-core 25.9.5.
+  # Парсим major.minor.patch из `xray version` (формат: "Xray 25.9.5 (Xray, ...)").
+  local xray_ver_full xray_major xray_minor xray_patch
   xray_ver_full=$(/usr/local/bin/xray version 2>/dev/null | grep -oE 'Xray [0-9]+\.[0-9]+\.[0-9]+' | head -1 | awk '{print $2}')
   if [[ -z "$xray_ver_full" ]]; then
     echo -e "${RED}✗ Не удалось определить версию Xray-core${NC}"
@@ -276,17 +250,20 @@ _migrate_mlkem_keys() {
   fi
   xray_major=$(echo "$xray_ver_full" | cut -d. -f1)
   xray_minor=$(echo "$xray_ver_full" | cut -d. -f2)
-  if [[ "$xray_major" -lt 25 ]] || { [[ "$xray_major" -eq 25 ]] && [[ "$xray_minor" -lt 3 ]]; }; then
-    echo -e "${RED}✗ Xray-core $xray_ver_full < 25.3 — vlessenc недоступен${NC}"
+  xray_patch=$(echo "$xray_ver_full" | cut -d. -f3)
+  if [[ "$xray_major" -lt 25 ]] || \
+     { [[ "$xray_major" -eq 25 ]] && [[ "$xray_minor" -lt 9 ]]; } || \
+     { [[ "$xray_major" -eq 25 ]] && [[ "$xray_minor" -eq 9 ]] && [[ "$xray_patch" -lt 5 ]]; }; then
+    echo -e "${RED}✗ Xray-core $xray_ver_full < 25.9.5 — vlessenc недоступен${NC}"
     echo -e "${YELLOW}  Обновите Xray-core: sudo xrayebator update${NC}"
     echo -e "${YELLOW}  После обновления миграция повторится автоматически${NC}"
     return 2
   fi
 
   # Запуск vlessenc (тот же 3-layer парсер что в install.sh — keep in sync).
-  echo -e "${CYAN}  → Запуск xray vlessenc -mode native${NC}"
+  echo -e "${CYAN}  → Запуск xray vlessenc${NC}"
   local vlessenc_output vlessenc_rc
-  vlessenc_output=$(/usr/local/bin/xray vlessenc -mode native 2>&1)
+  vlessenc_output=$(/usr/local/bin/xray vlessenc 2>&1)
   vlessenc_rc=$?
   if [[ $vlessenc_rc -ne 0 ]]; then
     echo -e "${RED}✗ xray vlessenc rc=$vlessenc_rc${NC}"
@@ -295,14 +272,20 @@ _migrate_mlkem_keys() {
   fi
 
   local decryption encryption
-  decryption=$(echo "$vlessenc_output" | awk -F': ' '/^[Dd]ecryption:/ {print $2; exit}' | tr -d '[:space:]')
-  encryption=$(echo "$vlessenc_output" | awk -F': ' '/^[Ee]ncryption:/ {print $2; exit}' | tr -d '[:space:]')
+  decryption=$(echo "$vlessenc_output" | awk -F'"' '
+    /^Authentication: ML-KEM-768/ { in_mlkem=1; next }
+    in_mlkem && /^"decryption":/ { print $4; exit }
+  ' | tr -d '[:space:]')
+  encryption=$(echo "$vlessenc_output" | awk -F'"' '
+    /^Authentication: ML-KEM-768/ { in_mlkem=1; next }
+    in_mlkem && /^"encryption":/ { print $4; exit }
+  ' | tr -d '[:space:]')
 
   if [[ ! "$decryption" =~ ^mlkem768x25519plus\. ]] || [[ ! "$encryption" =~ ^mlkem768x25519plus\. ]]; then
     local mlkem_lines
-    mlkem_lines=$(echo "$vlessenc_output" | grep -oE 'mlkem768x25519plus\.[^[:space:]]+')
-    decryption=$(echo "$mlkem_lines" | sed -n '1p')
-    encryption=$(echo "$mlkem_lines" | sed -n '2p')
+    mlkem_lines=$(echo "$vlessenc_output" | grep -oE 'mlkem768x25519plus\.[^"[:space:]]+')
+    decryption=$(echo "$mlkem_lines" | tail -2 | sed -n '1p')
+    encryption=$(echo "$mlkem_lines" | tail -1)
   fi
 
   if [[ ! "$decryption" =~ ^mlkem768x25519plus\. ]] || [[ ! "$encryption" =~ ^mlkem768x25519plus\. ]]; then
@@ -353,7 +336,7 @@ awk '/^_migrate_mlkem_keys\(\) \{/,/^\}/' xrayebator | grep -c 'return 2' | grep
 
 # 4. Версия-чек присутствует (awk range — same robustness reason as above)
 awk '/^_migrate_mlkem_keys\(\) \{/,/^\}/' xrayebator | grep -q 'xray version' && echo "OK version check present"
-awk '/^_migrate_mlkem_keys\(\) \{/,/^\}/' xrayebator | grep -q 'xray_major.*-lt 25' && echo "OK 25.3 minimum enforced"
+awk '/^_migrate_mlkem_keys\(\) \{/,/^\}/' xrayebator | grep -q '25\\.9\\.5' && echo "OK 25.9.5 minimum enforced"
 
 # 5. Регистрация в main_menu
 grep -q 'run_migration "mlkem_keys_generated".*_migrate_mlkem_keys' xrayebator && echo "OK migration registered"
@@ -366,11 +349,11 @@ awk '/run_migration "xmux_explicit_2026"/{x=NR} /run_migration "mlkem_keys_gener
 - bash -n проходит
 - _migrate_mlkem_keys определена, использует константы VLESS_*_FILE из задачи 2
 - Функция возвращает 1 в случае "уже сгенерировано" и 1 в случае "сгенерировано сейчас" (НЕ 0 — config.json не изменился)
-- Функция возвращает ≥2 на: невозможность определить версию, версия < 25.3, vlessenc rc≠0, парсер не справился
+- Функция возвращает ≥2 на: невозможность определить версию, версия < 25.9.5, vlessenc rc≠0, парсер не справился
 - В main_menu добавлена строка регистрации миграции после xmux_explicit_2026
 - На свежей установке (где ключи уже есть из install.sh) миграция выводит "✓ PQ ключи уже сгенерированы" + return 1 + run_migration ставит marker без restart
-- На v1.0-апгрейде с Xray-core < 25.3: миграция возвращает 2 → marker НЕ ставится → следующий запуск повторит проверку
-- На v1.0-апгрейде с Xray-core ≥ 25.3 без файлов: миграция генерирует ключи → return 1 → marker ставится без restart
+- На v1.0-апгрейде с Xray-core < 25.9.5: миграция возвращает 2 → marker НЕ ставится → следующий запуск повторит проверку
+- На v1.0-апгрейде с Xray-core ≥ 25.9.5 без файлов: миграция генерирует ключи → return 1 → marker ставится без restart
   </done>
 </task>
 
@@ -393,17 +376,17 @@ grep -c "VLESS_ENCRYPTION_FILE" xrayebator   # ≥ 2
 grep -B1 -A1 "_migrate_mlkem_keys" xrayebator | head -20
 ```
 
-**Production smoke (на тестовой VPS с Xray-core ≥ 25.3):**
+**Production smoke (на тестовой VPS с Xray-core ≥ 25.9.5):**
 
 ```bash
 # Если запустить install.sh заново НЕ хочется (риск перезатереть существующее) —
 # запустить только vlessenc-блок изолированно:
 sudo bash -c '
-  VLESSENC_OUTPUT=$(/usr/local/bin/xray vlessenc -mode native 2>&1)
+  VLESSENC_OUTPUT=$(/usr/local/bin/xray vlessenc 2>&1)
   echo "$VLESSENC_OUTPUT"
   echo "---parsing test---"
-  D=$(echo "$VLESSENC_OUTPUT" | awk -F": " "/^[Dd]ecryption:/ {print \$2; exit}" | tr -d "[:space:]")
-  E=$(echo "$VLESSENC_OUTPUT" | awk -F": " "/^[Ee]ncryption:/ {print \$2; exit}" | tr -d "[:space:]")
+  D=$(echo "$VLESSENC_OUTPUT" | awk -F"\"" "/^Authentication: ML-KEM-768/ {m=1; next} m && /^\"decryption\":/ {print \$4; exit}" | tr -d "[:space:]")
+  E=$(echo "$VLESSENC_OUTPUT" | awk -F"\"" "/^Authentication: ML-KEM-768/ {m=1; next} m && /^\"encryption\":/ {print \$4; exit}" | tr -d "[:space:]")
   echo "decryption[0:48]: ${D:0:48}"
   echo "encryption[0:48]: ${E:0:48}"
   [[ "$D" =~ ^mlkem768x25519plus\. ]] && echo "OK decryption shape"
@@ -421,9 +404,9 @@ ls -la /usr/local/etc/xray/.vless_*
 </verification>
 
 <success_criteria>
-1. **REQ-A01:** `install.sh` после x25519 блока вызывает `xray vlessenc -mode native`, парсит, сохраняет в два файла chmod 600 owner xray:xray. На свежей установке оба файла валидны (`mlkem768x25519plus.<rest>`).
+1. **REQ-A01:** `install.sh` после x25519 блока вызывает `xray vlessenc` без флагов, выбирает ML-KEM-768 auth pair, сохраняет в два файла chmod 600 owner xray:xray. На свежей установке оба файла валидны (`mlkem768x25519plus.<rest>`).
 
-2. **REQ-A02:** Миграция `.mlkem_keys_generated` через `run_migration` догенерирует файлы на v1.0-апгрейде. Защищена version-check (Xray-core ≥ 25.3), при недоступности vlessenc — return ≥2 (marker НЕ ставится, повторится). Возвращает `1` в случаях done/уже-есть (не делает лишний safe_restart_xray).
+2. **REQ-A02:** Миграция `.mlkem_keys_generated` через `run_migration` догенерирует файлы на v1.0-апгрейде. Защищена version-check (Xray-core ≥ 25.9.5), при недоступности vlessenc — return ≥2 (marker НЕ ставится, повторится). Возвращает `1` в случаях done/уже-есть (не делает лишний safe_restart_xray).
 
 3. **REQ-A03:** В xrayebator объявлены `VLESS_DECRYPTION_FILE` и `VLESS_ENCRYPTION_FILE` непосредственно после `PUBLIC_KEY_FILE` (строки 24-25 после правки).
 

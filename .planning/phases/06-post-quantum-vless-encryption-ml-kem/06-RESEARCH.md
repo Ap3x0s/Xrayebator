@@ -2,7 +2,7 @@
 
 **Researched:** 2026-05-10
 **Domain:** Xray-core VLESS Encryption, ML-KEM-768, parallel inbound architecture, profile JSON schema v2
-**Confidence:** MEDIUM-HIGH (most claims verified from primary sources; vlessenc exact stdout format: MEDIUM due to no direct source read)
+**Confidence:** MEDIUM-HIGH (core architecture verified; vlessenc parser contract superseded by FIELD UPDATE below)
 
 ---
 
@@ -16,19 +16,30 @@
 - **Profile JSON schema v2 упрощается:** НЕ хранит `uuid_legacy` / `port_legacy` (REQ-A07 снят) — только флаг `pq_enabled` (или эквивалент в transport-блоке) для определения наличия `encryption=` в vless URL.
 - **Complexity downgrade:** L → M.
 
+## ⚠️ FIELD UPDATE 2026-05-10 (vlessenc parser — authoritative)
+
+Field research on Xray 26.2.6 and official command docs supersede the older §10 parser assumptions below:
+
+- `xray vlessenc` has usage `xray vlessenc`; do **not** pass `-mode native`.
+- The command can emit both X25519-auth and ML-KEM-768-auth JSON-fragment pairs. Phase 6 needs the `Authentication: ML-KEM-768` section.
+- Parse values with a section-aware awk pattern: enter section on `^Authentication: ML-KEM-768`, then read `^"decryption":` / `^"encryption":` using `awk -F'"' '{print $4}'`.
+- `native` is embedded inside the generated value; the plan must not try to select it by CLI flag.
+- Minimum version correction: `vlessenc` was added in Xray-core v25.9.5 (PR #5078), not 25.3. Since Phase 5 installs latest stable, fresh installs are fine; migration guards should check >=25.9.
+
 **Что в этом файле остаётся актуальным:**
 - §Standard Stack (vlessenc subcommand, файлы ключей, jq patterns)
 - §Architecture Patterns: **только** `decryption` placement (`inbound.settings.decryption`, инбаунд-уровень) и схема профиля для **одного** PQ-инбаунда
 - §Don't Hand-Roll, §Common Pitfalls, §Confidence Levels
-- §Code Examples — vlessenc parsing, add_inbound XHTTP+pq (без parallel-legacy), schema migration (упрощённая: только PQ-метаданные), vless URL с encryption param
+- §Code Examples — только как historical scaffolding. Для vlessenc parser использовать FIELD UPDATE + 06-01 PLAN, а любые примеры с `-mode`/двумя ссылками/parallel-legacy игнорировать.
 - §Per-Plan Guidance — **читать с коррекцией**: 6.2 без parallel-legacy инфраструктуры, 6.3 без add-parallel-pq логики
 - §Verification Checks — **исключить** проверки на existence двух инбаундов / двух vless URL
-- §Open Questions — **vlessenc parser checkpoint критичен в 6.1**
+- §Open Questions — parser checkpoint уже закрыт аудитом; остаётся только production smoke после реализации.
 
 **Что игнорировать (obsolete):**
 - Любые упоминания `port_legacy = port_pq + 1` / two-port pattern
 - Profile JSON fields `uuid_legacy`, `port_legacy`, parallel inbound creation
 - "`generate_connection` возвращает обе vless:// ссылки" — теперь одна
+- Any `xray vlessenc -mode native` parser examples
 
 ---
 
