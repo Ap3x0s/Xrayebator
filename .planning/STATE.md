@@ -119,7 +119,7 @@ v2.0 scope decisions (post-research, pre-execution):
 - [Phase 06-post-quantum-vless-encryption-ml-kem]: [06-02 hidden xorpub]: введён как stub-case (ведёт на native + warning) — реальная xorpub-генерация defer to v2.1
 - [Phase 06-post-quantum-vless-encryption-ml-kem]: [06-03 in-place strategy]: del-by-port + append через safe_jq_write (НЕ object merge) — атомарная замена inbound, защищает freedom outbound и пользовательские поля
 - [Phase 06-post-quantum-vless-encryption-ml-kem]: [06-03 short_id source]: ЧИТАЕМ из config.json:.inbounds[].streamSettings.realitySettings.shortIds[0] (H1 fix) — НЕ регенерируем openssl rand; на shared inbound regen порвал бы Reality для остальных клиентов
-- [Phase 06-post-quantum-vless-encryption-ml-kem]: [06-03 phase markers]: внутренние Phase 1a/1b/1c (UI / mutation / post-mutation) для checkpoint-recoverability — heredoc closing brace indented для совместимости с awk-pattern verify
+- [Phase 06-post-quantum-vless-encryption-ml-kem]: [06-03 phase markers]: внутренние подфазы 1a/1b/1c (UI / mutation / post-mutation) внутри одной функции для checkpoint-recoverability — heredoc closing brace indented для совместимости с awk-pattern verify
 - [Phase 06-post-quantum-vless-encryption-ml-kem]: [06-03 banner one-shot]: marker /usr/local/etc/xray/.pq_banner_shown — touch только после успешного read; broken FS не блокирует main_menu (touch || true)
 
 ### Pending Todos
@@ -137,7 +137,7 @@ v2.0 scope decisions (post-research, pre-execution):
 - 06 EXECUTE UNBLOCKED BY AUDIT (2026-05-10) — use updated 06-01 PLAN parser; continue implementation tasks.
 - 06-01 DONE (2026-05-10) — vlessenc generator, _migrate_mlkem_keys, VLESS_*_FILE constants. REQ-A01/A02/A03 ✓. Commits df6ba7f + eeb1e72.
 - 06-02 DONE (2026-05-10) — add_inbound XHTTP PQ decryption, generate_connection PQ encryption, schema_version:2/pq_enabled:true для xhttp, create_profile_menu PQ дефолт, _migrate_xhttp_default_2026 (no-op marker). REQ-A04/A05/A06/A08 ✓. Commits aa33d8c + d7575bf + 6c9bf44.
-- 06-03 DONE (2026-05-10) — upgrade_profile_to_pq_menu() (меню→8) IN-PLACE замена транспорта (UUID/port сохраняются), Phase 1a/1b/1c markers для checkpoint-recoverability, short_id из config.json (H1 fix), shared inbound массовое обновление, show_pq_banner_once() с матрицей совместимости 2026-05-10 + marker .pq_banner_shown. REQ-A09/A10 ✓. Commits de798df + 1a08bf9.
+- 06-03 DONE (2026-05-10) — upgrade_profile_to_pq_menu() (меню→8) IN-PLACE замена транспорта (UUID/port сохраняются), внутренние подфазы 1a/1b/1c для checkpoint-recoverability, short_id из config.json (H1 fix), shared inbound массовое обновление, show_pq_banner_once() с матрицей совместимости 2026-05-10 + marker .pq_banner_shown. REQ-A09/A10 ✓. Commits de798df + 1a08bf9.
 - Phase 6 COMPLETE — все REQ-A* удовлетворены, готов к verifier и Phase 7
 - Phase 7 NEXT — subscription server (HAPP routing payload + nginx + Let's Encrypt; читает pq_enabled:true для дискриминации vless URL)
 - При планировании Phase 8 — добавить Plan 8.3 AdGuard cleanup (deferred from Phase 5)
