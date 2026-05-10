@@ -1683,6 +1683,10 @@ create_profile() {
   elif [[ "$transport" == "xhttp" ]]; then
     jq_args+=(--arg xhttp_path "$xhttp_path")
     jq_expr+=', xhttp_path: $xhttp_path'
+    # Phase 6 REQ-A04/A05: новый XHTTP-профиль = PQ.
+    # schema_version: 2 + pq_enabled: true — generate_connection и upgrade_button (Plan 6.3) различают это.
+    jq_args+=(--argjson schema_v 2 --argjson pq_enabled true)
+    jq_expr+=', schema_version: $schema_v, pq_enabled: $pq_enabled'
   fi
   jq_expr+=', created: $created}'
   if ! jq -n "${jq_args[@]}" "$jq_expr" > "$PROFILES_DIR/$name.json"; then
@@ -2207,8 +2211,27 @@ generate_connection() {
       vless_link="vless://${uuid}@${SERVER_IP}:${port}?encryption=none&security=reality&sni=${current_sni}&fp=${fingerprint}&pbk=${clean_public_key}&sid=${short_id}&type=grpc&serviceName=${grpc_service_name}#${profile_name}"
       ;;
     xhttp)
-      # XHTTP Reality - требует современные клиенты (sing-box 1.8+, v2rayN 6.x+)
-      vless_link="vless://${uuid}@${SERVER_IP}:${port}?encryption=none&security=reality&sni=${current_sni}&fp=${fingerprint}&pbk=${clean_public_key}&sid=${short_id}&type=xhttp&path=${encoded_xhttp_path}&host=${current_sni}#${profile_name}"
+      # Phase 6 REQ-A05: проверяем флаг pq_enabled из profile JSON.
+      # PQ-профили (созданные Plan 6.2 или upgraded Plan 6.3) имеют schema_version: 2 + pq_enabled: true.
+      local pq_enabled
+      pq_enabled=$(jq -r '.pq_enabled // false' "$profile_file" 2>/dev/null)
+
+      if [[ "$pq_enabled" == "true" ]]; then
+        # PQ-режим: encryption= берём из $VLESS_ENCRYPTION_FILE и URL-encode через jq @uri.
+        # @uri корректно обработает точки/base64-символы (research §5 «Don't Hand-Roll»).
+        if [[ ! -f "$VLESS_ENCRYPTION_FILE" ]]; then
+          echo -e "${RED}✗ $VLESS_ENCRYPTION_FILE отсутствует — vless:// невозможен для PQ-профиля${NC}"
+          echo -e "${YELLOW}  Перезапустите xrayebator (миграция .mlkem_keys_generated)${NC}"
+          return 1
+        fi
+        local raw_encryption encoded_encryption
+        raw_encryption=$(cat "$VLESS_ENCRYPTION_FILE")
+        encoded_encryption=$(jq -nr --arg enc "$raw_encryption" '$enc|@uri')
+        vless_link="vless://${uuid}@${SERVER_IP}:${port}?encryption=${encoded_encryption}&security=reality&sni=${current_sni}&fp=${fingerprint}&pbk=${clean_public_key}&sid=${short_id}&type=xhttp&path=${encoded_xhttp_path}&host=${current_sni}#${profile_name}"
+      else
+        # Legacy XHTTP без PQ (профили до Phase 6 — миграция .xhttp_default_2026 их НЕ трогает per REQ-A08).
+        vless_link="vless://${uuid}@${SERVER_IP}:${port}?encryption=none&security=reality&sni=${current_sni}&fp=${fingerprint}&pbk=${clean_public_key}&sid=${short_id}&type=xhttp&path=${encoded_xhttp_path}&host=${current_sni}#${profile_name}"
+      fi
       ;;
   esac
   echo -e "${BLUE}Ссылка для подключения:${NC}"
@@ -2234,7 +2257,12 @@ generate_connection() {
       echo -e "${CYAN}Flow:${NC} (пустой)"
       ;;
   esac
-  echo -e "${CYAN}Encryption:${NC} none"
+  # Phase 6: Encryption строка зависит от pq_enabled (только для XHTTP)
+  if [[ "$transport" == "xhttp" ]] && [[ "${pq_enabled:-false}" == "true" ]]; then
+    echo -e "${CYAN}Encryption:${NC} ${MAGENTA}mlkem768x25519plus.native${NC}"
+  else
+    echo -e "${CYAN}Encryption:${NC} none"
+  fi
   echo -e "${CYAN}Transport:${NC} $transport"
   echo -e "${CYAN}Security:${NC} reality"
   echo -e "${CYAN}SNI:${NC} $current_sni"
@@ -2249,11 +2277,19 @@ generate_connection() {
   elif [[ "$transport" == "xhttp" ]]; then
     echo -e "${CYAN}Path:${NC} $xhttp_path"
     echo -e "${CYAN}Host:${NC} $current_sni"
-    echo ""
-    echo -e "${YELLOW}ℹ XHTTP:${NC} текущий рекомендуемый вариант под ТСПУ-2026"
-    echo -e "${YELLOW}⚠ XHTTP требует современные клиенты:${NC}"
-    echo -e "  ${GREEN}✓${NC} sing-box 1.8+, v2rayN 6.x+, v2rayNG 1.8.x+"
-    echo -e "  ${RED}✗${NC} Clash Meta, старые версии клиентов"
+    if [[ "${pq_enabled:-false}" == "true" ]]; then
+      echo ""
+      echo -e "${MAGENTA}ℹ XHTTP + Post-Quantum (mlkem768x25519plus.native):${NC}"
+      echo -e "${YELLOW}⚠ Клиенты должны поддерживать VLESS PQ encryption:${NC}"
+      echo -e "  ${GREEN}✓${NC} HAPP 2.10+, v2rayNG 1.10+, v2rayN PR#7782+, Shadowrocket (новые версии)"
+      echo -e "  ${RED}✗${NC} sing-box, NekoBox, Hiddify, mihomo (создайте отдельный legacy TCP+Vision профиль)"
+    else
+      echo ""
+      echo -e "${YELLOW}ℹ XHTTP:${NC} текущий рекомендуемый вариант под ТСПУ-2026"
+      echo -e "${YELLOW}⚠ XHTTP требует современные клиенты:${NC}"
+      echo -e "  ${GREEN}✓${NC} sing-box 1.8+, v2rayN 6.x+, v2rayNG 1.8.x+"
+      echo -e "  ${RED}✗${NC} Clash Meta, старые версии клиентов"
+    fi
   fi
   echo -e "${GREEN}═══════════════════════════════════════════════${NC}\n"
   echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
