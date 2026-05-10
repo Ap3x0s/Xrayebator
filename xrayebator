@@ -22,6 +22,8 @@ PROFILES_DIR="/usr/local/etc/xray/profiles"
 DATA_DIR="/usr/local/etc/xray/data"
 PRIVATE_KEY_FILE="/usr/local/etc/xray/.private_key"
 PUBLIC_KEY_FILE="/usr/local/etc/xray/.public_key"
+VLESS_DECRYPTION_FILE="/usr/local/etc/xray/.vless_decryption"
+VLESS_ENCRYPTION_FILE="/usr/local/etc/xray/.vless_encryption"
 SNI_LIST="$DATA_DIR/sni_list.txt"
 ASCII_ART="$DATA_DIR/ascii_art.txt"
 
@@ -291,10 +293,14 @@ backup_config() {
   chmod 700 "$backup_dir" 2>/dev/null
   chown xray:xray "$backup_dir" 2>/dev/null
   local backup_file="$backup_dir/config_$(date +%Y%m%d_%H%M%S)_${migration_name}.json"
-  cp "$CONFIG_FILE" "$backup_file"
+  if ! cp "$CONFIG_FILE" "$backup_file"; then
+    echo -e "${RED}  ✗ Не удалось создать бэкап config.json: $backup_file${NC}"
+    return 1
+  fi
   chmod 600 "$backup_file" 2>/dev/null
   chown xray:xray "$backup_file" 2>/dev/null
   echo -e "${CYAN}  -> Бэкап конфига: $(basename "$backup_file")${NC}"
+  return 0
 }
 
 # Восстановление прав файлов для пользователя xray
@@ -304,17 +310,29 @@ fix_xray_permissions() {
 }
 
 # Безопасный перезапуск Xray с валидацией конфига
-# Returns: 0=success, 1=validation failed (Xray НЕ перезапущен)
+# Returns: 0=success, 1=failure (validation/restart failed; rollback attempted)
 safe_restart_xray() {
   if [[ ! -x /usr/local/bin/xray ]]; then
     echo -e "${RED}  ✗ Бинарник /usr/local/bin/xray не найден${NC}"
     return 1
   fi
 
+  if [[ ! -f "$CONFIG_FILE" || ! -s "$CONFIG_FILE" ]]; then
+    echo -e "${RED}  ✗ config.json отсутствует или пустой — Xray НЕ перезапущен${NC}"
+    local latest_backup
+    latest_backup=$(ls -t /usr/local/etc/xray/backups/config_*.json 2>/dev/null | head -1)
+    if [[ -n "$latest_backup" ]]; then
+      echo -e "${YELLOW}  -> Восстанавливаю конфиг из бэкапа...${NC}"
+      cp "$latest_backup" "$CONFIG_FILE"
+      echo -e "${GREEN}  ✓ Конфиг восстановлен из: $(basename "$latest_backup")${NC}"
+    fi
+    return 1
+  fi
+
   local test_output
   test_output=$(/usr/local/bin/xray run -test -config "$CONFIG_FILE" 2>&1)
 
-  if [[ $? -ne 0 ]]; then
+  if ! grep -qx "Configuration OK." <<< "$test_output"; then
     echo -e "${RED}  ✗ Конфиг не прошёл валидацию -- Xray НЕ перезапущен${NC}"
     echo -e "${YELLOW}  Ошибка: ${test_output}${NC}"
 
@@ -337,6 +355,19 @@ safe_restart_xray() {
     return 0
   else
     echo -e "${RED}  ✗ Xray не запустился после перезапуска${NC}"
+    local latest_backup
+    latest_backup=$(ls -t /usr/local/etc/xray/backups/config_*.json 2>/dev/null | head -1)
+    if [[ -n "$latest_backup" ]]; then
+      echo -e "${YELLOW}  -> Откатываю config.json и пробую вернуть старую конфигурацию...${NC}"
+      cp "$latest_backup" "$CONFIG_FILE"
+      systemctl restart xray
+      sleep 1
+      if systemctl is-active --quiet xray; then
+        echo -e "${GREEN}  ✓ Xray восстановлен на предыдущем конфиге: $(basename "$latest_backup")${NC}"
+      else
+        echo -e "${RED}  ✗ Откат конфига не поднял Xray — требуется ручная проверка${NC}"
+      fi
+    fi
     return 1
   fi
 }
@@ -497,7 +528,10 @@ run_migration() {
   # Step 1: backup BEFORE any mutation (centralized per REQ-D07).
   # safe_restart_xray's auto-rollback использует latest backup, поэтому
   # backup ДОЛЖЕН быть создан до того, как fn начнёт мутировать config.
-  backup_config "$marker_basename"
+  if ! backup_config "$marker_basename"; then
+    echo -e "${RED}  ✗ Migration aborted: не удалось создать бэкап${NC}"
+    return 1
+  fi
 
   # Step 2: run user-supplied migration fn
   "$fn_name"
@@ -1099,7 +1133,7 @@ update_xray_core() {
   # ── Step 7: SHA-256 verify (mandatory) ─────────────────────────
   echo -e "${CYAN}Verifying SHA256...${NC}"
   local expected actual
-  expected=$(awk -F '= ' '/^256=/ {print $2}' "$DGST_PATH" | tr -d '[:space:]')
+  expected=$(awk -F '= *' '/^(SHA2-)?256=|^SHA256=/ {print $2; exit}' "$DGST_PATH" | tr -d '[:space:]')
   actual=$(sha256sum "$ZIP_PATH" | awk '{print $1}')
 
   if [[ -z "$expected" ]]; then
@@ -1563,8 +1597,16 @@ create_profile() {
     jq_expr+=', xhttp_path: $xhttp_path'
   fi
   jq_expr+=', created: $created}'
-  jq -n "${jq_args[@]}" "$jq_expr" > "$PROFILES_DIR/$name.json"
+  if ! jq -n "${jq_args[@]}" "$jq_expr" > "$PROFILES_DIR/$name.json"; then
+    rm -f "$PROFILES_DIR/$name.json"
+    echo -e "${RED}✗ Не удалось создать JSON профиля${NC}"
+    return 1
+  fi
 
+  if ! backup_config "create_profile_$name"; then
+    rm -f "$PROFILES_DIR/$name.json"
+    return 1
+  fi
   if ! add_inbound "$uuid" "$transport" "$port" "$default_sni" "$fingerprint" "$grpc_service_name" "$xhttp_path"; then
     rm -f "$PROFILES_DIR/$name.json"
     echo ""
@@ -1580,7 +1622,21 @@ create_profile() {
     return 1
   fi
 
-  safe_restart_xray
+  if ! safe_restart_xray; then
+    rm -f "$PROFILES_DIR/$name.json"
+    close_firewall_port "$port"
+    echo ""
+    echo -e "${RED}╔═══════════════════════════════════════════════${NC}"
+    echo -e "${RED}         ✗ ПРОФИЛЬ НЕ АКТИВИРОВАН             ${NC}"
+    echo -e "${RED}╚═══════════════════════════════════════════════${NC}"
+    echo ""
+    echo -e "${RED}Xray не принял новую конфигурацию. Профиль удалён, config.json откатан.${NC}"
+    echo -e "${YELLOW}Проверьте последний бэкап в /usr/local/etc/xray/backups/.${NC}"
+    echo ""
+    echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
+    read
+    return 1
+  fi
 
   # Читаем актуальный SNI из файла (мог измениться при SNI-конфликте)
   local actual_sni=$(jq -r '.sni' "$PROFILES_DIR/$name.json" 2>/dev/null)
@@ -1865,8 +1921,11 @@ XHTTPEOF
     return 1
   fi
 
-  # Open firewall port
-  open_firewall_port "$port"
+  # Open firewall port. Не считаем неактивный UFW ошибкой создания профиля:
+  # config.json уже валиден, а часть VPS управляет firewall вне ufw.
+  open_firewall_port "$port" || \
+    echo -e "${YELLOW}  ⚠ Порт $port не был открыт через UFW — проверьте firewall вручную${NC}"
+  return 0
 }
 
 # Удаление профиля

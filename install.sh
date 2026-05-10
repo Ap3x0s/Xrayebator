@@ -172,7 +172,7 @@ update_xray_core() {
   # ── Step 7: SHA-256 verify (mandatory) ─────────────────────────
   echo -e "${CYAN}Verifying SHA256...${NC}"
   local expected actual
-  expected=$(awk -F '= ' '/^256=/ {print $2}' "$DGST_PATH" | tr -d '[:space:]')
+  expected=$(awk -F '= *' '/^(SHA2-)?256=|^SHA256=/ {print $2; exit}' "$DGST_PATH" | tr -d '[:space:]')
   actual=$(sha256sum "$ZIP_PATH" | awk '{print $1}')
 
   if [[ -z "$expected" ]]; then
@@ -481,6 +481,58 @@ echo -e "${CYAN}  Public: ${PUBLIC_KEY:0:16}...${NC}\n"
 chown -R xray:xray /usr/local/etc/xray/
 chmod 600 "$PRIVATE_KEY_FILE"
 chmod 644 "$PUBLIC_KEY_FILE"
+
+# ── VLESS Encryption keys (Phase 6 REQ-A01) ────────────────────
+# Генерация PQ decryption/encryption пары через xray vlessenc.
+# Требует Xray-core ≥ 25.9.5 (гарантируется install.sh шагом «Установка Xray-core» latest stable).
+echo -e "${BLUE}[5b/10]${NC} ${YELLOW}Генерация VLESS Encryption ключей (mlkem768x25519plus.native)...${NC}"
+
+VLESS_DECRYPTION_FILE="/usr/local/etc/xray/.vless_decryption"
+VLESS_ENCRYPTION_FILE="/usr/local/etc/xray/.vless_encryption"
+
+VLESSENC_OUTPUT=$(/usr/local/bin/xray vlessenc 2>&1)
+VLESSENC_EXIT=$?
+
+if [[ $VLESSENC_EXIT -ne 0 ]]; then
+  echo -e "${RED}✗ xray vlessenc завершилась с ошибкой (код $VLESSENC_EXIT)${NC}"
+  echo "Вывод:"; echo "$VLESSENC_OUTPUT"
+  exit 1
+fi
+
+# Layer 1: section-aware parser — берём именно ML-KEM-768 auth pair, не X25519 pair.
+VLESS_DECRYPTION=$(echo "$VLESSENC_OUTPUT" | awk -F'"' '
+  /^Authentication: ML-KEM-768/ { in_mlkem=1; next }
+  in_mlkem && /^"decryption":/ { print $4; exit }
+' | tr -d '[:space:]')
+VLESS_ENCRYPTION=$(echo "$VLESSENC_OUTPUT" | awk -F'"' '
+  /^Authentication: ML-KEM-768/ { in_mlkem=1; next }
+  in_mlkem && /^"encryption":/ { print $4; exit }
+' | tr -d '[:space:]')
+
+# Layer 2: mlkem-shape fallback. Если Xray в будущей версии уберёт section labels,
+# tail -2 выбирает последнюю пару; в current output это ML-KEM-768.
+if [[ ! "$VLESS_DECRYPTION" =~ ^mlkem768x25519plus\. ]] || [[ ! "$VLESS_ENCRYPTION" =~ ^mlkem768x25519plus\. ]]; then
+  echo -e "${YELLOW}⚠ Section-парсер не нашёл ключи, пробую mlkem-shape fallback${NC}"
+  MLKEM_LINES=$(echo "$VLESSENC_OUTPUT" | grep -oE 'mlkem768x25519plus\.[^"[:space:]]+')
+  VLESS_DECRYPTION=$(echo "$MLKEM_LINES" | tail -2 | sed -n '1p')
+  VLESS_ENCRYPTION=$(echo "$MLKEM_LINES" | tail -1)
+fi
+
+# Layer 3: validator
+if [[ ! "$VLESS_DECRYPTION" =~ ^mlkem768x25519plus\. ]] || [[ ! "$VLESS_ENCRYPTION" =~ ^mlkem768x25519plus\. ]]; then
+  echo -e "${RED}✗ Не удалось распарсить mlkem768x25519plus ключи${NC}"
+  echo -e "${YELLOW}  Убедитесь что Xray-core ≥ 25.9.5 установлен${NC}"
+  echo -e "${YELLOW}Полный вывод vlessenc:${NC}"; echo "$VLESSENC_OUTPUT"
+  exit 1
+fi
+
+printf "%s" "$VLESS_DECRYPTION" > "$VLESS_DECRYPTION_FILE"
+printf "%s" "$VLESS_ENCRYPTION" > "$VLESS_ENCRYPTION_FILE"
+chmod 600 "$VLESS_DECRYPTION_FILE" "$VLESS_ENCRYPTION_FILE"
+chown xray:xray "$VLESS_DECRYPTION_FILE" "$VLESS_ENCRYPTION_FILE" 2>/dev/null || true
+
+echo -e "${GREEN}✓ VLESS Encryption ключи сгенерированы${NC}"
+echo -e "${CYAN}  decryption: ${VLESS_DECRYPTION:0:48}...${NC}"
 
 # [6/10] Создание базовой конфигурации
 echo -e "${BLUE}[6/10]${NC} ${YELLOW}Создание конфигурации Xray...${NC}"
