@@ -162,6 +162,13 @@ Plans:
 
 **Estimated complexity**: XL (3 plans, 13 требований, два режима транспорта, security-критичный handler, рефакторинг существующей функции в pure form. Самая большая фаза милстоуна.)
 
+**Plans:** 3 plans
+
+Plans:
+- [ ] 07-01-pure-vless-url-and-token-migration-PLAN.md — source-safety guard + pure _generate_vless_url_pure() + миграция .subscription_tokens_2026 для 32-hex sub_token (REQ-C04, C10, C11)
+- [ ] 07-02-subhttp-handler-and-happ-payload-PLAN.md — install_subscription_server() heredoc-генерирует /usr/local/bin/subhttp.sh (strict regex /sub/[a-f0-9]{32}$, constant-time 404, HAPP comment-keys + symmetric headers, happ://routing/onadd) + systemd unit с REQ-C09 hardening (REQ-C01, C05, C06, C07, C09)
+- [ ] 07-03-public-tls-and-management-menus-PLAN.md — install_subscription_public_tls (nginx + certbot --nginx, 443→8443 fallback, ufw limit) + local-only fallback + manage_subscription_menu (URL/QR/revoke + length-gated raw vless QR) + happ_settings_menu (TUI редактор .happ_defaults.env) (REQ-C02, C03, C08, C12, C13, C14)
+
 ---
 
 ### Phase 8: Polish (SNI 2026 + experimental Vision Seed + bypass routing)
