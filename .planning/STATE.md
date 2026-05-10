@@ -5,17 +5,17 @@
 See: .planning/PROJECT.md (updated 2026-05-09)
 
 **Core value:** VPN стабильно и быстро работает через ТСПУ — соединение не падает, блокировки обходятся надёжно
-**Current focus:** v2.0 Phase 6 — plan 06-01 DONE; next plan 06-02 (PQ profile creation).
+**Current focus:** v2.0 Phase 6 — plans 06-01 + 06-02 DONE; next plan 06-03 (upgrade button + first-run banner).
 
 ## Current Position
 
 Milestone: v2.0 — Post-Quantum & HAPP
-Phase: 6 of 8 (Post-Quantum VLESS Encryption + ML-KEM) — plan 06-01 complete, plan 06-02 next
-Plan: 06-01 ✓ DONE (3/3 tasks, commits df6ba7f + eeb1e72); 06-02/06-03 pending
-Status: Phase 4 ✓ | Phase 5 ✓ | Phase 6 plan 06-01 ✓ → continue with 06-02 (PQ profile creation)
-Last activity: 2026-05-10 — Plan 06-01 executed: vlessenc generator в install.sh, _migrate_mlkem_keys миграция, VLESS_*_FILE constants. REQ-A01/A02/A03 удовлетворены.
+Phase: 6 of 8 (Post-Quantum VLESS Encryption + ML-KEM) — plans 06-01 + 06-02 complete, plan 06-03 next
+Plan: 06-01 ✓ DONE (3/3 tasks, commits df6ba7f + eeb1e72); 06-02 ✓ DONE (3/3 tasks, commits aa33d8c + d7575bf + 6c9bf44); 06-03 pending
+Status: Phase 4 ✓ | Phase 5 ✓ | Phase 6 plans 06-01 ✓ + 06-02 ✓ → continue with 06-03 (upgrade button + first-run banner)
+Last activity: 2026-05-10 — Plan 06-02 executed: add_inbound XHTTP подставляет PQ decryption из VLESS_DECRYPTION_FILE, generate_connection добавляет PQ encryption= в vless URL через jq @uri, create_profile пишет schema_version:2 + pq_enabled:true для xhttp, create_profile_menu пункт #1 = XHTTP+PQ, _migrate_xhttp_default_2026 (no-op marker, REQ-A08). REQ-A04/A05/A06/A08 удовлетворены.
 
-Progress: [######x...] 65% (Phases 4+5 ✓ + Phase 6 plan 1/3; Phase 6 in progress)
+Progress: [#######...] 70% (Phases 4+5 ✓ + Phase 6 plans 2/3; Phase 6 in progress)
 
 ## Performance Metrics
 
@@ -37,6 +37,7 @@ Progress: [######x...] 65% (Phases 4+5 ✓ + Phase 6 plan 1/3; Phase 6 in progre
 | Phase 05-auto-update-xmux-explicit P05-01 | 6 | 4 tasks | 4 files |
 | Phase 05-auto-update-xmux-explicit P05-02 | 8 | 2 tasks | 1 files |
 | Phase 06-post-quantum-vless-encryption-ml-kem P01 | 19 | 3 tasks | 2 files |
+| Phase 06-post-quantum-vless-encryption-ml-kem P02 | 25 min | 3 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -111,6 +112,10 @@ v2.0 scope decisions (post-research, pre-execution):
 - [Phase 06-post-quantum-vless-encryption-ml-kem]: [06-01 vlessenc parser]: section-aware awk по маркеру 'Authentication: ML-KEM-768' + JSON-fragment parsing (awk -F'"' {print $4}) — берёт ВТОРУЮ (PQ) пару, не первую (X25519)
 - [Phase 06-post-quantum-vless-encryption-ml-kem]: [06-01 minimum xray-core]: 25.9.5 (PR #5078), не 25.3 — vlessenc subcommand появился в этом релизе
 - [Phase 06-post-quantum-vless-encryption-ml-kem]: [06-01 sync контракт]: парсер vlessenc продублирован install.sh ↔ _migrate_mlkem_keys (избегаем source-инга xrayebator из install.sh)
+- [Phase 06-post-quantum-vless-encryption-ml-kem]: [06-02 schema v2]: новый XHTTP-профиль = schema_version:2 + pq_enabled:true (only for xhttp); legacy profiles читаются как pq_enabled // false
+- [Phase 06-post-quantum-vless-encryption-ml-kem]: [06-02 URL-encoding]: encryption= в vless:// URL формируется через jq -nr '$enc|@uri' — RFC 3986 compliant, точки unreserved
+- [Phase 06-post-quantum-vless-encryption-ml-kem]: [06-02 .xhttp_default_2026]: миграция строго no-op для config.json (REQ-A08) — только marker, существующие inbound'ы не модифицируются
+- [Phase 06-post-quantum-vless-encryption-ml-kem]: [06-02 hidden xorpub]: введён как stub-case (ведёт на native + warning) — реальная xorpub-генерация defer to v2.1
 
 ### Pending Todos
 
@@ -126,7 +131,8 @@ v2.0 scope decisions (post-research, pre-execution):
 - 06 EXECUTE-PHASE STARTED (2026-05-10) — first wave reached vlessenc checkpoint, returned 4 расхождения с RESEARCH §10. Findings: 06-FIELD-RESEARCH-vlessenc.md
 - 06 EXECUTE UNBLOCKED BY AUDIT (2026-05-10) — use updated 06-01 PLAN parser; continue implementation tasks.
 - 06-01 DONE (2026-05-10) — vlessenc generator, _migrate_mlkem_keys, VLESS_*_FILE constants. REQ-A01/A02/A03 ✓. Commits df6ba7f + eeb1e72.
-- 06-02 NEXT — PQ profile creation (cat $VLESS_DECRYPTION_FILE → inbound.settings.decryption + encryption= в vless URL)
+- 06-02 DONE (2026-05-10) — add_inbound XHTTP PQ decryption, generate_connection PQ encryption, schema_version:2/pq_enabled:true для xhttp, create_profile_menu PQ дефолт, _migrate_xhttp_default_2026 (no-op marker). REQ-A04/A05/A06/A08 ✓. Commits aa33d8c + d7575bf + 6c9bf44.
+- 06-03 NEXT — upgrade button + first-run banner для миграции существующих XHTTP-профилей на PQ
 - При планировании Phase 8 — добавить Plan 8.3 AdGuard cleanup (deferred from Phase 5)
 - ... далее по ROADMAP.md последовательно (6 → 7 → 8)
 
@@ -153,6 +159,6 @@ v2.0 scope decisions (post-research, pre-execution):
 ## Session Continuity
 
 Last session: 2026-05-10
-Stopped at: Plan 06-01 DONE (3/3 tasks committed: df6ba7f vlessenc+constants, eeb1e72 _migrate_mlkem_keys). SUMMARY.md создан.
-Resume file: .planning/phases/06-post-quantum-vless-encryption-ml-kem/06-02-pq-profile-creation-PLAN.md
-Next: `/gsd:execute-phase 6` — continue with plan 06-02 (PQ profile creation: add_inbound читает $VLESS_DECRYPTION_FILE, encryption= в vless:// URL).
+Stopped at: Plan 06-02 DONE (3/3 tasks committed: aa33d8c add_inbound PQ decryption, d7575bf generate_connection PQ encryption + schema v2, 6c9bf44 create_profile_menu PQ дефолт + miграция xhttp_default_2026). SUMMARY.md создан.
+Resume file: .planning/phases/06-post-quantum-vless-encryption-ml-kem/06-03-upgrade-button-and-banner-PLAN.md
+Next: `/gsd:execute-phase 6` — continue with plan 06-03 (upgrade button per-profile + first-run banner для PQ).
