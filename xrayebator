@@ -1891,8 +1891,56 @@ HAPP_DEFAULTS_EOF
     echo -e "${YELLOW}  ⚠ /usr/local/etc/xray/.happ_defaults.env уже существует — не трогаем${NC}"
   fi
 
+  # ── (3) systemd unit (REQ-C09 hardening; opt-in, НЕ enable/start здесь) ──
+  cat > /etc/systemd/system/xrayebator-sub.service << 'SUBUNIT_EOF'
+[Unit]
+Description=Xrayebator HAPP subscription handler (socat + subhttp.sh)
+Documentation=https://github.com/howdeploy/Xrayebator
+After=network-online.target xray.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=xray
+Group=xray
+ExecStart=/usr/bin/socat TCP-LISTEN:8080,reuseaddr,fork,bind=127.0.0.1 EXEC:/usr/local/bin/subhttp.sh
+
+# REQ-C09 hardening:
+ProtectSystem=strict
+ReadOnlyPaths=/usr/local/etc/xray /usr/local/bin/xrayebator /usr/local/bin/subhttp.sh
+ReadWritePaths=/tmp
+NoNewPrivileges=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+LockPersonality=yes
+
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+SUBUNIT_EOF
+
+  chmod 644 /etc/systemd/system/xrayebator-sub.service
+  chown root:root /etc/systemd/system/xrayebator-sub.service
+  echo -e "${GREEN}  ✓ /etc/systemd/system/xrayebator-sub.service создан${NC}"
+
+  # daemon-reload — чтобы systemctl увидел новый unit. НЕ enable, НЕ start.
+  systemctl daemon-reload 2>/dev/null || true
+
+  # Marker (opt-in активирован) — Plan 7.3 проверит наличие для меню/preflight.
+  touch /usr/local/etc/xray/.subscription_installed
+  chown xray:xray /usr/local/etc/xray/.subscription_installed 2>/dev/null || true
+
   echo ""
-  echo -e "${YELLOW}  ⚠ Файлы созданы. Юнит systemd создастся ниже; для запуска используйте меню Plan 7.3.${NC}"
+  echo -e "${YELLOW}  ⚠ Юнит создан, но НЕ запущен и НЕ enabled.${NC}"
+  echo -e "${YELLOW}    Запуск/активацию выполняет Plan 7.3 menu (после установки публичного TLS).${NC}"
+  echo ""
   return 0
 }
 
