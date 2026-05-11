@@ -2283,6 +2283,129 @@ manage_subscription_menu() {
   done
 }
 
+# TUI редактор /usr/local/etc/xray/.happ_defaults.env (REQ-C13).
+# Атомарная замена через awk + temp + mv. sed -i НЕ используем — риск partial write.
+# Sanitization: запрещаем " \ $ ` — защита от shell-инъекции при source.
+# Рестарт subhttp НЕ требуется (subhttp source-ит env на каждый request).
+# M6: read calls с -r чтобы не терять backslash в URL/путях.
+happ_settings_menu() {
+  local env_file=/usr/local/etc/xray/.happ_defaults.env
+  if [[ ! -f "$env_file" ]]; then
+    echo -e "${RED}✗ $env_file не существует — сначала выполните установку подписки.${NC}"
+    sleep 2
+    return
+  fi
+
+  while true; do
+    show_ascii
+    # Локальный source — читаем текущие значения.
+    local HAPP_SUPPORT_URL HAPP_WEB_URL HAPP_PROFILE_UPDATE_INTERVAL HAPP_ANNOUNCE_FILE HAPP_ROUTING_JSON_FILE
+    # shellcheck disable=SC1090
+    source "$env_file"
+
+    echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
+    echo -e "${BLUE}    НАСТРОЙКИ HAPP METADATA                   ${NC}"
+    echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
+    echo ""
+    echo -e "${CYAN} 1)${NC} HAPP_SUPPORT_URL = ${YELLOW}${HAPP_SUPPORT_URL:-(не задано)}${NC}"
+    echo -e "${CYAN} 2)${NC} HAPP_WEB_URL = ${YELLOW}${HAPP_WEB_URL:-(не задано)}${NC}"
+    echo -e "${CYAN} 3)${NC} HAPP_PROFILE_UPDATE_INTERVAL = ${YELLOW}${HAPP_PROFILE_UPDATE_INTERVAL:-24}${NC} часов"
+    echo -e "${CYAN} 4)${NC} HAPP_ANNOUNCE_FILE = ${YELLOW}${HAPP_ANNOUNCE_FILE:-(не задано)}${NC}"
+    echo -e "${CYAN} 5)${NC} HAPP_ROUTING_JSON_FILE = ${YELLOW}${HAPP_ROUTING_JSON_FILE:-(не задано)}${NC}"
+    echo -e "${CYAN} 0)${NC} Назад"
+    echo ""
+    echo -n -e "${YELLOW}Изменить (1-5, 0=назад): ${NC}"
+    local choice
+    read -r choice
+    case "$choice" in
+      0) return ;;
+      1) _happ_edit_field "$env_file" "HAPP_SUPPORT_URL" "$HAPP_SUPPORT_URL" ;;
+      2) _happ_edit_field "$env_file" "HAPP_WEB_URL" "$HAPP_WEB_URL" ;;
+      3) _happ_edit_field "$env_file" "HAPP_PROFILE_UPDATE_INTERVAL" "$HAPP_PROFILE_UPDATE_INTERVAL" ;;
+      4) _happ_edit_field "$env_file" "HAPP_ANNOUNCE_FILE" "$HAPP_ANNOUNCE_FILE" ;;
+      5) _happ_edit_field "$env_file" "HAPP_ROUTING_JSON_FILE" "$HAPP_ROUTING_JSON_FILE" ;;
+      *) echo -e "${RED}✗ Некорректный выбор${NC}"; sleep 1 ;;
+    esac
+  done
+}
+
+# Атомарная замена значения KEY="..." в env-файле через awk → temp → mv.
+# M6: read -r — без -r теряются backslashes в URL/путях.
+# Sanitization запрещает " \ $ ` (предотвращает shell-инъекцию при source в subhttp.sh).
+_happ_edit_field() {
+  local env_file="$1"
+  local key="$2"
+  local current="$3"
+  echo -n -e "${YELLOW}Новое значение для ${key} (Enter=оставить '${current}'): ${NC}"
+  local new_val
+  read -r new_val
+  [[ -z "$new_val" ]] && return 0   # пользователь отменил
+  if [[ "$new_val" =~ [\"\\\$\`] ]]; then
+    echo -e "${RED}✗ Значение не может содержать символы \" \\ \$ \`${NC}"
+    sleep 2
+    return 1
+  fi
+  local tmp
+  tmp=$(mktemp /tmp/happ_defaults.XXXXXX) || { echo -e "${RED}✗ mktemp failed${NC}"; return 1; }
+  if grep -q "^${key}=" "$env_file"; then
+    awk -v k="$key" -v v="$new_val" 'BEGIN{FS=OFS="="} $1==k {$0=k"=\""v"\""} {print}' "$env_file" > "$tmp"
+  else
+    cp "$env_file" "$tmp"
+    printf '%s="%s"\n' "$key" "$new_val" >> "$tmp"
+  fi
+  if [[ ! -s "$tmp" ]]; then
+    rm -f "$tmp"
+    echo -e "${RED}✗ Временный файл пуст — отмена${NC}"
+    return 1
+  fi
+  mv "$tmp" "$env_file"
+  chmod 644 "$env_file"
+  chown xray:xray "$env_file" 2>/dev/null || true
+  echo -e "${GREEN}✓ ${key} обновлено (рестарт subhttp не требуется — source на каждый request)${NC}"
+  sleep 1
+}
+
+# Главный wrapper-подменю «Подписка HAPP».
+# Status-line через _subscription_base_url (B1 — никакого инлайн-построения).
+# M6: read с -r.
+happ_subscription_menu() {
+  while true; do
+    show_ascii
+    echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
+    echo -e "${BLUE}    HAPP SUBSCRIPTION SERVER                  ${NC}"
+    echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
+    echo ""
+
+    if [[ -f /usr/local/etc/xray/.subscription_installed ]]; then
+      # B1: status-line через shared helper, никакого инлайна.
+      local _status_url
+      _status_url=$(_subscription_base_url)
+      echo -e "${GREEN}  ✓ Установлено: ${_status_url}${NC}"
+      echo ""
+    else
+      echo -e "${YELLOW}  ⚠ Не установлено${NC}"
+      echo ""
+    fi
+
+    echo -e "${CYAN} 1)${NC} Установить (public TLS, default — требует домен)"
+    echo -e "${CYAN} 2)${NC} Установить (local-only fallback — без домена/UFW)"
+    echo -e "${CYAN} 3)${NC} Управление подпиской (URL / QR / revoke)"
+    echo -e "${CYAN} 4)${NC} Настройки HAPP (.happ_defaults.env)"
+    echo -e "${CYAN} 0)${NC} Назад в главное меню"
+    echo ""
+    echo -n -e "${YELLOW}Выбор: ${NC}"
+    local c
+    read -r c
+    case "$c" in
+      1) install_subscription_public_tls ;;
+      2) install_subscription_local_only ;;
+      3) manage_subscription_menu ;;
+      4) happ_settings_menu ;;
+      0) return ;;
+    esac
+  done
+}
+
 # Главное меню
 main_menu() {
   # Run migrations on first launch after upgrade.
@@ -2360,6 +2483,9 @@ main_menu() {
     echo -e "${MAGENTA} POST-QUANTUM ENCRYPTION:${NC}"
     echo -e "${CYAN} 8)${NC} Обновить профиль до post-quantum (PQ XHTTP+Reality)"
     echo ""
+    echo -e "${MAGENTA} HAPP SUBSCRIPTION:${NC}"
+    echo -e "${CYAN} 9)${NC} Подписка HAPP (public TLS / local handler / revoke)"
+    echo ""
     echo -e "${RED} 0)${NC} Выход"
     echo ""
     echo -e "${BLUE}╚════════════════════════════════════════╝${NC}"
@@ -2374,6 +2500,7 @@ main_menu() {
       6) change_port_menu ;;
       7) adguard_home_menu ;;
       8) upgrade_profile_to_pq_menu ;;
+      9) happ_subscription_menu ;;
       0) exit 0 ;;
       *) echo -e "${RED}Неверный выбор${NC}"; sleep 1 ;;
     esac
