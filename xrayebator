@@ -1944,6 +1944,204 @@ SUBUNIT_EOF
   return 0
 }
 
+# ═══════════════════════════════════════════════════════════
+# Phase 7 Plan 7.3 — public TLS / local-only / port preflight
+# ═══════════════════════════════════════════════════════════
+# Public HTTPS port preflight. Эхает 443 если порт свободен, иначе 8443.
+# Если порт занят Xray inbound — предупреждение и fallback на 8443.
+# Если занят системным сервисом (nginx/apache/др.) — fallback + warning.
+# Выбранный порт пишется в /usr/local/etc/xray/.subscription_port (читается
+# _subscription_base_url).
+_select_subscription_port() {
+  local listener
+  listener=$(ss -ltnp 'sport = :443' 2>/dev/null | tail -n +2)
+  if [[ -z "$listener" ]]; then
+    echo 443
+    return 0
+  fi
+  if echo "$listener" | grep -q "xray"; then
+    echo -e "${YELLOW}  ⚠ Порт 443 занят Xray inbound — fallback на 8443${NC}" >&2
+  else
+    echo -e "${YELLOW}  ⚠ Порт 443 занят сторонним процессом — fallback на 8443${NC}" >&2
+  fi
+  echo 8443
+  return 0
+}
+
+# Public TLS installer (REQ-C02 — default operator flow).
+# Flow: domain prompt → DNS preflight (soft) → email prompt → port preflight (443/8443)
+# → apt install nginx + python3-certbot-nginx → nginx site config → certbot --nginx
+# --non-interactive --agree-tos --redirect → ufw limit (НЕ allow!) → write markers
+# (.subscription_port, .subscription_domain) → systemctl enable --now xrayebator-sub.
+# Display URL финального summary строится через _subscription_base_url (B1 — никакого
+# инлайн-https-build). Все read calls — с -r (M6).
+install_subscription_public_tls() {
+  show_ascii
+  echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
+  echo -e "${BLUE}    УСТАНОВКА ПУБЛИЧНОЙ ПОДПИСКИ (HTTPS)      ${NC}"
+  echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
+  echo ""
+
+  # Pre-flight: subhttp.sh должен быть установлен (Plan 7.2 marker).
+  if [[ ! -f /usr/local/etc/xray/.subscription_installed ]]; then
+    echo -e "${CYAN}  → subhttp.sh ещё не установлен — устанавливаем...${NC}"
+    install_subscription_server || return 1
+  fi
+
+  # Domain prompt (M6: read -r — без -r теряются backslashes).
+  local domain
+  echo -n -e "${YELLOW}Введите домен (A/AAAA должна указывать на этот VPS): ${NC}"
+  read -r domain
+  if [[ -z "$domain" ]] || ! [[ "$domain" =~ ^[a-zA-Z0-9.-]+$ ]]; then
+    echo -e "${RED}✗ Некорректный домен${NC}"
+    sleep 2
+    return 1
+  fi
+
+  # DNS sanity-check (soft — warning + опция продолжить).
+  # Rationale: split-DNS / Cloudflare proxied (orange-cloud) дают false-negatives.
+  local server_ip resolved_ip
+  server_ip=$(get_server_ip)
+  resolved_ip=$(getent hosts "$domain" 2>/dev/null | awk '{print $1}' | head -1)
+  if [[ -n "$resolved_ip" ]] && [[ "$resolved_ip" != "$server_ip" ]]; then
+    echo -e "${YELLOW}  ⚠ DNS-резолв $domain → $resolved_ip, но VPS IP = $server_ip${NC}"
+    echo -e "${YELLOW}    certbot скорее всего откажет. Продолжить? [y/N]${NC}"
+    local cont
+    read -r cont
+    [[ "$cont" =~ ^[yYдД]$ ]] || return 1
+  fi
+
+  # Email prompt (для certbot --agree-tos -m).
+  local email
+  echo -n -e "${YELLOW}Email для Let's Encrypt (восстановление аккаунта): ${NC}"
+  read -r email
+  if [[ -z "$email" ]] || ! [[ "$email" =~ ^[^@]+@[^@]+\.[^@]+$ ]]; then
+    echo -e "${RED}✗ Некорректный email${NC}"
+    sleep 2
+    return 1
+  fi
+
+  # Port preflight: 443 (default) или 8443 (если 443 занят).
+  local pub_port
+  pub_port=$(_select_subscription_port)
+  echo -e "${CYAN}  → Публичный порт: $pub_port${NC}"
+
+  # apt install nginx + certbot.
+  echo -e "${CYAN}  → Установка nginx + python3-certbot-nginx...${NC}"
+  if ! apt-get install -y nginx python3-certbot-nginx >/dev/null 2>&1; then
+    echo -e "${RED}✗ apt-get install не удалось${NC}"
+    return 1
+  fi
+
+  # nginx site config (heredoc; $host / $remote_addr ескейпятся через \$ потому что
+  # heredoc unquoted — это nginx-переменные, не shell).
+  cat > /etc/nginx/sites-available/xrayebator-sub << NGINX_EOF
+server {
+    listen ${pub_port};
+    listen [::]:${pub_port};
+    server_name ${domain};
+
+    location /sub/ {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+    }
+
+    # Catch-all для других путей — 404 (не утечка endpoint существования).
+    location / {
+        return 404;
+    }
+}
+NGINX_EOF
+  ln -sf /etc/nginx/sites-available/xrayebator-sub /etc/nginx/sites-enabled/xrayebator-sub
+  if ! nginx -t >/dev/null 2>&1; then
+    echo -e "${RED}✗ nginx -t failed${NC}"
+    rm -f /etc/nginx/sites-enabled/xrayebator-sub
+    return 1
+  fi
+  systemctl reload nginx
+
+  # certbot --nginx --non-interactive --agree-tos --redirect
+  echo -e "${CYAN}  → Запуск certbot для $domain...${NC}"
+  if ! certbot --nginx -d "$domain" --non-interactive --agree-tos -m "$email" --redirect >/tmp/certbot.log 2>&1; then
+    echo -e "${RED}✗ certbot не смог выдать сертификат. Лог: /tmp/certbot.log${NC}"
+    tail -20 /tmp/certbot.log
+    echo -e "${YELLOW}  → nginx site config оставлен. Можно повторить попытку или выбрать local-only fallback.${NC}"
+    return 1
+  fi
+
+  # UFW limit (REQ-C08 — rate-limit, НЕ allow!).
+  if command -v ufw &>/dev/null && ufw status | grep -q "Status: active"; then
+    ufw limit "${pub_port}/tcp" >/dev/null 2>&1
+    ufw reload >/dev/null 2>&1
+    echo -e "${GREEN}  ✓ UFW: limit ${pub_port}/tcp${NC}"
+  fi
+
+  # Markers — читаются _subscription_base_url (helper из Plan 7.2).
+  echo "$pub_port" > /usr/local/etc/xray/.subscription_port
+  echo "$domain" > /usr/local/etc/xray/.subscription_domain
+  chown xray:xray /usr/local/etc/xray/.subscription_port /usr/local/etc/xray/.subscription_domain 2>/dev/null || true
+
+  # Активация unit.
+  systemctl daemon-reload
+  systemctl enable --now xrayebator-sub.service
+  if ! systemctl is-active --quiet xrayebator-sub.service; then
+    echo -e "${RED}✗ xrayebator-sub.service не запустился — проверьте journalctl -u xrayebator-sub${NC}"
+    return 1
+  fi
+
+  echo ""
+  echo -e "${GREEN}╔═══════════════════════════════════════════════${NC}"
+  echo -e "${GREEN}    ✓ ПУБЛИЧНАЯ ПОДПИСКА АКТИВНА              ${NC}"
+  echo -e "${GREEN}╚═══════════════════════════════════════════════${NC}"
+  echo ""
+  # B1: shared helper — НЕ строим https://${domain} инлайн.
+  local _summary_base
+  _summary_base=$(_subscription_base_url)
+  echo -e "${BLUE}URL:${NC} ${GREEN}${_summary_base}${NC} (порт ${pub_port})"
+  echo -e "${CYAN}Подписки на профили — через подменю 'Управление подпиской'${NC}"
+  echo ""
+  echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
+  read -r _
+}
+
+# Local-only fallback installer (REQ-C03).
+# Без nginx, без certbot, БЕЗ открытия UFW (loopback bypasses firewall).
+# Доступ — только через ssh-tunnel: ssh -L 8080:127.0.0.1:8080 user@vps.
+install_subscription_local_only() {
+  show_ascii
+  echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
+  echo -e "${BLUE}    УСТАНОВКА ПОДПИСКИ (LOCAL-ONLY FALLBACK) ${NC}"
+  echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
+  echo ""
+  echo -e "${YELLOW}⚠ Подписки доступны только локально (127.0.0.1:8080).${NC}"
+  echo -e "${YELLOW}  Доступ — через ssh-tunnel: ssh -L 8080:127.0.0.1:8080 user@vps${NC}"
+  echo ""
+
+  if [[ ! -f /usr/local/etc/xray/.subscription_installed ]]; then
+    install_subscription_server || return 1
+  fi
+
+  echo "8080" > /usr/local/etc/xray/.subscription_port
+  echo "127.0.0.1" > /usr/local/etc/xray/.subscription_domain
+  chown xray:xray /usr/local/etc/xray/.subscription_port /usr/local/etc/xray/.subscription_domain 2>/dev/null || true
+
+  systemctl daemon-reload
+  systemctl enable --now xrayebator-sub.service
+  if ! systemctl is-active --quiet xrayebator-sub.service; then
+    echo -e "${RED}✗ xrayebator-sub.service не запустился${NC}"
+    return 1
+  fi
+
+  echo ""
+  echo -e "${GREEN}✓ Local-only handler запущен на 127.0.0.1:8080${NC}"
+  echo -e "${CYAN}  UFW: порт НЕ открыт (loopback bypass).${NC}"
+  echo ""
+  echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
+  read -r _
+}
+
 # Главное меню
 main_menu() {
   # Run migrations on first launch after upgrade.
