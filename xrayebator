@@ -2142,6 +2142,147 @@ install_subscription_local_only() {
   read -r _
 }
 
+# Управление подпиской (REQ-C12): список профилей с sub_token, для выбранного —
+# URL + QR + revoke + advanced raw vless:// (PQ-aware QR gate, REQ-C14).
+# B1 invariant: base URL ВСЕГДА через _subscription_base_url (Plan 7.2 helper).
+# M5: raw vless QR gated по pq_enabled из profile JSON (НЕ threshold-based по длине).
+# M6: все read calls — с -r (4 шт: choice, act, два Enter-pause).
+manage_subscription_menu() {
+  show_ascii
+  echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
+  echo -e "${BLUE}    УПРАВЛЕНИЕ ПОДПИСКОЙ                      ${NC}"
+  echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
+  echo ""
+
+  if [[ ! -f /usr/local/etc/xray/.subscription_installed ]]; then
+    echo -e "${RED}✗ Подписка не установлена. Сначала выберите 'Установить'.${NC}"
+    sleep 2
+    return
+  fi
+
+  # B1: base URL ВСЕГДА через shared helper (Plan 7.2). НЕТ инлайн-построения.
+  local base_url
+  base_url=$(_subscription_base_url)
+
+  local profiles=($(ls -1 "$PROFILES_DIR" 2>/dev/null | sed 's/.json$//'))
+  if [[ ${#profiles[@]} -eq 0 ]]; then
+    echo -e "${YELLOW}⚠ Нет профилей.${NC}"
+    sleep 2
+    return
+  fi
+
+  echo -e "${YELLOW}Выберите профиль:${NC}"
+  echo ""
+  local i=1
+  for profile in "${profiles[@]}"; do
+    local tok
+    tok=$(jq -r '.sub_token // ""' "$PROFILES_DIR/$profile.json" 2>/dev/null)
+    local short="${tok:0:8}"
+    echo -e "${CYAN} $i)${NC} $profile ${BLUE}[token: ${short}...]${NC}"
+    ((i++))
+  done
+  echo -e "${CYAN} 0)${NC} Назад"
+  echo ""
+  echo -n -e "${YELLOW}Профиль: ${NC}"
+  local choice
+  read -r choice
+  [[ "$choice" == "0" ]] && return
+  if [[ ! "$choice" =~ ^[0-9]+$ ]] || [[ $choice -lt 1 ]] || [[ $choice -gt ${#profiles[@]} ]]; then
+    echo -e "${RED}✗ Неверный выбор${NC}"
+    sleep 2
+    return
+  fi
+
+  local selected="${profiles[$((choice-1))]}"
+  local pfile="$PROFILES_DIR/${selected}.json"
+  local token
+  token=$(jq -r '.sub_token // ""' "$pfile" 2>/dev/null)
+  if [[ ! "$token" =~ ^[a-f0-9]{32}$ ]]; then
+    echo -e "${RED}✗ В профиле нет валидного sub_token. Запустите 'sudo xrayebator' — миграция .subscription_tokens_2026 догенерирует.${NC}"
+    sleep 3
+    return
+  fi
+
+  while true; do
+    show_ascii
+    local url="${base_url}/sub/${token}"
+    echo -e "${BLUE}═══ Профиль: ${selected} ═══${NC}"
+    echo ""
+    echo -e "${BLUE}Subscription URL:${NC}"
+    echo -e "  ${GREEN}$url${NC}"
+    echo ""
+    echo -e "${CYAN} 1)${NC} Показать QR-код subscription URL"
+    echo -e "${CYAN} 2)${NC} Revoke (сгенерировать новый sub_token)"
+    echo -e "${CYAN} 3)${NC} Показать raw vless:// (advanced)"
+    echo -e "${CYAN} 0)${NC} Назад"
+    echo ""
+    echo -n -e "${YELLOW}Выбор: ${NC}"
+    local act
+    read -r act
+    case "$act" in
+      1)
+        # REQ-C14: QR ВСЕГДА для короткого subscription URL (HTTPS короткая строка).
+        echo ""
+        qrencode -t ANSIUTF8 "$url"
+        echo ""
+        echo -n -e "${YELLOW}Enter для продолжения...${NC}"
+        read -r _
+        ;;
+      2)
+        # Revoke — генерируем новый 32-hex sub_token, пишем через safe_jq_write.
+        # Рестарт subhttp НЕ нужен: handler читает .sub_token из profile JSON на каждый request.
+        local new_token
+        new_token=$(openssl rand -hex 16)
+        if [[ ! "$new_token" =~ ^[a-f0-9]{32}$ ]]; then
+          echo -e "${RED}✗ Не удалось сгенерировать токен${NC}"
+          sleep 2
+          continue
+        fi
+        if ! safe_jq_write --arg t "$new_token" '.sub_token = $t' "$pfile"; then
+          echo -e "${RED}✗ Запись в profile JSON не удалась${NC}"
+          sleep 2
+          continue
+        fi
+        chown xray:xray "$pfile" 2>/dev/null || true
+        token="$new_token"
+        echo -e "${GREEN}✓ Новый sub_token. Старая URL более не работает.${NC}"
+        echo -e "${CYAN}  Новая URL: ${base_url}/sub/${token}${NC}"
+        sleep 3
+        ;;
+      3)
+        # M5: raw vless:// QR — PQ-aware gate, НЕ threshold-based по длине строки.
+        # Rationale: PQ профили имеют encryption=mlkem768x25519plus.<base64-~2KB>, что
+        # делает QR нечитаемым. Legacy vless без PQ обычно укладывается в Version-25 QR.
+        # Threshold-based (length > N) рискует ложно блокировать legacy с длинным SNI/xhttp_path.
+        # Точный сигнал — pq_enabled поле в profile JSON (Phase 6 REQ-A04 / schema_version:2).
+        local raw pq_enabled
+        raw=$(_generate_vless_url_pure "$pfile" 2>/dev/null) || {
+          echo -e "${RED}✗ Не удалось построить vless://${NC}"
+          sleep 2
+          continue
+        }
+        pq_enabled=$(jq -r '.pq_enabled // false' "$pfile" 2>/dev/null)
+        echo ""
+        echo -e "${CYAN}Raw vless:// URL:${NC}"
+        echo -e "${YELLOW}${raw}${NC}"
+        echo ""
+        if [[ "$pq_enabled" == "true" ]]; then
+          echo -e "${RED}  ✗ QR не генерируется: PQ-профиль (encryption=mlkem... ~2KB).${NC}"
+          echo -e "${YELLOW}  PQ vless:// строки нечитаемы как QR-код.${NC}"
+          echo -e "${YELLOW}  Используйте subscription URL/QR (пункт 1 — короткий HTTPS-link).${NC}"
+        else
+          echo -e "${GREEN}  → legacy профиль (без PQ) — QR допустим${NC}"
+          qrencode -t ANSIUTF8 "$raw"
+        fi
+        echo ""
+        echo -n -e "${YELLOW}Enter для продолжения...${NC}"
+        read -r _
+        ;;
+      0) return ;;
+    esac
+  done
+}
+
 # Главное меню
 main_menu() {
   # Run migrations on first launch after upgrade.
@@ -2476,6 +2617,27 @@ create_profile() {
   echo -e "${BLUE}Порт:${NC} $port"
   echo -e "${BLUE}Fingerprint:${NC} $fingerprint"
   echo -e "${BLUE}SNI:${NC} $actual_sni"
+
+  # Phase 7: subscription URL/QR — primary output если подписка установлена.
+  # B1: URL строится через _subscription_base_url (Plan 7.2 helper) — никакого инлайна!
+  if [[ -f /usr/local/etc/xray/.subscription_installed ]]; then
+    local _tok
+    _tok=$(jq -r '.sub_token // ""' "$PROFILES_DIR/$name.json" 2>/dev/null)
+    if [[ "$_tok" =~ ^[a-f0-9]{32}$ ]]; then
+      local _base
+      _base=$(_subscription_base_url)
+      local _url="${_base}/sub/${_tok}"
+      echo ""
+      echo -e "${GREEN}═══ HAPP SUBSCRIPTION URL ═══${NC}"
+      echo -e "${BLUE}URL:${NC} ${GREEN}${_url}${NC}"
+      echo ""
+      qrencode -t ANSIUTF8 "$_url"
+    fi
+  else
+    echo ""
+    echo -e "${YELLOW}ℹ HAPP-подписка ещё не установлена. Включите через 'Главное меню → Подписка HAPP'.${NC}"
+  fi
+
   echo ""
   echo -e "${CYAN}Используйте меню 'Подключиться по профилю' для получения ссылки${NC}"
   echo ""
