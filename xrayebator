@@ -305,6 +305,32 @@ _generate_vless_url_pure() {
   return 0
 }
 
+# ═══════════════════════════════════════════════════════════
+# Subscription base URL builder (Phase 7, Plan 7.2 / REQ-C03)
+# ═══════════════════════════════════════════════════════════
+# Читает /usr/local/etc/xray/.subscription_domain и .subscription_port (создаются Plan 7.3
+# после установки публичного TLS). Возвращает на stdout канонично-сформированный base URL
+# (без trailing slash, без /sub/<token>). Контракт:
+#   - "http://127.0.0.1:8080"   — если domain == "127.0.0.1" (local-only fallback);
+#   - "https://<domain>"        — если port == "443" (без явного указания порта в URL);
+#   - "https://<domain>:<port>" — иначе (public TLS на 8443 и пр.).
+# return: 0 всегда (даже при отсутствии маркеров — отдаёт default http://127.0.0.1:8080).
+# Единственный источник истины для Plan 7.3 (manage_subscription_menu / create_profile
+# success-screen / happ_subscription_menu status-line) и для subhttp.sh self-test.
+_subscription_base_url() {
+  local domain port
+  domain=$(cat /usr/local/etc/xray/.subscription_domain 2>/dev/null || echo "127.0.0.1")
+  port=$(cat /usr/local/etc/xray/.subscription_port 2>/dev/null || echo "8080")
+  if [[ "$domain" == "127.0.0.1" ]]; then
+    echo "http://${domain}:${port}"
+  elif [[ "$port" == "443" ]]; then
+    echo "https://${domain}"
+  else
+    echo "https://${domain}:${port}"
+  fi
+  return 0
+}
+
 write_profile_transport_metadata() {
   local profile_file=$1
   local grpc_service_name=$2
@@ -1223,7 +1249,15 @@ _migrate_subscription_tokens_2026() {
 # END HELPER FUNCTIONS
 # ═══════════════════════════════════════════════════════════
 
-SERVER_IP=$(get_server_ip)
+# Phase 7: при source-режиме НЕ делаем curl/hostname на загрузке (subhttp.sh source-ит
+# xrayebator на каждый HTTP-request — лишние сетевые вызовы под xray:xray неприемлемы).
+# В source-режиме SERVER_IP инициализируется пустым; pure-функции и subhttp вызывают
+# get_server_ip() сами по необходимости.
+if [[ "$XRAYEBATOR_SOURCED" -eq 0 ]]; then
+  SERVER_IP=$(get_server_ip)
+else
+  SERVER_IP=""
+fi
 
 
 # Показать ASCII арт
@@ -1644,6 +1678,222 @@ show_pq_banner_once() {
   # Если touch упадёт (broken /usr/local/etc/xray/) — баннер появится снова. OK.
   touch "$marker" 2>/dev/null || true
   chown xray:xray "$marker" 2>/dev/null || true
+}
+
+# ═══════════════════════════════════════════════════════════
+# HAPP Subscription server installer (Phase 7, Plan 7.2)
+# ═══════════════════════════════════════════════════════════
+# Heredoc-генерирует ТРИ артефакта:
+#   1) /usr/local/bin/subhttp.sh                — HTTP handler (755 root:root);
+#   2) /etc/systemd/system/xrayebator-sub.service — opt-in systemd unit (644 root:root);
+#   3) /usr/local/etc/xray/.happ_defaults.env   — HAPP metadata defaults (644 xray:xray),
+#      создаётся только если отсутствует (idempotent — не перетираем правки оператора).
+# Marker: /usr/local/etc/xray/.subscription_installed (Plan 7.3 проверит наличие).
+# Юнит НЕ enable-ится и НЕ start-ится автоматически — этим занимается Plan 7.3 после
+# выбора публичного TLS (default) или local-only fallback.
+install_subscription_server() {
+  show_ascii
+  echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
+  echo -e "${BLUE}     УСТАНОВКА HAPP SUBSCRIPTION SERVER       ${NC}"
+  echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
+  echo ""
+
+  # Pre-flight: socat (handler bind), openssl/base64/jq уже гарантированы install.sh.
+  if ! command -v socat &>/dev/null; then
+    echo -e "${CYAN}  → Установка socat...${NC}"
+    if ! apt-get install -y socat >/dev/null 2>&1; then
+      echo -e "${RED}✗ Не удалось установить socat${NC}"
+      echo -e "${YELLOW}Установите вручную: apt-get install -y socat${NC}"
+      return 1
+    fi
+    echo -e "${GREEN}  ✓ socat установлен${NC}"
+  fi
+
+  # ── (1) subhttp.sh ────────────────────────────────────────
+  # Heredoc маркер single-quoted — $-переменные внутри handler-а
+  # НЕ интерполируются на момент генерации (это критично: $path/$token/$HAPP_*
+  # должны раскрываться в runtime handler-а, не на этапе записи файла).
+  cat > /usr/local/bin/subhttp.sh << 'SUBHTTP_EOF'
+#!/bin/bash
+# xrayebator subhttp.sh — HAPP subscription handler (heredoc-generated from xrayebator).
+# socat fork-ит этот скрипт на каждый TCP-connect: stdin = HTTP request, stdout = HTTP response.
+# REQ-C05 (strict regex), REQ-C06 (constant-time 404), REQ-C07 (HAPP metadata symmetry headers↔body).
+
+set -u
+
+# Source xrayebator для доступа к _generate_vless_url_pure() + констант (CONFIG_FILE,
+# PROFILES_DIR, PUBLIC_KEY_FILE, VLESS_ENCRYPTION_FILE). Source-safety guard (Plan 7.1
+# REQ-C10) гарантирует, что main_menu НЕ запустится при source.
+source /usr/local/bin/xrayebator
+
+# Source HAPP defaults — на КАЖДЫЙ request (REQ-C13 prerequisite: Plan 7.3 TUI редактирование
+# применяется без рестарта сервиса).
+HAPP_DEFAULTS=/usr/local/etc/xray/.happ_defaults.env
+[[ -f "$HAPP_DEFAULTS" ]] && source "$HAPP_DEFAULTS"
+
+# Fallback-defaults если .happ_defaults.env отсутствует или не задаёт переменную.
+HAPP_PROFILE_UPDATE_INTERVAL="${HAPP_PROFILE_UPDATE_INTERVAL:-24}"
+HAPP_SUPPORT_URL="${HAPP_SUPPORT_URL:-https://github.com/howdeploy/Xrayebator}"
+HAPP_WEB_URL="${HAPP_WEB_URL:-https://github.com/howdeploy/Xrayebator}"
+HAPP_ANNOUNCE_FILE="${HAPP_ANNOUNCE_FILE:-/usr/local/etc/xray/announce.txt}"
+HAPP_ROUTING_JSON_FILE="${HAPP_ROUTING_JSON_FILE:-/usr/local/etc/xray/.happ_routing.json}"
+
+# Parse HTTP request line: "GET /sub/<32hex> HTTP/1.1\r"
+read -r request_line || true
+method=$(printf '%s' "$request_line" | awk '{print $1}')
+path=$(printf '%s' "$request_line" | awk '{print $2}')
+
+# Drain remaining headers — нужны только чтобы socat не блокировал client.
+while IFS= read -r header_line; do
+  [[ "$header_line" == $'\r' || -z "$header_line" ]] && break
+done
+
+# Constant-time 404 (REQ-C06): идентичные body+headers, ВСЕГДА sleep 0.1 ПЕРЕД ответом.
+# Защищает от token enumeration через timing side-channel.
+emit_404() {
+  sleep 0.1
+  printf 'HTTP/1.1 404 Not Found\r\n'
+  printf 'content-type: text/plain; charset=utf-8\r\n'
+  printf 'content-length: 10\r\n'
+  printf 'connection: close\r\n'
+  printf '\r\n'
+  printf 'Not Found\n'
+  exit 0
+}
+
+# Method check: только GET. Любой другой — 404 (НЕ 405: не раскрываем существование endpoint).
+[[ "$method" == "GET" ]] || emit_404
+
+# Strict regex (REQ-C05): /sub/<32-hex>. Любой иной path — 404.
+if ! [[ "$path" =~ ^/sub/[a-f0-9]{32}$ ]]; then
+  emit_404
+fi
+
+token="${path#/sub/}"
+
+# Найти profile JSON с .sub_token == $token.
+profile_file=""
+for pf in "$PROFILES_DIR"/*.json; do
+  [[ -f "$pf" ]] || continue
+  if [[ "$(jq -r '.sub_token // ""' "$pf" 2>/dev/null)" == "$token" ]]; then
+    profile_file="$pf"
+    break
+  fi
+done
+
+# Token не найден — constant-time 404 (защита от enumeration через timing).
+[[ -n "$profile_file" ]] || emit_404
+
+profile_name=$(basename "$profile_file" .json)
+short_token="${token:0:8}"
+
+# Построить vless:// через pure-функцию из xrayebator (Plan 7.1 REQ-C10).
+vless_url=$(_generate_vless_url_pure "$profile_file" 2>/dev/null) || emit_404
+
+# HAPP metadata: profile-title и announce — base64 UTF-8 без переносов (-w0).
+profile_title_b64=$(printf '%s' "$profile_name" | base64 -w0)
+announce_b64=""
+if [[ -f "$HAPP_ANNOUNCE_FILE" ]]; then
+  announce_text=$(cat "$HAPP_ANNOUNCE_FILE")
+  announce_b64=$(printf '%s' "$announce_text" | base64 -w0)
+fi
+
+# HAPP routing import payload: кастомный JSON или минимальный default.
+if [[ -f "$HAPP_ROUTING_JSON_FILE" ]]; then
+  routing_json=$(cat "$HAPP_ROUTING_JSON_FILE")
+else
+  routing_json='{"name":"xrayebator-default","rules":[]}'
+fi
+# base64url (RFC 4648 §5): base64 → tr +/ -_ → strip padding =.
+routing_b64url=$(printf '%s' "$routing_json" | base64 -w0 | tr '+/' '-_' | tr -d '=')
+routing_uri="happ://routing/onadd/${routing_b64url}"
+
+# subscription-userinfo expire: jq override hook (.expire поле в profile JSON),
+# fallback 4102444800 (год 2099 — placeholder для v2.0; real-time tracking deferred к post-v2.0).
+expire_value=$(jq -r '.expire // 4102444800' "$profile_file" 2>/dev/null)
+sub_userinfo="upload=0; download=0; total=0; expire=${expire_value}"
+
+# Body order (N9 fix): comments → vless:// → happ://routing.
+# Некоторые HAPP-парсеры считают первую `://` строку primary connection — vless должен
+# быть ПЕРЕД happ://routing чтобы парсер выбрал правильный primary URL.
+body_tmp="/tmp/subhttp_body.$$"
+{
+  printf '#profile-update-interval: %s\n' "$HAPP_PROFILE_UPDATE_INTERVAL"
+  printf '#profile-title: base64:%s\n' "$profile_title_b64"
+  printf '#subscription-userinfo: %s\n' "$sub_userinfo"
+  printf '#support-url: %s\n' "$HAPP_SUPPORT_URL"
+  printf '#profile-web-page-url: %s\n' "$HAPP_WEB_URL"
+  if [[ -n "$announce_b64" ]]; then
+    printf '#announce: base64:%s\n' "$announce_b64"
+  fi
+  printf '%s\n' "$vless_url"
+  printf '%s\n' "$routing_uri"
+} > "$body_tmp"
+
+body_size=$(stat -c%s "$body_tmp" 2>/dev/null || wc -c < "$body_tmp")
+
+# Response: те же metadata-ключи дублируются как HTTP headers (REQ-C07 symmetry).
+printf 'HTTP/1.1 200 OK\r\n'
+printf 'content-type: text/plain; charset=utf-8\r\n'
+printf 'content-disposition: attachment; filename="xrayebator-%s.txt"\r\n' "$short_token"
+printf 'content-length: %s\r\n' "$body_size"
+printf 'connection: close\r\n'
+printf 'profile-update-interval: %s\r\n' "$HAPP_PROFILE_UPDATE_INTERVAL"
+printf 'profile-title: base64:%s\r\n' "$profile_title_b64"
+printf 'subscription-userinfo: %s\r\n' "$sub_userinfo"
+printf 'support-url: %s\r\n' "$HAPP_SUPPORT_URL"
+printf 'profile-web-page-url: %s\r\n' "$HAPP_WEB_URL"
+if [[ -n "$announce_b64" ]]; then
+  printf 'announce: base64:%s\r\n' "$announce_b64"
+fi
+printf 'routing: %s\r\n' "$routing_uri"
+printf '\r\n'
+cat "$body_tmp"
+
+rm -f "$body_tmp"
+exit 0
+SUBHTTP_EOF
+
+  chmod 755 /usr/local/bin/subhttp.sh
+  chown root:root /usr/local/bin/subhttp.sh
+  echo -e "${GREEN}  ✓ /usr/local/bin/subhttp.sh создан${NC}"
+
+  # ── (2) .happ_defaults.env (idempotent — не перетирать кастомизации оператора) ──
+  if [[ ! -f /usr/local/etc/xray/.happ_defaults.env ]]; then
+    cat > /usr/local/etc/xray/.happ_defaults.env << 'HAPP_DEFAULTS_EOF'
+# xrayebator HAPP subscription metadata defaults.
+# Этот файл source-ится subhttp.sh на КАЖДЫЙ request — менять можно без рестарта сервиса.
+# Plan 7.3 menu позволит редактировать через TUI; править руками тоже допустимо
+# (синтаксис shell, любые BASH-совместимые конструкции).
+
+# URL поддержки (HAPP импортирует, кликабельно у юзера в клиенте):
+HAPP_SUPPORT_URL="https://github.com/howdeploy/Xrayebator"
+
+# URL веб-страницы профиля (HAPP покажет в info клиента):
+HAPP_WEB_URL="https://github.com/howdeploy/Xrayebator"
+
+# Интервал автообновления подписки в часах (HAPP читает как hint):
+HAPP_PROFILE_UPDATE_INTERVAL=24
+
+# Файл с announcement-сообщением (опционально). Plan 8 (REQ-E04) — TUI редактор.
+# Если файл существует и не пуст — его содержимое попадёт в #announce: base64:... (UTF-8 safe).
+HAPP_ANNOUNCE_FILE="/usr/local/etc/xray/announce.txt"
+
+# Файл с кастомным HAPP routing JSON (опционально). Если отсутствует — отдаётся
+# минимальный default routing ({"name":"xrayebator-default","rules":[]}).
+# Base64url-кодируется в happ://routing/onadd/<...>.
+HAPP_ROUTING_JSON_FILE="/usr/local/etc/xray/.happ_routing.json"
+HAPP_DEFAULTS_EOF
+    chmod 644 /usr/local/etc/xray/.happ_defaults.env
+    chown xray:xray /usr/local/etc/xray/.happ_defaults.env 2>/dev/null || true
+    echo -e "${GREEN}  ✓ /usr/local/etc/xray/.happ_defaults.env создан${NC}"
+  else
+    echo -e "${YELLOW}  ⚠ /usr/local/etc/xray/.happ_defaults.env уже существует — не трогаем${NC}"
+  fi
+
+  echo ""
+  echo -e "${YELLOW}  ⚠ Файлы созданы. Юнит systemd создастся ниже; для запуска используйте меню Plan 7.3.${NC}"
+  return 0
 }
 
 # Главное меню
