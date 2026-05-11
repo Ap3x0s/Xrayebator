@@ -1180,6 +1180,45 @@ _migrate_xhttp_default_2026() {
   return 1
 }
 
+# Phase 7 REQ-C04: догенерируем sub_token для существующих профилей,
+# созданных до Phase 7 (нет поля .sub_token).
+# Return: 0 = были изменения config.json (НЕ наш случай, миграция не трогает config.json),
+#         1 = no-op/mark — ставим маркер БЕЗ safe_restart_xray (config.json не тронут),
+#         ≥2 = жёсткая ошибка записи.
+# Эта миграция работает ТОЛЬКО с profile JSONs в $PROFILES_DIR.
+_migrate_subscription_tokens_2026() {
+  local changed=0
+  local profile_file
+  for profile_file in "$PROFILES_DIR"/*.json; do
+    [[ ! -f "$profile_file" ]] && continue
+    local existing
+    existing=$(jq -r '.sub_token // ""' "$profile_file" 2>/dev/null)
+    if [[ -n "$existing" ]] && [[ "$existing" =~ ^[a-f0-9]{32}$ ]]; then
+      continue   # уже есть валидный 32-hex
+    fi
+    local new_token
+    new_token=$(openssl rand -hex 16)
+    if [[ ! "$new_token" =~ ^[a-f0-9]{32}$ ]]; then
+      echo -e "${RED}  ✗ openssl rand вернул некорректный токен для $(basename "$profile_file")${NC}"
+      return 2
+    fi
+    if ! safe_jq_write --arg t "$new_token" '.sub_token = $t' "$profile_file"; then
+      echo -e "${RED}  ✗ safe_jq_write failed для $profile_file${NC}"
+      return 2
+    fi
+    chown xray:xray "$profile_file" 2>/dev/null || true
+    chmod 644 "$profile_file" 2>/dev/null || true
+    echo -e "${GREEN}  ✓ sub_token сгенерирован для $(basename "$profile_file" .json)${NC}"
+    changed=1
+  done
+  # Возвращаем 1 даже при изменениях — config.json НЕ модифицирован, рестарт Xray не нужен.
+  # run_migration на rc=1 ставит marker без safe_restart_xray. Это и нужно.
+  if [[ $changed -eq 1 ]]; then
+    echo -e "${CYAN}  → sub_token backfill завершён (рестарт Xray не требуется)${NC}"
+  fi
+  return 1
+}
+
 # ═══════════════════════════════════════════════════════════
 # END HELPER FUNCTIONS
 # ═══════════════════════════════════════════════════════════
@@ -1625,6 +1664,7 @@ main_menu() {
   run_migration "xmux_explicit_2026"                   "Explicit xmux block для XHTTP"     migrate_xmux_explicit_2026         || ((migration_failures++))
   run_migration "mlkem_keys_generated"                 "PQ ключи VLESS Encryption (mlkem768x25519plus)" _migrate_mlkem_keys || ((migration_failures++))
   run_migration "xhttp_default_2026"                   "XHTTP+PQ как дефолтный пресет создания профиля" _migrate_xhttp_default_2026 || ((migration_failures++))
+  run_migration "subscription_tokens_2026"             "Subscription tokens (Phase 7) для существующих профилей" _migrate_subscription_tokens_2026 || ((migration_failures++))
 
   # Aggregate report (RESEARCH §«Error reporting»): чтобы пользователь не пропустил
   # failure среди скроллящегося TUI вывода.
@@ -1807,6 +1847,15 @@ create_profile() {
   local xhttp_path=$7
   local uuid=$(uuidgen)
 
+  # Phase 7 REQ-C04: sub_token (32 hex-символа) для HAPP subscription URL.
+  # Один профиль = одна subscription URL; sub_token хранится в profile JSON.
+  local sub_token
+  sub_token=$(openssl rand -hex 16)
+  if [[ ! "$sub_token" =~ ^[a-f0-9]{32}$ ]]; then
+    echo -e "${RED}✗ Не удалось сгенерировать sub_token (openssl?)${NC}"
+    return 1
+  fi
+
   local default_sni=""
   local defaults=""
 
@@ -1858,6 +1907,7 @@ create_profile() {
     --argjson port "$port"
     --arg fingerprint "$fingerprint"
     --arg sni "$default_sni"
+    --arg sub_token "$sub_token"
     --arg created "$(date +%Y-%m-%d\ %H:%M:%S)"
   )
   local jq_expr='{name: $name, uuid: $uuid, transport: $transport, port: $port, fingerprint: $fingerprint, sni: $sni'
@@ -1872,7 +1922,8 @@ create_profile() {
     jq_args+=(--argjson schema_v 2 --argjson pq_enabled true)
     jq_expr+=', schema_version: $schema_v, pq_enabled: $pq_enabled'
   fi
-  jq_expr+=', created: $created}'
+  # Phase 7 REQ-C04: sub_token присутствует во всех профилях независимо от транспорта.
+  jq_expr+=', sub_token: $sub_token, created: $created}'
   if ! jq -n "${jq_args[@]}" "$jq_expr" > "$PROFILES_DIR/$name.json"; then
     rm -f "$PROFILES_DIR/$name.json"
     echo -e "${RED}✗ Не удалось создать JSON профиля${NC}"
