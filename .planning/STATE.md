@@ -5,17 +5,17 @@
 See: .planning/PROJECT.md (updated 2026-05-09)
 
 **Core value:** VPN стабильно и быстро работает через ТСПУ — соединение не падает, блокировки обходятся надёжно
-**Current focus:** v2.0 Phase 7 IN PROGRESS (Plan 07-02 DONE → next 07-03 public TLS + management menus).
+**Current focus:** v2.0 Phase 7 COMPLETE (3/3 планов DONE) → next Phase 8 (final polish + AdGuard cleanup).
 
 ## Current Position
 
 Milestone: v2.0 — Post-Quantum & HAPP
-Phase: 7 of 8 (HAPP Subscription Server) — 2/3 планов DONE
-Plan: 07-02 ✓ DONE (2/2 tasks, commits 10bfc9a + 56c1113)
-Status: Phase 4 ✓ | Phase 5 ✓ | Phase 6 ✓ | Phase 7 Plan 7.1 ✓ | Plan 7.2 ✓ → next Plan 7.3 (public TLS + management menus)
-Last activity: 2026-05-11 — Plan 07-02 executed: shared helper _subscription_base_url() (источник истины базового URL для Plan 7.3), install_subscription_server() heredoc-генерация 3 артефактов (subhttp.sh с strict regex routing + constant-time 404 + HAPP body order comments→vless→routing + симметричные headers, .happ_defaults.env idempotent configurable, xrayebator-sub.service opt-in с REQ-C09 hardening + 6 best-practice флагов), marker .subscription_installed. Concern из 7.1 (SERVER_IP curl top-level) закрыт обёрткой XRAYEBATOR_SOURCED. xrayebator: 4088 → 4386 строк.
+Phase: 7 of 8 (HAPP Subscription Server) — 3/3 планов DONE ✓ COMPLETE
+Plan: 07-03 ✓ DONE (3/3 tasks, commits a95bd99 + 692732d + f375954)
+Status: Phase 4 ✓ | Phase 5 ✓ | Phase 6 ✓ | Phase 7 ✓ (Plans 7.1+7.2+7.3) → next Phase 8 (final polish + AdGuard cleanup)
+Last activity: 2026-05-11 — Plan 07-03 executed: _select_subscription_port (443/8443 preflight через ss), install_subscription_public_tls (REQ-C02 — domain prompt + DNS preflight + certbot --non-interactive + ufw limit REQ-C08 + nginx site config + markers + systemctl enable --now), install_subscription_local_only (REQ-C03 — без nginx/UFW, loopback bypass), manage_subscription_menu (REQ-C12 — URL+QR+revoke через safe_jq_write без рестарта + advanced raw vless с PQ-aware QR gate REQ-C14/M5 через jq .pq_enabled), happ_settings_menu + _happ_edit_field (REQ-C13 — TUI editor .happ_defaults.env с атомарной заменой awk+mktemp+mv), happ_subscription_menu wrapper (registered в main_menu пункт 9), create_profile success-screen теперь показывает subscription URL+QR primary через _subscription_base_url. B1 invariant: 4 call sites helper-а. M6 invariant: 14 read -r в новых функциях. xrayebator: 4386 → 4873 строки. Phase 7 COMPLETE — все REQ-C* satisfied.
 
-Progress: [#########] 90% (Phases 4+5+6 ✓ + Phase 7 Plan 2/3 ✓)
+Progress: [##########] 100% (Phases 4+5+6+7 ✓; Phase 8 final polish remains)
 
 ## Performance Metrics
 
@@ -41,6 +41,7 @@ Progress: [#########] 90% (Phases 4+5+6 ✓ + Phase 7 Plan 2/3 ✓)
 | Phase 06-post-quantum-vless-encryption-ml-kem P03 | 10min | 2 tasks | 1 files |
 | Phase 07-happ-subscription-server P01 | 7 min | 3 tasks | 1 files |
 | Phase 07-happ-subscription-server P02 | 4 min | 2 tasks tasks | 1 files files |
+| Phase 07-happ-subscription-server P03 | 5min | 3 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -136,23 +137,28 @@ v2.0 scope decisions (post-research, pre-execution):
 - [Phase 07-happ-subscription-server]: [07-02 idempotent .happ_defaults.env]: повторный install_subscription_server НЕ перетирает файл — Plan 7.3 TUI правки сохраняются при ре-установке
 - [Phase 07-happ-subscription-server]: [07-02 opt-in systemd unit]: install_subscription_server делает daemon-reload + touch marker, БЕЗ enable/start — активацию выполняет Plan 7.3 после выбора public TLS vs local-only
 - [Phase 07-happ-subscription-server]: [07-02 hardening superset]: REQ-C09 6 флагов + 6 best-practice (PrivateDevices/PrivateTmp/ProtectKernelTunables/ProtectKernelModules/ProtectControlGroups/LockPersonality)
+- [Phase 07-happ-subscription-server]: [07-03 verify-границы]: awk-range `/^fn\(\)/,/^}$/` ломаются на одиночных `}` внутри nginx heredoc — реальный код корректен, verify-методология плана даёт false-positive; sed -n по точным строкам работает безошибочно
+- [Phase 07-happ-subscription-server]: [07-03 B1 invariant]: 4 call sites _subscription_base_url (install_subscription_public_tls summary, manage_subscription_menu, create_profile success-screen, happ_subscription_menu status-line) — никакого инлайн https://${domain} build, ни в одной из 7 новых функций
+- [Phase 07-happ-subscription-server]: [07-03 PQ-aware QR gate]: М5 — pq_enabled из profile JSON (Phase 6 REQ-A04 / schema_version:2), НЕ threshold-based по длине строки; легаси-профили с длинным SNI не блокируются
+- [Phase 07-happ-subscription-server]: [07-03 UFW limit]: REQ-C08 — `ufw limit` (rate-limit), НЕ `ufw allow`; местные-only fallback вообще не открывает UFW (loopback bypass)
+- [Phase 07-happ-subscription-server]: [07-03 revoke без рестарта]: subhttp.sh читает .sub_token из profile JSON на каждый request, нет кэша — revoke через safe_jq_write мгновенно вступает в силу без `systemctl restart xrayebator-sub`
 
 ## Project Reference
 
 See: .planning/PROJECT.md (updated 2026-05-09)
 
 **Core value:** VPN стабильно и быстро работает через ТСПУ — соединение не падает, блокировки обходятся надёжно
-**Current focus:** v2.0 Phase 7 IN PROGRESS (Plan 07-02 DONE → next 07-03 public TLS + management menus).
+**Current focus:** v2.0 Phase 7 COMPLETE (3/3 планов DONE) → next Phase 8 (final polish + AdGuard cleanup).
 
 ## Current Position
 
 Milestone: v2.0 — Post-Quantum & HAPP
-Phase: 7 of 8 (HAPP Subscription Server) — 2/3 планов DONE
-Plan: 07-02 ✓ DONE (2/2 tasks, commits 10bfc9a + 56c1113)
-Status: Phase 4 ✓ | Phase 5 ✓ | Phase 6 ✓ | Phase 7 Plan 7.1 ✓ | Plan 7.2 ✓ → next Plan 7.3 (public TLS + management menus)
-Last activity: 2026-05-11 — Plan 07-02 executed: shared helper _subscription_base_url() (источник истины базового URL для Plan 7.3), install_subscription_server() heredoc-генерация 3 артефактов (subhttp.sh с strict regex routing + constant-time 404 + HAPP body order comments→vless→routing + симметричные headers, .happ_defaults.env idempotent configurable, xrayebator-sub.service opt-in с REQ-C09 hardening + 6 best-practice флагов), marker .subscription_installed. Concern из 7.1 (SERVER_IP curl top-level) закрыт обёрткой XRAYEBATOR_SOURCED. xrayebator: 4088 → 4386 строк.
+Phase: 7 of 8 (HAPP Subscription Server) — 3/3 планов DONE ✓ COMPLETE
+Plan: 07-03 ✓ DONE (3/3 tasks, commits a95bd99 + 692732d + f375954)
+Status: Phase 4 ✓ | Phase 5 ✓ | Phase 6 ✓ | Phase 7 ✓ (Plans 7.1+7.2+7.3) → next Phase 8 (final polish + AdGuard cleanup)
+Last activity: 2026-05-11 — Plan 07-03 executed: _select_subscription_port (443/8443 preflight через ss), install_subscription_public_tls (REQ-C02 — domain prompt + DNS preflight + certbot --non-interactive + ufw limit REQ-C08 + nginx site config + markers + systemctl enable --now), install_subscription_local_only (REQ-C03 — без nginx/UFW, loopback bypass), manage_subscription_menu (REQ-C12 — URL+QR+revoke через safe_jq_write без рестарта + advanced raw vless с PQ-aware QR gate REQ-C14/M5 через jq .pq_enabled), happ_settings_menu + _happ_edit_field (REQ-C13 — TUI editor .happ_defaults.env с атомарной заменой awk+mktemp+mv), happ_subscription_menu wrapper (registered в main_menu пункт 9), create_profile success-screen теперь показывает subscription URL+QR primary через _subscription_base_url. B1 invariant: 4 call sites helper-а. M6 invariant: 14 read -r в новых функциях. xrayebator: 4386 → 4873 строки. Phase 7 COMPLETE — все REQ-C* satisfied.
 
-Progress: [#########] 90% (Phases 4+5+6 ✓ + Phase 7 Plan 2/3 ✓)
+Progress: [##########] 100% (Phases 4+5+6+7 ✓; Phase 8 final polish remains)
 
 ## Performance Metrics
 
@@ -204,7 +210,8 @@ Progress: [#########] 90% (Phases 4+5+6 ✓ + Phase 7 Plan 2/3 ✓)
 - Phase 6 COMPLETE — все REQ-A* удовлетворены, готов к verifier и Phase 7
 - 07-01 DONE (2026-05-11) — source-safety guard, pure-функция _generate_vless_url_pure, sub_token + миграция .subscription_tokens_2026. REQ-C04/C10/C11 ✓. Commits 92379d1 + 0451319 + 4f9bb41.
 - 07-02 DONE (2026-05-11) — _subscription_base_url() shared helper, install_subscription_server() heredoc-генерация subhttp.sh + .happ_defaults.env + xrayebator-sub.service, opt-in marker .subscription_installed, SERVER_IP curl-fix под source. REQ-C01/C05/C06/C07/C09 ✓. Commits 10bfc9a + 56c1113.
-- Phase 7 IN PROGRESS — next Plan 7.3 (public TLS + management menus)
+- 07-03 DONE (2026-05-11) — _select_subscription_port + install_subscription_public_tls (REQ-C02/C08 nginx+certbot+ufw limit) + install_subscription_local_only (REQ-C03 loopback) + manage_subscription_menu (REQ-C12 URL/QR/revoke + PQ-aware vless gate REQ-C14) + happ_settings_menu + _happ_edit_field (REQ-C13 atomic TUI editor) + happ_subscription_menu wrapper + main_menu пункт 9 + create_profile success-screen primary URL/QR. Commits a95bd99 + 692732d + f375954.
+- Phase 7 COMPLETE — все REQ-C* (C01..C14) satisfied; готов к Phase 8.
 - При планировании Phase 8 — добавить Plan 8.3 AdGuard cleanup (deferred from Phase 5)
 - ... далее по ROADMAP.md последовательно (7.2 → 7.3 → 8)
 
@@ -231,9 +238,9 @@ Progress: [#########] 90% (Phases 4+5+6 ✓ + Phase 7 Plan 2/3 ✓)
 ## Session Continuity
 
 Last session: 2026-05-11
-Stopped at: Plan 07-02 DONE (2/2 tasks committed: 10bfc9a helper + install_subscription_server + subhttp.sh + .happ_defaults.env, 56c1113 systemd unit + opt-in marker). SUMMARY.md создан. xrayebator: 4088 → 4386 строк (+298). Closed concern из 7.1: SERVER_IP=$(get_server_ip) обёрнут в XRAYEBATOR_SOURCED guard.
-Resume file: .planning/phases/07-happ-subscription-server/07-03-public-tls-and-management-menus-PLAN.md
-Next: запустить execute-phase для Plan 7.3 (public TLS via nginx + certbot, management menus используют _subscription_base_url helper + .subscription_installed marker для preflight, активация systemd unit, success-screen после create_profile с subscription URL и QR).
+Stopped at: Plan 07-03 DONE (3/3 tasks committed: a95bd99 public TLS installer + local-only fallback + port preflight, 692732d manage_subscription_menu + create_profile success-screen, f375954 happ_settings_menu + _happ_edit_field + happ_subscription_menu wrapper + main_menu integration). SUMMARY.md создан. xrayebator: 4386 → 4873 строк (+487). Phase 7 COMPLETE — все REQ-C01..C14 satisfied. B1 invariant: 4 call sites _subscription_base_url. M5: PQ-aware QR gate через jq .pq_enabled. M6: 14 read -r в новых функциях.
+Resume file: ROADMAP.md → Phase 8 (final polish + AdGuard cleanup)
+Next: запустить planning для Phase 8: REQ-D* (documentation finalize), Plan 8.1 v2.0 release notes + clients compat matrix, Plan 8.2 install.sh integration с opt-in HAPP subscription server prompt, Plan 8.3 deferred AdGuard cleanup (предложение uninstall existing AdGuard при xrayebator update). Также — VPS smoke на staging: certbot LE rate-limit, socat health после длительной работы, HAPP revoke refresh-flow на реальных клиентах.
  == 2, но открывающий heredoc-маркер физически на той же строке что и cat — используем grep -c SUBHTTP_EOF == 2 (open+close, оба ровно равны 2)
 
 ## Project Reference
@@ -241,17 +248,17 @@ Next: запустить execute-phase для Plan 7.3 (public TLS via nginx + c
 See: .planning/PROJECT.md (updated 2026-05-09)
 
 **Core value:** VPN стабильно и быстро работает через ТСПУ — соединение не падает, блокировки обходятся надёжно
-**Current focus:** v2.0 Phase 7 IN PROGRESS (Plan 07-02 DONE → next 07-03 public TLS + management menus).
+**Current focus:** v2.0 Phase 7 COMPLETE (3/3 планов DONE) → next Phase 8 (final polish + AdGuard cleanup).
 
 ## Current Position
 
 Milestone: v2.0 — Post-Quantum & HAPP
-Phase: 7 of 8 (HAPP Subscription Server) — 2/3 планов DONE
-Plan: 07-02 ✓ DONE (2/2 tasks, commits 10bfc9a + 56c1113)
-Status: Phase 4 ✓ | Phase 5 ✓ | Phase 6 ✓ | Phase 7 Plan 7.1 ✓ | Plan 7.2 ✓ → next Plan 7.3 (public TLS + management menus)
-Last activity: 2026-05-11 — Plan 07-02 executed: shared helper _subscription_base_url() (источник истины базового URL для Plan 7.3), install_subscription_server() heredoc-генерация 3 артефактов (subhttp.sh с strict regex routing + constant-time 404 + HAPP body order comments→vless→routing + симметричные headers, .happ_defaults.env idempotent configurable, xrayebator-sub.service opt-in с REQ-C09 hardening + 6 best-practice флагов), marker .subscription_installed. Concern из 7.1 (SERVER_IP curl top-level) закрыт обёрткой XRAYEBATOR_SOURCED. xrayebator: 4088 → 4386 строк.
+Phase: 7 of 8 (HAPP Subscription Server) — 3/3 планов DONE ✓ COMPLETE
+Plan: 07-03 ✓ DONE (3/3 tasks, commits a95bd99 + 692732d + f375954)
+Status: Phase 4 ✓ | Phase 5 ✓ | Phase 6 ✓ | Phase 7 ✓ (Plans 7.1+7.2+7.3) → next Phase 8 (final polish + AdGuard cleanup)
+Last activity: 2026-05-11 — Plan 07-03 executed: _select_subscription_port (443/8443 preflight через ss), install_subscription_public_tls (REQ-C02 — domain prompt + DNS preflight + certbot --non-interactive + ufw limit REQ-C08 + nginx site config + markers + systemctl enable --now), install_subscription_local_only (REQ-C03 — без nginx/UFW, loopback bypass), manage_subscription_menu (REQ-C12 — URL+QR+revoke через safe_jq_write без рестарта + advanced raw vless с PQ-aware QR gate REQ-C14/M5 через jq .pq_enabled), happ_settings_menu + _happ_edit_field (REQ-C13 — TUI editor .happ_defaults.env с атомарной заменой awk+mktemp+mv), happ_subscription_menu wrapper (registered в main_menu пункт 9), create_profile success-screen теперь показывает subscription URL+QR primary через _subscription_base_url. B1 invariant: 4 call sites helper-а. M6 invariant: 14 read -r в новых функциях. xrayebator: 4386 → 4873 строки. Phase 7 COMPLETE — все REQ-C* satisfied.
 
-Progress: [#########] 90% (Phases 4+5+6 ✓ + Phase 7 Plan 2/3 ✓)
+Progress: [##########] 100% (Phases 4+5+6+7 ✓; Phase 8 final polish remains)
 
 ## Performance Metrics
 
@@ -303,7 +310,8 @@ Progress: [#########] 90% (Phases 4+5+6 ✓ + Phase 7 Plan 2/3 ✓)
 - Phase 6 COMPLETE — все REQ-A* удовлетворены, готов к verifier и Phase 7
 - 07-01 DONE (2026-05-11) — source-safety guard, pure-функция _generate_vless_url_pure, sub_token + миграция .subscription_tokens_2026. REQ-C04/C10/C11 ✓. Commits 92379d1 + 0451319 + 4f9bb41.
 - 07-02 DONE (2026-05-11) — _subscription_base_url() shared helper, install_subscription_server() heredoc-генерация subhttp.sh + .happ_defaults.env + xrayebator-sub.service, opt-in marker .subscription_installed, SERVER_IP curl-fix под source. REQ-C01/C05/C06/C07/C09 ✓. Commits 10bfc9a + 56c1113.
-- Phase 7 IN PROGRESS — next Plan 7.3 (public TLS + management menus)
+- 07-03 DONE (2026-05-11) — _select_subscription_port + install_subscription_public_tls (REQ-C02/C08 nginx+certbot+ufw limit) + install_subscription_local_only (REQ-C03 loopback) + manage_subscription_menu (REQ-C12 URL/QR/revoke + PQ-aware vless gate REQ-C14) + happ_settings_menu + _happ_edit_field (REQ-C13 atomic TUI editor) + happ_subscription_menu wrapper + main_menu пункт 9 + create_profile success-screen primary URL/QR. Commits a95bd99 + 692732d + f375954.
+- Phase 7 COMPLETE — все REQ-C* (C01..C14) satisfied; готов к Phase 8.
 - При планировании Phase 8 — добавить Plan 8.3 AdGuard cleanup (deferred from Phase 5)
 - ... далее по ROADMAP.md последовательно (7.2 → 7.3 → 8)
 
@@ -330,6 +338,6 @@ Progress: [#########] 90% (Phases 4+5+6 ✓ + Phase 7 Plan 2/3 ✓)
 ## Session Continuity
 
 Last session: 2026-05-11
-Stopped at: Plan 07-02 DONE (2/2 tasks committed: 10bfc9a helper + install_subscription_server + subhttp.sh + .happ_defaults.env, 56c1113 systemd unit + opt-in marker). SUMMARY.md создан. xrayebator: 4088 → 4386 строк (+298). Closed concern из 7.1: SERVER_IP=$(get_server_ip) обёрнут в XRAYEBATOR_SOURCED guard.
-Resume file: .planning/phases/07-happ-subscription-server/07-03-public-tls-and-management-menus-PLAN.md
-Next: запустить execute-phase для Plan 7.3 (public TLS via nginx + certbot, management menus используют _subscription_base_url helper + .subscription_installed marker для preflight, активация systemd unit, success-screen после create_profile с subscription URL и QR).
+Stopped at: Plan 07-03 DONE (3/3 tasks committed: a95bd99 public TLS installer + local-only fallback + port preflight, 692732d manage_subscription_menu + create_profile success-screen, f375954 happ_settings_menu + _happ_edit_field + happ_subscription_menu wrapper + main_menu integration). SUMMARY.md создан. xrayebator: 4386 → 4873 строк (+487). Phase 7 COMPLETE — все REQ-C01..C14 satisfied. B1 invariant: 4 call sites _subscription_base_url. M5: PQ-aware QR gate через jq .pq_enabled. M6: 14 read -r в новых функциях.
+Resume file: ROADMAP.md → Phase 8 (final polish + AdGuard cleanup)
+Next: запустить planning для Phase 8: REQ-D* (documentation finalize), Plan 8.1 v2.0 release notes + clients compat matrix, Plan 8.2 install.sh integration с opt-in HAPP subscription server prompt, Plan 8.3 deferred AdGuard cleanup (предложение uninstall existing AdGuard при xrayebator update). Также — VPS smoke на staging: certbot LE rate-limit, socat health после длительной работы, HAPP revoke refresh-flow на реальных клиентах.
