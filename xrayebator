@@ -27,26 +27,43 @@ VLESS_ENCRYPTION_FILE="/usr/local/etc/xray/.vless_encryption"
 SNI_LIST="$DATA_DIR/sni_list.txt"
 ASCII_ART="$DATA_DIR/ascii_art.txt"
 
-# Проверка прав root
-if [[ $EUID -ne 0 ]]; then
-  echo -e "${RED}✗ Требуются права root${NC}"
-  echo -e "${YELLOW}Используйте: sudo xrayebator${NC}"
-  exit 1
+# ═══════════════════════════════════════════════════════════
+# SOURCE-SAFETY GUARD (Phase 7, REQ-C10)
+# ═══════════════════════════════════════════════════════════
+# Если xrayebator source-ится из другого скрипта (subhttp.sh для HAPP subscription),
+# мы НЕ должны выполнять root-check, загружать ключи Reality или входить в интерактивное
+# main_menu — нужны только определения функций и констант.
+# Тест: BASH_SOURCE[0] (путь к sourced-файлу) != ${0} (имя процесса) → значит source.
+# В source-режиме мы ПРОПУСКАЕМ top-level эффекты (root-check, key-load, CLI dispatch),
+# но определения функций ниже регистрируются как обычно.
+if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
+  XRAYEBATOR_SOURCED=1
+else
+  XRAYEBATOR_SOURCED=0
 fi
 
-# Загрузка ключей
-if [[ -f "$PRIVATE_KEY_FILE" ]] && [[ -f "$PUBLIC_KEY_FILE" ]]; then
-  PRIVATE_KEY=$(cat "$PRIVATE_KEY_FILE")
-  PUBLIC_KEY=$(cat "$PUBLIC_KEY_FILE")
-  if [[ -z "$PRIVATE_KEY" ]] || [[ -z "$PUBLIC_KEY" ]]; then
-    echo -e "${RED}✗ Ключи Reality пусты.${NC}"
-    echo -e "${YELLOW}Пересоздайте ключи командой:${NC}"
-    echo "  cd /usr/local/etc/xray/ && sudo /usr/local/bin/xray x25519 2>&1"
+# Проверка прав root + загрузка ключей выполняются только при прямом запуске.
+if [[ "$XRAYEBATOR_SOURCED" -eq 0 ]]; then
+  if [[ $EUID -ne 0 ]]; then
+    echo -e "${RED}✗ Требуются права root${NC}"
+    echo -e "${YELLOW}Используйте: sudo xrayebator${NC}"
     exit 1
   fi
-else
-  echo -e "${RED}✗ Ключи Reality не найдены. Запустите install.sh${NC}"
-  exit 1
+
+  # Загрузка ключей
+  if [[ -f "$PRIVATE_KEY_FILE" ]] && [[ -f "$PUBLIC_KEY_FILE" ]]; then
+    PRIVATE_KEY=$(cat "$PRIVATE_KEY_FILE")
+    PUBLIC_KEY=$(cat "$PUBLIC_KEY_FILE")
+    if [[ -z "$PRIVATE_KEY" ]] || [[ -z "$PUBLIC_KEY" ]]; then
+      echo -e "${RED}✗ Ключи Reality пусты.${NC}"
+      echo -e "${YELLOW}Пересоздайте ключи командой:${NC}"
+      echo "  cd /usr/local/etc/xray/ && sudo /usr/local/bin/xray x25519 2>&1"
+      exit 1
+    fi
+  else
+    echo -e "${RED}✗ Ключи Reality не найдены. Запустите install.sh${NC}"
+    exit 1
+  fi
 fi
 
 # Получение внешнего IP
@@ -3946,19 +3963,23 @@ adguard_status() {
 
 # CLI dispatch (Phase 5, REQ-B02). Subcommand-style.
 # Без аргументов → interactive main_menu (legacy behaviour).
-case "${1:-}" in
-  update)
-    shift
-    update_command "$@"
-    ;;
-  ""|menu)
-    main_menu
-    ;;
-  *)
-    echo -e "${RED}✗ Неизвестная команда: $1${NC}"
-    echo -e "${YELLOW}Использование:${NC}"
-    echo -e "  ${CYAN}sudo xrayebator${NC}         — открыть меню"
-    echo -e "  ${CYAN}sudo xrayebator update${NC}  — обновить Xray-core"
-    exit 1
-    ;;
-esac
+# При source-режиме (Phase 7, REQ-C10) dispatch пропускается — sourcing-скрипт сам решает,
+# что делать с определёнными функциями.
+if [[ "$XRAYEBATOR_SOURCED" -eq 0 ]]; then
+  case "${1:-}" in
+    update)
+      shift
+      update_command "$@"
+      ;;
+    ""|menu)
+      main_menu
+      ;;
+    *)
+      echo -e "${RED}✗ Неизвестная команда: $1${NC}"
+      echo -e "${YELLOW}Использование:${NC}"
+      echo -e "  ${CYAN}sudo xrayebator${NC}         — открыть меню"
+      echo -e "  ${CYAN}sudo xrayebator update${NC}  — обновить Xray-core"
+      exit 1
+      ;;
+  esac
+fi
