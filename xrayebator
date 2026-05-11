@@ -231,6 +231,80 @@ read_profile_transport_metadata() {
   printf '%s|%s\n' "$grpc_service_name" "$xhttp_path"
 }
 
+# ═══════════════════════════════════════════════════════════
+# Pure VLESS URL builder (Phase 7, REQ-C10)
+# ═══════════════════════════════════════════════════════════
+# НЕ печатает цветной TUI, НЕ читает stdin, НЕ пишет файлы, НЕ зовёт qrencode.
+# stdout: ровно одна vless:// строка (без trailing newline) на success.
+# return: 0 на успех; 1 если profile_file не существует / транспорт неизвестен /
+#         PQ-профиль без $VLESS_ENCRYPTION_FILE.
+# Args: $1 = absolute path к profile JSON.
+# Используется generate_connection() в интерактиве и subhttp.sh в Plan 7.2.
+_generate_vless_url_pure() {
+  local profile_file="$1"
+  [[ -f "$profile_file" ]] || return 1
+
+  local profile_name uuid transport port fingerprint sni
+  profile_name=$(basename "$profile_file" .json)
+  uuid=$(jq -r '.uuid' "$profile_file") || return 1
+  transport=$(jq -r '.transport' "$profile_file") || return 1
+  port=$(jq -r '.port' "$profile_file") || return 1
+  fingerprint=$(jq -r '.fingerprint // "chrome"' "$profile_file")
+  sni=$(jq -r '.sni // "www.ozon.ru"' "$profile_file")
+
+  local server_ip clean_public_key
+  server_ip=$(get_server_ip)
+  clean_public_key=$(cat "$PUBLIC_KEY_FILE" 2>/dev/null) || return 1
+
+  # Transport metadata (grpc service name / xhttp path) и url-encoded path
+  local transport_metadata grpc_service_name xhttp_path encoded_xhttp_path
+  transport_metadata=$(read_profile_transport_metadata "$profile_file")
+  IFS='|' read -r grpc_service_name xhttp_path <<< "$transport_metadata"
+  encoded_xhttp_path=$(jq -nr --arg path "$xhttp_path" '$path|@uri')
+
+  # short_id — читаем из config.json по порту (зеркало логики generate_connection)
+  local short_id
+  short_id=$(jq -r --argjson p "$port" \
+    '.inbounds[] | select(.port == $p) | .streamSettings.realitySettings.shortIds[0]' \
+    "$CONFIG_FILE" 2>/dev/null)
+  [[ -z "$short_id" || "$short_id" == "null" ]] && short_id=""
+
+  case "$transport" in
+    tcp|tcp-utls|tcp-xudp)
+      printf 'vless://%s@%s:%s?encryption=none&flow=xtls-rprx-vision&security=reality&sni=%s&fp=%s&pbk=%s&sid=%s&type=tcp&headerType=none#%s' \
+        "$uuid" "$server_ip" "$port" "$sni" "$fingerprint" "$clean_public_key" "$short_id" "$profile_name"
+      ;;
+    tcp-mux)
+      printf 'vless://%s@%s:%s?encryption=none&security=reality&sni=%s&fp=%s&pbk=%s&sid=%s&type=tcp&headerType=none#%s' \
+        "$uuid" "$server_ip" "$port" "$sni" "$fingerprint" "$clean_public_key" "$short_id" "$profile_name"
+      ;;
+    grpc)
+      printf 'vless://%s@%s:%s?encryption=none&security=reality&sni=%s&fp=%s&pbk=%s&sid=%s&type=grpc&serviceName=%s#%s' \
+        "$uuid" "$server_ip" "$port" "$sni" "$fingerprint" "$clean_public_key" "$short_id" "$grpc_service_name" "$profile_name"
+      ;;
+    xhttp)
+      local pq_enabled
+      pq_enabled=$(jq -r '.pq_enabled // false' "$profile_file" 2>/dev/null)
+      if [[ "$pq_enabled" == "true" ]]; then
+        [[ -f "$VLESS_ENCRYPTION_FILE" ]] || return 1
+        local raw_encryption encoded_encryption
+        raw_encryption=$(cat "$VLESS_ENCRYPTION_FILE")
+        encoded_encryption=$(jq -nr --arg enc "$raw_encryption" '$enc|@uri')
+        printf 'vless://%s@%s:%s?encryption=%s&security=reality&sni=%s&fp=%s&pbk=%s&sid=%s&type=xhttp&path=%s&host=%s#%s' \
+          "$uuid" "$server_ip" "$port" "$encoded_encryption" "$sni" "$fingerprint" "$clean_public_key" "$short_id" "$encoded_xhttp_path" "$sni" "$profile_name"
+      else
+        printf 'vless://%s@%s:%s?encryption=none&security=reality&sni=%s&fp=%s&pbk=%s&sid=%s&type=xhttp&path=%s&host=%s#%s' \
+          "$uuid" "$server_ip" "$port" "$sni" "$fingerprint" "$clean_public_key" "$short_id" "$encoded_xhttp_path" "$sni" "$profile_name"
+      fi
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+
+  return 0
+}
+
 write_profile_transport_metadata() {
   local profile_file=$1
   local grpc_service_name=$2
@@ -2287,6 +2361,10 @@ generate_connection() {
   local fingerprint=$(jq -r '.fingerprint // "chrome"' "$profile_file")
   local current_sni=$(jq -r '.sni // "www.ozon.ru"' "$profile_file")
   local clean_public_key=$(cat "$PUBLIC_KEY_FILE")
+  # Phase 7 REQ-C10: pq_enabled lookup ВВЕРХ — нужен блокам печати manual-параметров
+  # независимо от того, какая ветка транспорта сработала.
+  local pq_enabled
+  pq_enabled=$(jq -r '.pq_enabled // false' "$profile_file" 2>/dev/null)
   local transport_metadata=""
   local grpc_service_name=""
   local xhttp_path=""
@@ -2306,44 +2384,18 @@ generate_connection() {
   echo -e "${GREEN}═══════════════════════════════════════════════${NC}"
   echo -e "${GREEN}    ДАННЫЕ ДЛЯ ПОДКЛЮЧЕНИЯ: $profile_name${NC}"
   echo -e "${GREEN}═══════════════════════════════════════════════${NC}\n"
-  local vless_link=""
-  case $transport in
-    tcp|tcp-utls|tcp-xudp)
-      # TCP Reality + Vision
-      vless_link="vless://${uuid}@${SERVER_IP}:${port}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${current_sni}&fp=${fingerprint}&pbk=${clean_public_key}&sid=${short_id}&type=tcp&headerType=none#${profile_name}"
-      ;;
-    tcp-mux)
-      # TCP Reality + Mux (без Vision, мультиплексирование на клиенте)
-      vless_link="vless://${uuid}@${SERVER_IP}:${port}?encryption=none&security=reality&sni=${current_sni}&fp=${fingerprint}&pbk=${clean_public_key}&sid=${short_id}&type=tcp&headerType=none#${profile_name}"
-      ;;
-    grpc)
-      # gRPC Reality
-      vless_link="vless://${uuid}@${SERVER_IP}:${port}?encryption=none&security=reality&sni=${current_sni}&fp=${fingerprint}&pbk=${clean_public_key}&sid=${short_id}&type=grpc&serviceName=${grpc_service_name}#${profile_name}"
-      ;;
-    xhttp)
-      # Phase 6 REQ-A05: проверяем флаг pq_enabled из profile JSON.
-      # PQ-профили (созданные Plan 6.2 или upgraded Plan 6.3) имеют schema_version: 2 + pq_enabled: true.
-      local pq_enabled
-      pq_enabled=$(jq -r '.pq_enabled // false' "$profile_file" 2>/dev/null)
-
-      if [[ "$pq_enabled" == "true" ]]; then
-        # PQ-режим: encryption= берём из $VLESS_ENCRYPTION_FILE и URL-encode через jq @uri.
-        # @uri корректно обработает точки/base64-символы (research §5 «Don't Hand-Roll»).
-        if [[ ! -f "$VLESS_ENCRYPTION_FILE" ]]; then
-          echo -e "${RED}✗ $VLESS_ENCRYPTION_FILE отсутствует — vless:// невозможен для PQ-профиля${NC}"
-          echo -e "${YELLOW}  Перезапустите xrayebator (миграция .mlkem_keys_generated)${NC}"
-          return 1
-        fi
-        local raw_encryption encoded_encryption
-        raw_encryption=$(cat "$VLESS_ENCRYPTION_FILE")
-        encoded_encryption=$(jq -nr --arg enc "$raw_encryption" '$enc|@uri')
-        vless_link="vless://${uuid}@${SERVER_IP}:${port}?encryption=${encoded_encryption}&security=reality&sni=${current_sni}&fp=${fingerprint}&pbk=${clean_public_key}&sid=${short_id}&type=xhttp&path=${encoded_xhttp_path}&host=${current_sni}#${profile_name}"
-      else
-        # Legacy XHTTP без PQ (профили до Phase 6 — миграция .xhttp_default_2026 их НЕ трогает per REQ-A08).
-        vless_link="vless://${uuid}@${SERVER_IP}:${port}?encryption=none&security=reality&sni=${current_sni}&fp=${fingerprint}&pbk=${clean_public_key}&sid=${short_id}&type=xhttp&path=${encoded_xhttp_path}&host=${current_sni}#${profile_name}"
-      fi
-      ;;
-  esac
+  # Phase 7 REQ-C10: построение vless:// делегировано pure-функции _generate_vless_url_pure.
+  # Все транспорты (tcp/tcp-utls/tcp-xudp/tcp-mux/grpc/xhttp legacy/xhttp PQ) обрабатываются там.
+  local vless_link
+  vless_link=$(_generate_vless_url_pure "$profile_file") || {
+    echo -e "${RED}✗ Не удалось построить vless:// URL для профиля $profile_name${NC}"
+    if [[ "$transport" == "xhttp" ]] && [[ "$pq_enabled" == "true" ]] && [[ ! -f "$VLESS_ENCRYPTION_FILE" ]]; then
+      echo -e "${YELLOW}  Причина: $VLESS_ENCRYPTION_FILE отсутствует. Перезапустите xrayebator (миграция .mlkem_keys_generated).${NC}"
+    fi
+    echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
+    read -r
+    return 1
+  }
   echo -e "${BLUE}Ссылка для подключения:${NC}"
   echo -e "${YELLOW}${vless_link}${NC}\n"
   echo -e "${BLUE}QR-код:${NC}\n"
