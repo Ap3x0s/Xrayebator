@@ -13,8 +13,8 @@
 
 - [x] **Phase 4: Foundation (Audit Fixes)** — закрыть 6 P0/P1 багов аудита и ввести `run_migration` helper, без которого все v2.0 миграции через bare jq/restart — рулетка ✓ 2026-05-09
 - [x] **Phase 5: Auto-update Xray-core + xmux explicit** — `update_xray_core()` в update.sh + явный xmux-блок для XHTTP-инбаундов (completed 2026-05-09)
-- [ ] **Phase 6: Post-Quantum (VLESS Encryption + ML-KEM)** — дефолт XHTTP+Reality+`mlkem768x25519plus.native`, per-profile upgrade in-place, legacy-fallback на уровне отдельных профилей через `create_profile_menu` (REQ-A07 parallel inbound DROPPED 2026-05-10 — Xray не поддерживает два инбаунда на одном порту)
-- [ ] **Phase 7: HAPP Subscription Server** — public TLS subscription per profile (nginx+LE → local handler), HAPP metadata+routing, QR for subscription URL, revoke menu
+- [x] **Phase 6: Post-Quantum (VLESS Encryption + ML-KEM)** — дефолт XHTTP+Reality+`mlkem768x25519plus.native`, per-profile upgrade in-place, legacy-fallback на уровне отдельных профилей через `create_profile_menu` (completed 2026-05-10)
+- [x] **Phase 7: HAPP Subscription Server** — public TLS subscription per profile (nginx+LE → local handler), HAPP metadata+routing, QR for subscription URL, revoke menu (completed 2026-05-11)
 - [ ] **Phase 8: Polish (SNI 2026 + experimental Vision Seed + bypass routing)** — обновлённый SNI list под РФ-доноров + advanced testpre/testseed + меню обхода VPN для Steam/банков/госуслуг
 
 ---
