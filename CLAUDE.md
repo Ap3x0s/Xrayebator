@@ -4,14 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Xrayebator — automated Xray Reality VPN manager for bypassing DPI censorship in Russia. Single Bash script (`xrayebator`, ~2300 lines) that turns a VPS into a managed VPN server with interactive terminal UI. Deployed to Debian 10+/Ubuntu 20.04+ servers.
+Xrayebator — automated Xray Reality VPN manager for bypassing DPI censorship in Russia. Single Bash script (`xrayebator`, ~2500 lines) that turns a VPS into a managed VPN server with interactive terminal UI. Deployed to Debian 10+/Ubuntu 20.04+ servers.
 
 ## Validation Commands
 
 ```bash
 bash -n xrayebator              # Syntax check (MUST pass before commit)
-jq empty config.json            # JSON validation for Xray config
-xray -test -config config.json  # Xray config validation (on server only)
+bash -n install.sh              # Also check lifecycle scripts
+bash -n update.sh
 ```
 
 There are no automated tests. Validation is manual: create/delete profiles, check `ufw status`, `systemctl status xray`, test connections from client apps (v2rayNG, Shadowrocket).
@@ -27,7 +27,9 @@ All logic lives in `xrayebator`. Supporting scripts (`install.sh`, `update.sh`, 
 - `/usr/local/etc/xray/config.json` — Xray configuration (inbounds, routing, DNS)
 - `/usr/local/etc/xray/profiles/*.json` — per-user profile metadata
 - `/usr/local/etc/xray/.private_key`, `.public_key` — Reality keys (generated once at install, never regenerated)
+- `/usr/local/etc/xray/backups/` — timestamped config backups (created by `backup_config()`)
 - `/usr/local/bin/xrayebator` — symlink to the script
+- `/etc/systemd/system/xray.service.d/security.conf` — drop-in: `User=xray`, `CAP_NET_BIND_SERVICE`
 
 ### Critical concept: Inbound vs Profile
 
@@ -55,17 +57,36 @@ XHTTP transport stores SNI in TWO places: `realitySettings.serverNames` AND `xht
 - `open_firewall_port(port, proto)` — idempotent, validates port, checks UFW
 - `close_firewall_port(port, proto)` — only closes if port unused by any Xray inbound AND not in default ports list (22, 80, 443, 8443, 2053, etc.)
 
+### Safe restart and backup
+
+- `safe_restart_xray()` — validates config with `xray run -test -config` before `systemctl restart`. On failure: auto-rollback from latest backup, Xray keeps running on old config. **Always use this instead of bare `systemctl restart xray`**.
+- `backup_config("migration_name")` — creates timestamped backup in `/usr/local/etc/xray/backups/`. **Call before any config mutation** in migration functions.
+- `fix_xray_permissions()` — restores `xray:xray` ownership on `/usr/local/etc/xray/`. Call after writes that create/modify files.
+
 ### Migration system
 
-Marker files in `/usr/local/etc/xray/` (e.g. `.xhttp_migrated`, `.routing_v132_migrated`). Migrations run once on first `main_menu()` launch after upgrade. Add new migrations with a marker file check.
+Marker files in `/usr/local/etc/xray/` (e.g. `.xhttp_migrated`, `.config_optimized`). Migrations run once on first `main_menu()` launch after upgrade. Pattern for new migrations:
+```bash
+if [[ ! -f "/usr/local/etc/xray/.my_migration_marker" ]]; then
+  backup_config "my_migration"
+  # ... safe_jq_write calls ...
+  fix_xray_permissions
+  touch "/usr/local/etc/xray/.my_migration_marker"
+  safe_restart_xray
+fi
+```
+
+### Security model
+
+Xray runs as non-root user `xray` with `CAP_NET_BIND_SERVICE` via systemd drop-in file. The `install.sh` creates the user and sets file ownership. The `safe_jq_write()` function preserves `644` permissions; `fix_xray_permissions()` restores ownership after writes.
 
 ### Add-on services
 
-- **AdGuard Home** (menu item 7): Standalone binary at `/opt/AdGuardHome/`, systemd service, Web UI on 127.0.0.1:3000 (SSH tunnel only), DNS on 0.0.0.0:53. Xray config points DNS to 127.0.0.1 when integrated.
+- **AdGuard Home** (menu item 7): Standalone binary at `/opt/AdGuardHome/`, systemd service, Web UI on 127.0.0.1:3000 (SSH tunnel only), DNS on 0.0.0.0:53. Xray config points DNS to 127.0.0.1 when integrated. Port 53 is NOT opened in UFW (loopback bypasses firewall). When DNS is `127.0.0.1`, config migrations must skip DNS changes.
 
 ## Coding Patterns
 
-**Language**: Bash. Dependencies: `jq`, `curl`, `ufw`, `systemctl`, `openssl`, `uuidgen`.
+**Language**: Bash. Dependencies: `jq`, `curl`, `ufw`, `systemctl`, `openssl`, `uuidgen`, `qrencode`.
 
 **Variables**: Always quote (`"$var"`), always `local` in functions.
 
@@ -75,7 +96,7 @@ safe_jq_write --arg uuid "$uuid" --argjson port "$port" \
   '(.inbounds[] | select(.port == $port) | .settings.clients) += [{"id": $uuid}]' \
   "$CONFIG_FILE"
 ```
-Do NOT use raw `jq ... > temp && mv temp file` — always go through `safe_jq_write`.
+Do NOT use raw `jq ... > temp && mv temp file` — always go through `safe_jq_write`. Note: `safe_jq_write` is only available inside `xrayebator`; `install.sh` and `update.sh` use inline jq with `-s` size validation.
 
 **jq argument passing**: Use `--argjson` for numeric ports, `--arg` for strings. Never interpolate variables into jq expressions.
 
@@ -88,6 +109,10 @@ Do NOT use raw `jq ... > temp && mv temp file` — always go through `safe_jq_wr
 **Colors**: `RED` (errors), `GREEN` (success), `YELLOW` (warnings/prompts), `BLUE` (menu borders), `CYAN` (info/options), `MAGENTA` (section headers), `NC` (reset).
 
 **Port validation**: `[[ ! "$port" =~ ^[0-9]+$ ]] || [[ $port -lt 1 ]] || [[ $port -gt 65535 ]]`
+
+**Restart discipline**: Never use bare `systemctl restart xray`. Always use `safe_restart_xray()` which validates config first and auto-rolls back on failure.
+
+**Freedom outbound**: When modifying freedom outbound settings, use jq path assignment (not object merge) to avoid clobbering existing `fragment` anti-DPI settings.
 
 ## Branches
 

@@ -431,7 +431,7 @@ update_xray_core() {
   # ── Step 7: SHA-256 verify (mandatory) ─────────────────────────
   echo -e "${CYAN}Verifying SHA256...${NC}"
   local expected actual
-  expected=$(awk -F '= ' '/^256=/ {print $2}' "$DGST_PATH" | tr -d '[:space:]')
+  expected=$(awk -F '= *' '/^(SHA2-)?256=|^SHA256=/ {print $2; exit}' "$DGST_PATH" | tr -d '[:space:]')
   actual=$(sha256sum "$ZIP_PATH" | awk '{print $1}')
 
   if [[ -z "$expected" ]]; then
