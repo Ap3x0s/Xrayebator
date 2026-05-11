@@ -5,17 +5,17 @@
 See: .planning/PROJECT.md (updated 2026-05-09)
 
 **Core value:** VPN стабильно и быстро работает через ТСПУ — соединение не падает, блокировки обходятся надёжно
-**Current focus:** v2.0 Phase 7 IN PROGRESS (Plan 07-01 DONE → next 07-02 subhttp handler).
+**Current focus:** v2.0 Phase 7 IN PROGRESS (Plan 07-02 DONE → next 07-03 public TLS + management menus).
 
 ## Current Position
 
 Milestone: v2.0 — Post-Quantum & HAPP
-Phase: 7 of 8 (HAPP Subscription Server) — 1/3 планов DONE
-Plan: 07-01 ✓ DONE (3/3 tasks, commits 92379d1 + 0451319 + 4f9bb41)
-Status: Phase 4 ✓ | Phase 5 ✓ | Phase 6 ✓ | Phase 7 Plan 7.1 ✓ → next Plan 7.2 (subhttp handler + happ payload)
-Last activity: 2026-05-11 — Plan 07-01 executed: source-safety guard в xrayebator (XRAYEBATOR_SOURCED флаг, обёртка top-level эффектов), pure-функция _generate_vless_url_pure() для всех 4 транспортов + XHTTP PQ/legacy, рефакторинг generate_connection (pq_enabled lookup перенесён вверх, построение URL делегировано pure-функции), sub_token (32-hex) в create_profile() + миграция .subscription_tokens_2026 (rc=1, без рестарта Xray). xrayebator: 3964 → 4088 строк.
+Phase: 7 of 8 (HAPP Subscription Server) — 2/3 планов DONE
+Plan: 07-02 ✓ DONE (2/2 tasks, commits 10bfc9a + 56c1113)
+Status: Phase 4 ✓ | Phase 5 ✓ | Phase 6 ✓ | Phase 7 Plan 7.1 ✓ | Plan 7.2 ✓ → next Plan 7.3 (public TLS + management menus)
+Last activity: 2026-05-11 — Plan 07-02 executed: shared helper _subscription_base_url() (источник истины базового URL для Plan 7.3), install_subscription_server() heredoc-генерация 3 артефактов (subhttp.sh с strict regex routing + constant-time 404 + HAPP body order comments→vless→routing + симметричные headers, .happ_defaults.env idempotent configurable, xrayebator-sub.service opt-in с REQ-C09 hardening + 6 best-practice флагов), marker .subscription_installed. Concern из 7.1 (SERVER_IP curl top-level) закрыт обёрткой XRAYEBATOR_SOURCED. xrayebator: 4088 → 4386 строк.
 
-Progress: [########] 85% (Phases 4+5+6 ✓ + Phase 7 Plan 1/3 ✓)
+Progress: [#########] 90% (Phases 4+5+6 ✓ + Phase 7 Plan 2/3 ✓)
 
 ## Performance Metrics
 
@@ -40,6 +40,7 @@ Progress: [########] 85% (Phases 4+5+6 ✓ + Phase 7 Plan 1/3 ✓)
 | Phase 06-post-quantum-vless-encryption-ml-kem P02 | 25 min | 3 tasks | 1 files |
 | Phase 06-post-quantum-vless-encryption-ml-kem P03 | 10min | 2 tasks | 1 files |
 | Phase 07-happ-subscription-server P01 | 7 min | 3 tasks | 1 files |
+| Phase 07-happ-subscription-server P02 | 4 min | 2 tasks tasks | 1 files files |
 
 ## Accumulated Context
 
@@ -129,8 +130,60 @@ v2.0 scope decisions (post-research, pre-execution):
 - [07-01 pure-функция _generate_vless_url_pure]: side-effect-free билдер vless:// (printf, no echo/read), используется generate_connection и subhttp.sh (Plan 7.2), 5 транспортных кейсов идентичны прежней case-логике
 - [07-01 pq_enabled lookup]: перенесён ВВЕРХ generate_connection (до case) — блоки печати manual-параметров видят его для всех транспортов
 - [07-01 миграция .subscription_tokens_2026]: возвращает 1 (no-op/mark) ВСЕГДА — config.json не тронут, рестарт лишний, marker ставится через run_migration
-- [07-01 sub_token formal validation]: regex `^[a-f0-9]{32}$` валидируется в create_profile и в миграции, до записи в profile JSON
+- [07-01 sub_token formal validation]: regex `^[a-f0-9]{32}# Project State
+- [Phase 07-happ-subscription-server]: [07-02 _subscription_base_url ownership]: helper определён в Plan 7.2 (не 7.3) — handler владеет чтением .subscription_domain/.subscription_port markers; Plan 7.3 будет единственным консьюмером (3 call sites) без дублирования URL-логики
+- [Phase 07-happ-subscription-server]: [07-02 N8 invariant adjusted]: план требовал grep -c '^SUBHTTP_EOF
+- [Phase 07-happ-subscription-server]: [07-02 idempotent .happ_defaults.env]: повторный install_subscription_server НЕ перетирает файл — Plan 7.3 TUI правки сохраняются при ре-установке
+- [Phase 07-happ-subscription-server]: [07-02 opt-in systemd unit]: install_subscription_server делает daemon-reload + touch marker, БЕЗ enable/start — активацию выполняет Plan 7.3 после выбора public TLS vs local-only
+- [Phase 07-happ-subscription-server]: [07-02 hardening superset]: REQ-C09 6 флагов + 6 best-practice (PrivateDevices/PrivateTmp/ProtectKernelTunables/ProtectKernelModules/ProtectControlGroups/LockPersonality)
+
+## Project Reference
+
+See: .planning/PROJECT.md (updated 2026-05-09)
+
+**Core value:** VPN стабильно и быстро работает через ТСПУ — соединение не падает, блокировки обходятся надёжно
+**Current focus:** v2.0 Phase 7 IN PROGRESS (Plan 07-02 DONE → next 07-03 public TLS + management menus).
+
+## Current Position
+
+Milestone: v2.0 — Post-Quantum & HAPP
+Phase: 7 of 8 (HAPP Subscription Server) — 2/3 планов DONE
+Plan: 07-02 ✓ DONE (2/2 tasks, commits 10bfc9a + 56c1113)
+Status: Phase 4 ✓ | Phase 5 ✓ | Phase 6 ✓ | Phase 7 Plan 7.1 ✓ | Plan 7.2 ✓ → next Plan 7.3 (public TLS + management menus)
+Last activity: 2026-05-11 — Plan 07-02 executed: shared helper _subscription_base_url() (источник истины базового URL для Plan 7.3), install_subscription_server() heredoc-генерация 3 артефактов (subhttp.sh с strict regex routing + constant-time 404 + HAPP body order comments→vless→routing + симметричные headers, .happ_defaults.env idempotent configurable, xrayebator-sub.service opt-in с REQ-C09 hardening + 6 best-practice флагов), marker .subscription_installed. Concern из 7.1 (SERVER_IP curl top-level) закрыт обёрткой XRAYEBATOR_SOURCED. xrayebator: 4088 → 4386 строк.
+
+Progress: [#########] 90% (Phases 4+5+6 ✓ + Phase 7 Plan 2/3 ✓)
+
+## Performance Metrics
+
+**Velocity (v1.0 baseline):**
+- Total plans completed: 6
+- Average duration: ~10min
+- Total execution time: ~0.98 hours
+
+**By Phase (v1.0):** archived to `.planning/milestones/v1.0-phases/` on 2026-05-10.
+
+**Recent Trend:** stable across the completed v1.0 safety/config/transport work.
+
+*Updated after each plan completion*
+
+| Phase | Duration | Tasks | Files |
+|-------|----------|-------|-------|
+| Phase 04-foundation-audit-fixes P04-01 | ~2 min | 3 tasks | 2 files |
+| Phase 04-foundation-audit-fixes P04-02 | ~12 min | 4 tasks | 1 file |
+| Phase 05-auto-update-xmux-explicit P05-01 | 6 | 4 tasks | 4 files |
+| Phase 05-auto-update-xmux-explicit P05-02 | 8 | 2 tasks | 1 files |
+| Phase 06-post-quantum-vless-encryption-ml-kem P01 | 19 | 3 tasks | 2 files |
+| Phase 06-post-quantum-vless-encryption-ml-kem P02 | 25 min | 3 tasks | 1 files |
+| Phase 06-post-quantum-vless-encryption-ml-kem P03 | 10min | 2 tasks | 1 files |
+| Phase 07-happ-subscription-server P01 | 7 min | 3 tasks | 1 files |
+| Phase 07-happ-subscription-server P02 | 4 min | 2 tasks tasks | 1 files files |
+
+## Accumulated Context
+
+ валидируется в create_profile и в миграции, до записи в profile JSON
 - [07-01 deferred issue]: `SERVER_IP=$(get_server_ip)` на стр 1187 — top-level эффект (curl), выполняется при source. Не блокер для Plan 7.1, рекомендация для Plan 7.2: обернуть в `[[ XRAYEBATOR_SOURCED -eq 0 ]]` или сделать lazy-init
+- [Phase 07-happ-subscription-server]: [07-02 source-side-effect fix]: SERVER_IP=$(get_server_ip) обёрнут в XRAYEBATOR_SOURCED guard — без этого subhttp.sh делал бы curl на каждый HTTP request под xray:xray
 
 ### Pending Todos
 
@@ -150,7 +203,8 @@ v2.0 scope decisions (post-research, pre-execution):
 - 06-03 DONE (2026-05-10) — upgrade_profile_to_pq_menu() (меню→8) IN-PLACE замена транспорта (UUID/port сохраняются), внутренние подфазы 1a/1b/1c для checkpoint-recoverability, short_id из config.json (H1 fix), shared inbound массовое обновление, show_pq_banner_once() с матрицей совместимости 2026-05-10 + marker .pq_banner_shown. REQ-A09/A10 ✓. Commits de798df + 1a08bf9.
 - Phase 6 COMPLETE — все REQ-A* удовлетворены, готов к verifier и Phase 7
 - 07-01 DONE (2026-05-11) — source-safety guard, pure-функция _generate_vless_url_pure, sub_token + миграция .subscription_tokens_2026. REQ-C04/C10/C11 ✓. Commits 92379d1 + 0451319 + 4f9bb41.
-- Phase 7 IN PROGRESS — next Plan 7.2 (subhttp.sh handler + HAPP routing payload)
+- 07-02 DONE (2026-05-11) — _subscription_base_url() shared helper, install_subscription_server() heredoc-генерация subhttp.sh + .happ_defaults.env + xrayebator-sub.service, opt-in marker .subscription_installed, SERVER_IP curl-fix под source. REQ-C01/C05/C06/C07/C09 ✓. Commits 10bfc9a + 56c1113.
+- Phase 7 IN PROGRESS — next Plan 7.3 (public TLS + management menus)
 - При планировании Phase 8 — добавить Plan 8.3 AdGuard cleanup (deferred from Phase 5)
 - ... далее по ROADMAP.md последовательно (7.2 → 7.3 → 8)
 
@@ -177,6 +231,105 @@ v2.0 scope decisions (post-research, pre-execution):
 ## Session Continuity
 
 Last session: 2026-05-11
-Stopped at: Plan 07-01 DONE (3/3 tasks committed: 92379d1 source-safety guard, 0451319 pure-функция + рефакторинг generate_connection, 4f9bb41 sub_token + миграция .subscription_tokens_2026). SUMMARY.md создан. xrayebator: 3964 → 4088 строк (+124).
-Resume file: .planning/phases/07-happ-subscription-server/07-02-subhttp-handler-and-happ-payload-PLAN.md
-Next: запустить execute-phase для Plan 7.2 (subhttp.sh handler + HAPP routing payload). Concern: SERVER_IP=$(get_server_ip) на xrayebator:1187 — top-level effect при source.
+Stopped at: Plan 07-02 DONE (2/2 tasks committed: 10bfc9a helper + install_subscription_server + subhttp.sh + .happ_defaults.env, 56c1113 systemd unit + opt-in marker). SUMMARY.md создан. xrayebator: 4088 → 4386 строк (+298). Closed concern из 7.1: SERVER_IP=$(get_server_ip) обёрнут в XRAYEBATOR_SOURCED guard.
+Resume file: .planning/phases/07-happ-subscription-server/07-03-public-tls-and-management-menus-PLAN.md
+Next: запустить execute-phase для Plan 7.3 (public TLS via nginx + certbot, management menus используют _subscription_base_url helper + .subscription_installed marker для preflight, активация systemd unit, success-screen после create_profile с subscription URL и QR).
+ == 2, но открывающий heredoc-маркер физически на той же строке что и cat — используем grep -c SUBHTTP_EOF == 2 (open+close, оба ровно равны 2)
+
+## Project Reference
+
+See: .planning/PROJECT.md (updated 2026-05-09)
+
+**Core value:** VPN стабильно и быстро работает через ТСПУ — соединение не падает, блокировки обходятся надёжно
+**Current focus:** v2.0 Phase 7 IN PROGRESS (Plan 07-02 DONE → next 07-03 public TLS + management menus).
+
+## Current Position
+
+Milestone: v2.0 — Post-Quantum & HAPP
+Phase: 7 of 8 (HAPP Subscription Server) — 2/3 планов DONE
+Plan: 07-02 ✓ DONE (2/2 tasks, commits 10bfc9a + 56c1113)
+Status: Phase 4 ✓ | Phase 5 ✓ | Phase 6 ✓ | Phase 7 Plan 7.1 ✓ | Plan 7.2 ✓ → next Plan 7.3 (public TLS + management menus)
+Last activity: 2026-05-11 — Plan 07-02 executed: shared helper _subscription_base_url() (источник истины базового URL для Plan 7.3), install_subscription_server() heredoc-генерация 3 артефактов (subhttp.sh с strict regex routing + constant-time 404 + HAPP body order comments→vless→routing + симметричные headers, .happ_defaults.env idempotent configurable, xrayebator-sub.service opt-in с REQ-C09 hardening + 6 best-practice флагов), marker .subscription_installed. Concern из 7.1 (SERVER_IP curl top-level) закрыт обёрткой XRAYEBATOR_SOURCED. xrayebator: 4088 → 4386 строк.
+
+Progress: [#########] 90% (Phases 4+5+6 ✓ + Phase 7 Plan 2/3 ✓)
+
+## Performance Metrics
+
+**Velocity (v1.0 baseline):**
+- Total plans completed: 6
+- Average duration: ~10min
+- Total execution time: ~0.98 hours
+
+**By Phase (v1.0):** archived to `.planning/milestones/v1.0-phases/` on 2026-05-10.
+
+**Recent Trend:** stable across the completed v1.0 safety/config/transport work.
+
+*Updated after each plan completion*
+
+| Phase | Duration | Tasks | Files |
+|-------|----------|-------|-------|
+| Phase 04-foundation-audit-fixes P04-01 | ~2 min | 3 tasks | 2 files |
+| Phase 04-foundation-audit-fixes P04-02 | ~12 min | 4 tasks | 1 file |
+| Phase 05-auto-update-xmux-explicit P05-01 | 6 | 4 tasks | 4 files |
+| Phase 05-auto-update-xmux-explicit P05-02 | 8 | 2 tasks | 1 files |
+| Phase 06-post-quantum-vless-encryption-ml-kem P01 | 19 | 3 tasks | 2 files |
+| Phase 06-post-quantum-vless-encryption-ml-kem P02 | 25 min | 3 tasks | 1 files |
+| Phase 06-post-quantum-vless-encryption-ml-kem P03 | 10min | 2 tasks | 1 files |
+| Phase 07-happ-subscription-server P01 | 7 min | 3 tasks | 1 files |
+| Phase 07-happ-subscription-server P02 | 4 min | 2 tasks tasks | 1 files files |
+
+## Accumulated Context
+
+ валидируется в create_profile и в миграции, до записи в profile JSON
+- [07-01 deferred issue]: `SERVER_IP=$(get_server_ip)` на стр 1187 — top-level эффект (curl), выполняется при source. Не блокер для Plan 7.1, рекомендация для Plan 7.2: обернуть в `[[ XRAYEBATOR_SOURCED -eq 0 ]]` или сделать lazy-init
+- [Phase 07-happ-subscription-server]: [07-02 source-side-effect fix]: SERVER_IP=$(get_server_ip) обёрнут в XRAYEBATOR_SOURCED guard — без этого subhttp.sh делал бы curl на каждый HTTP request под xray:xray
+
+### Pending Todos
+
+- 04-01 DONE (lifecycle-scripts-hardening)
+- 04-02 DONE (migration-helper-rollout)
+- Phase 4 COMPLETE
+- 05-01 DONE (auto-update-cli) — sync-test PASS, all 4 REQs satisfied
+- 05-02 DONE (xmux-explicit-migration) — REQ-B04 PASS, Phase 5 COMPLETE
+- Phase 5 COMPLETE — все REQ-B* удовлетворены
+- 06-RESEARCH DONE (2026-05-10) — REQ-A07 DROPPED, REQ-A09/C11 REVISED, scope adjusted
+- 06 PLANS DONE (2026-05-10) — 3 PLAN.md созданы и валидированы, ROADMAP обновлён
+- 06 PLAN-CHECK iter 2/3 PASSED (2026-05-10) — все 6 issues из iter 1 исправлены (commit 0291718): short_id из config.json, warning UI расширен, phased markers, implementation note, awk range, label loop. Отчёт: 06-PLAN-CHECK-iter2.md
+- 06 EXECUTE-PHASE STARTED (2026-05-10) — first wave reached vlessenc checkpoint, returned 4 расхождения с RESEARCH §10. Findings: 06-FIELD-RESEARCH-vlessenc.md
+- 06 EXECUTE UNBLOCKED BY AUDIT (2026-05-10) — use updated 06-01 PLAN parser; continue implementation tasks.
+- 06-01 DONE (2026-05-10) — vlessenc generator, _migrate_mlkem_keys, VLESS_*_FILE constants. REQ-A01/A02/A03 ✓. Commits df6ba7f + eeb1e72.
+- 06-02 DONE (2026-05-10) — add_inbound XHTTP PQ decryption, generate_connection PQ encryption, schema_version:2/pq_enabled:true для xhttp, create_profile_menu PQ дефолт, _migrate_xhttp_default_2026 (no-op marker). REQ-A04/A05/A06/A08 ✓. Commits aa33d8c + d7575bf + 6c9bf44.
+- 06-03 DONE (2026-05-10) — upgrade_profile_to_pq_menu() (меню→8) IN-PLACE замена транспорта (UUID/port сохраняются), внутренние подфазы 1a/1b/1c для checkpoint-recoverability, short_id из config.json (H1 fix), shared inbound массовое обновление, show_pq_banner_once() с матрицей совместимости 2026-05-10 + marker .pq_banner_shown. REQ-A09/A10 ✓. Commits de798df + 1a08bf9.
+- Phase 6 COMPLETE — все REQ-A* удовлетворены, готов к verifier и Phase 7
+- 07-01 DONE (2026-05-11) — source-safety guard, pure-функция _generate_vless_url_pure, sub_token + миграция .subscription_tokens_2026. REQ-C04/C10/C11 ✓. Commits 92379d1 + 0451319 + 4f9bb41.
+- 07-02 DONE (2026-05-11) — _subscription_base_url() shared helper, install_subscription_server() heredoc-генерация subhttp.sh + .happ_defaults.env + xrayebator-sub.service, opt-in marker .subscription_installed, SERVER_IP curl-fix под source. REQ-C01/C05/C06/C07/C09 ✓. Commits 10bfc9a + 56c1113.
+- Phase 7 IN PROGRESS — next Plan 7.3 (public TLS + management menus)
+- При планировании Phase 8 — добавить Plan 8.3 AdGuard cleanup (deferred from Phase 5)
+- ... далее по ROADMAP.md последовательно (7.2 → 7.3 → 8)
+
+### Phase 4 plan artifacts
+
+- `.planning/phases/04-foundation-audit-fixes/04-RESEARCH.md` — 44KB, HIGH confidence
+- `.planning/phases/04-foundation-audit-fixes/04-01-lifecycle-scripts-hardening-PLAN.md` (3 tasks)
+- `.planning/phases/04-foundation-audit-fixes/04-02-migration-helper-rollout-PLAN.md` (4 tasks)
+
+### Phase 4 key research findings (must propagate to execution)
+
+- `xray run -test` возвращает exit 0 при отсутствующем конфиге → pre-validate ДОЛЖЕН использовать `grep -q "^Configuration OK\.$"` + тройная защита `[[ -f $cfg && -s $cfg ]]` перед grep
+- `run_migration` имеет three-valued return contract: `0`=changed→restart+mark, `1`=no-op→mark only, `≥2`=fail→don't mark
+- `backup_config` централизован в `run_migration` (убран из 6 миграционных fn); AdGuard backup_config calls (xrayebator:2672, 2770) НЕ тронуты
+- `migrate_xhttp_profiles` и `migrate_transport_profile_metadata` требуют EXPLICIT `return 0`/`return 1` после удаления внутреннего safe_restart_xray
+- mktemp вместо predictable `${CONFIG_FILE}.tmp.$$` (race + symlink attack)
+- x25519 regex: `^[A-Za-z0-9_+/=-]{43,44}$` (RawURL 43 + Std 44 with padding)
+
+### Blockers/Concerns
+
+- **CLOSED 2026-05-10:** plan 06-01 vlessenc parser blocker полностью разрешён. Field research директивы зашиты в код (install.sh + _migrate_mlkem_keys). Парсер использует section-marker `Authentication: ML-KEM-768` + JSON-fragment `awk -F'"' '{print $4}'`, без флага `-mode`, минимум Xray-core ≥ 25.9.5.
+- Remaining verification: smoke на target VPS — запустить `sudo xrayebator` на свежей VPS с latest Xray, убедиться что миграция `.mlkem_keys_generated` срабатывает (создаёт оба файла, marker, без restart) И что чистый install.sh производит файлы с правильным контентом.
+
+## Session Continuity
+
+Last session: 2026-05-11
+Stopped at: Plan 07-02 DONE (2/2 tasks committed: 10bfc9a helper + install_subscription_server + subhttp.sh + .happ_defaults.env, 56c1113 systemd unit + opt-in marker). SUMMARY.md создан. xrayebator: 4088 → 4386 строк (+298). Closed concern из 7.1: SERVER_IP=$(get_server_ip) обёрнут в XRAYEBATOR_SOURCED guard.
+Resume file: .planning/phases/07-happ-subscription-server/07-03-public-tls-and-management-menus-PLAN.md
+Next: запустить execute-phase для Plan 7.3 (public TLS via nginx + certbot, management menus используют _subscription_base_url helper + .subscription_installed marker для preflight, активация systemd unit, success-screen после create_profile с subscription URL и QR).
