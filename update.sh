@@ -19,6 +19,97 @@ NC='\033[0m'
 GITHUB_USER="howdeploy"
 GITHUB_REPO="Xrayebator"
 
+# ═══════════════════════════════════════════════════════════
+# ADGUARD HOME CLEANUP (deprecated в v2.0 — Plan 8.3)
+# ═══════════════════════════════════════════════════════════
+# AdGuard Home убирается как deprecated. CRITICAL ORDERING:
+# DNS rollback ДО stop AdGuard, иначе возникает DNS black-hole window.
+# Wrapped в функцию: `local` нельзя использовать на top-level update.sh.
+_adguard_force_uninstall_if_present() {
+  if [[ ! -f /opt/AdGuardHome/AdGuardHome ]]; then
+    return 0
+  fi
+
+  echo ""
+  echo -e "${YELLOW}═══════════════════════════════════════════════════════════${NC}"
+  echo -e "${YELLOW}Обнаружен устаревший AdGuard Home${NC}"
+  echo -e "${YELLOW}═══════════════════════════════════════════════════════════${NC}"
+  echo -e "${CYAN}AdGuard Home убирается как deprecated (в прошлых релизах${NC}"
+  echo -e "${CYAN}были баги в DNS-фильтрах). Автоматическое удаление...${NC}"
+  echo ""
+
+  local cfg="${CONFIG_FILE:-/usr/local/etc/xray/config.json}"
+  if [[ -f "$cfg" ]]; then
+    echo -e "${CYAN}Шаг 1/5: Восстановление Xray DNS (до остановки AdGuard)...${NC}"
+    local _tmp
+    _tmp=$(mktemp /tmp/xray-cfg.XXXXXX) || {
+      echo -e "${RED}  mktemp failed — DNS rollback пропущен${NC}"
+      _tmp=""
+    }
+    if [[ -n "$_tmp" ]] && jq '.dns = {
+      "servers": [
+        "https+local://1.1.1.1/dns-query",
+        "localhost"
+      ],
+      "queryStrategy": "UseIPv4",
+      "disableCache": false
+    }' "$cfg" > "$_tmp" 2>/dev/null \
+       && [[ -s "$_tmp" ]] \
+       && xray run -test -config "$_tmp" 2>&1 | grep -q "^Configuration OK\\.$"; then
+      mv "$_tmp" "$cfg"
+      chmod 644 "$cfg"
+      chown xray:xray "$cfg" 2>/dev/null || true
+      echo -e "${GREEN}  DNS rollback -> DoH Local (1.1.1.1)${NC}"
+    else
+      rm -f "$_tmp"
+      echo -e "${YELLOW}  DNS rollback пропущен (validation failed)${NC}"
+    fi
+  fi
+
+  echo -e "${CYAN}Шаг 2/5: Остановка AdGuard Home...${NC}"
+  systemctl stop AdGuardHome 2>/dev/null || true
+  systemctl disable AdGuardHome 2>/dev/null || true
+  /opt/AdGuardHome/AdGuardHome -s uninstall 2>/dev/null || true
+  echo -e "${GREEN}  Служба остановлена${NC}"
+
+  echo -e "${CYAN}Шаг 3/5: Удаление файлов /opt/AdGuardHome/...${NC}"
+  rm -rf /opt/AdGuardHome/
+  rm -f /etc/systemd/resolved.conf.d/adguardhome.conf
+  echo -e "${GREEN}  Файлы удалены${NC}"
+
+  echo -e "${CYAN}Шаг 4/5: Восстановление systemd-resolved...${NC}"
+  if [[ -L /etc/resolv.conf ]] || [[ -f /etc/resolv.conf ]]; then
+    ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf 2>/dev/null || true
+  fi
+  systemctl restart systemd-resolved 2>/dev/null || true
+  echo -e "${GREEN}  systemd-resolved перезапущен${NC}"
+
+  echo -e "${CYAN}Шаг 5/5: UFW cleanup (порт 53)...${NC}"
+  if command -v ufw &>/dev/null; then
+    ufw delete allow 53/tcp >/dev/null 2>&1
+    ufw delete allow 53/udp >/dev/null 2>&1
+    ufw delete allow 3000/tcp >/dev/null 2>&1
+    ufw reload >/dev/null 2>&1
+  fi
+  echo -e "${GREEN}  UFW проверен${NC}"
+
+  echo ""
+  echo -e "${GREEN}╔═══════════════════════════════════════════════════════════╗${NC}"
+  echo -e "${GREEN}║  AdGuard Home удален. Xray DNS -> DoH Local (1.1.1.1)    ║${NC}"
+  echo -e "${GREEN}╚═══════════════════════════════════════════════════════════╝${NC}"
+  echo ""
+
+  if [[ -f "$cfg" ]] && systemctl is-active --quiet xray; then
+    if xray run -test -config "$cfg" 2>&1 | grep -q "^Configuration OK\\.$"; then
+      systemctl restart xray
+      echo -e "${GREEN}Xray перезапущен с новым DNS${NC}"
+    else
+      echo -e "${YELLOW}Xray DNS validation failed — restart пропущен${NC}"
+    fi
+  fi
+  echo ""
+}
+
 # Проверка прав root
 if [[ $EUID -ne 0 ]]; then
   echo -e "${RED}✗ Требуются права root${NC}"
@@ -584,6 +675,9 @@ _cleanup_xray_backups() {
 # ═══════════════════════════════════════════════════════════
 # КОНЕЦ блока определений update_xray_core
 # ═══════════════════════════════════════════════════════════
+
+# Force-uninstall AdGuard Home (deprecated в v2.0) — должен выполниться ПЕРЕД DNS migration.
+_adguard_force_uninstall_if_present
 
 # ═══════════════════════════════════════════════════════════
 # МИГРАЦИЯ DNS (AdGuard для блокировки рекламы)
