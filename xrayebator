@@ -1459,6 +1459,7 @@ _apply_bypass_rule() {
   done <<< "$domains_raw"
 
   backup_config "bypass_routing_add"
+  # safe_jq_write routing.rules: PREPEND нового bypass-правила.
   if safe_jq_write \
       --argjson domains "$normalized_json" \
       '.routing.rules = [{"type":"field","domain":$domains,"outboundTag":"direct"}] + .routing.rules' \
@@ -1473,6 +1474,7 @@ _apply_bypass_rule() {
 _bypass_remove_rule() {
   local d="domain:$1"
   backup_config "bypass_routing_remove"
+  # safe_jq_write routing.rules: удалить domain из bypass-правил.
   if safe_jq_write \
       --arg d "$d" \
       '.routing.rules = [
@@ -1493,6 +1495,7 @@ _bypass_remove_rule() {
 
 _bypass_reset_all() {
   backup_config "bypass_routing_reset"
+  # safe_jq_write routing.rules: удалить только domain bypass-правила.
   if safe_jq_write '
       .routing.rules = [
         .routing.rules[] |
