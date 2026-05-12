@@ -1712,6 +1712,120 @@ _migrate_subhttp_happ_xhttp_compat_2026() {
   return 1
 }
 
+_migrate_happ_legacy_xhttp_route_2026() {
+  echo -e "${CYAN}Проверка legacy XHTTP маршрутов для HAPP...${NC}"
+
+  local migrated=0
+  local profile_file
+  for profile_file in "$PROFILES_DIR"/*.json; do
+    [[ -f "$profile_file" ]] || continue
+
+    if ! jq -e '(.routes // []) | length > 0' "$profile_file" >/dev/null 2>&1; then
+      continue
+    fi
+    if ! jq -e 'any((.routes // [])[]; .label == "xhttp-pq" and .transport == "xhttp")' "$profile_file" >/dev/null 2>&1; then
+      continue
+    fi
+
+    local profile_name uuid base_sni base_fp defaults port xhttp_path route_json
+    profile_name=$(basename "$profile_file" .json)
+
+    local legacy_port legacy_decryption
+    legacy_port=$(jq -r 'first((.routes // [])[] | select(.label == "xhttp-legacy") | .port) // empty' "$profile_file")
+    if [[ "$legacy_port" =~ ^[0-9]+$ ]]; then
+      legacy_decryption=$(jq -r --argjson p "$legacy_port" \
+        '.inbounds[]? | select(.port == $p) | .settings.decryption // empty' \
+        "$CONFIG_FILE" 2>/dev/null)
+      if [[ "$legacy_decryption" == "none" ]]; then
+        continue
+      fi
+      echo -e "${YELLOW}  → $profile_name: legacy XHTTP route stale, пересоздаю${NC}"
+      safe_jq_write --argjson port "$legacy_port" 'del(.routes[] | select(.label == "xhttp-legacy" and .port == $port))' "$profile_file" >/dev/null 2>&1 || return 2
+    fi
+
+    uuid=$(jq -r '.uuid // empty' "$profile_file")
+    [[ -n "$uuid" ]] || {
+      echo -e "${YELLOW}  ⚠ $profile_name: uuid отсутствует, пропуск${NC}"
+      continue
+    }
+
+    base_sni=$(jq -r 'first((.routes // [])[] | select(.label == "xhttp-pq" and .transport == "xhttp") | .sni) // .sni // "www.ozon.ru"' "$profile_file")
+    base_fp=$(jq -r 'first((.routes // [])[] | select(.label == "xhttp-pq" and .transport == "xhttp") | .fingerprint) // .fingerprint // "chrome"' "$profile_file")
+
+    defaults=$(build_transport_defaults "xhttp") || return 2
+    IFS='|' read -r port _ xhttp_path <<< "$defaults"
+    route_json=$(jq -n \
+      --arg label "xhttp-legacy" \
+      --arg transport "xhttp" \
+      --argjson port "$port" \
+      --arg sni "$base_sni" \
+      --arg fingerprint "$base_fp" \
+      --arg xhttp_path "$xhttp_path" \
+      '{
+        label: $label,
+        transport: $transport,
+        port: $port,
+        sni: $sni,
+        fingerprint: $fingerprint,
+        xhttp_path: $xhttp_path
+      }') || return 2
+
+    echo -e "${YELLOW}  → $profile_name: добавляю HAPP-compatible XHTTP :$port${NC}"
+    if ! safe_jq_write --argjson route "$route_json" '
+      .routes = ([$route] + (.routes // [])) |
+      .primary_route = "xhttp-legacy" |
+      .transport = "xhttp" |
+      .port = $route.port |
+      .fingerprint = $route.fingerprint |
+      .sni = $route.sni |
+      .xhttp_path = $route.xhttp_path |
+      .pq_enabled = false
+    ' "$profile_file"; then
+      echo -e "${RED}  ✗ $profile_name: не удалось обновить profile JSON${NC}"
+      return 2
+    fi
+
+    if ! add_inbound "$uuid" "xhttp" "$port" "$base_sni" "$base_fp" "" "$xhttp_path" false; then
+      echo -e "${RED}  ✗ $profile_name: не удалось создать legacy XHTTP inbound${NC}"
+      safe_jq_write --argjson port "$port" 'del(.routes[] | select(.label == "xhttp-legacy" and .port == $port))' "$profile_file" >/dev/null 2>&1 || true
+      return 2
+    fi
+
+    ((migrated++))
+  done
+
+  if [[ $migrated -gt 0 ]]; then
+    echo -e "${GREEN}✓ Добавлено legacy XHTTP маршрутов: $migrated${NC}"
+    return 0
+  fi
+
+  echo -e "${GREEN}✓ Legacy XHTTP маршруты уже в порядке${NC}"
+  return 1
+}
+
+_migrate_subhttp_happ_legacy_xhttp_2026() {
+  if [[ ! -f /usr/local/etc/xray/.subscription_installed ]]; then
+    echo -e "${CYAN}  → HAPP subscription не установлена — legacy-XHTTP subscription migration skip${NC}"
+    return 1
+  fi
+
+  echo -e "${CYAN}  → Регенерация subhttp.sh с приоритетом legacy XHTTP для HAPP...${NC}"
+  if ! install_subscription_server >/dev/null 2>&1; then
+    echo -e "${RED}  ✗ Не удалось регенерировать subhttp.sh${NC}"
+    return 2
+  fi
+
+  if systemctl is-active --quiet xrayebator-sub.service; then
+    systemctl restart xrayebator-sub.service || {
+      echo -e "${RED}  ✗ Не удалось перезапустить xrayebator-sub.service${NC}"
+      return 2
+    }
+    echo -e "${GREEN}  ✓ xrayebator-sub.service перезапущен${NC}"
+  fi
+
+  return 1
+}
+
 _sni_in_use() {
   local domain="$1"
   local -ar REALITY_DEFAULT_SNIS=(
@@ -2490,9 +2604,21 @@ if [[ "$query_lc" == *"format=v2ray"* || "$query_lc" == *"format=base64"* || "$q
   universal_sub=true
 fi
 
-decorate_happ_vless_urls() {
-  local line before after
+prepare_happ_vless_urls() {
+  local input line before after has_legacy_xhttp=false
+  input=$(cat)
+
   while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ "$line" == vless://* && "$line" == *"encryption=none"* && "$line" == *"&type=xhttp&"* ]]; then
+      has_legacy_xhttp=true
+      break
+    fi
+  done <<< "$input"
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ "$line" == vless://* && "$line" == *"&type=xhttp&"* && "$has_legacy_xhttp" == "true" && "$line" != *"encryption=none"* ]]; then
+      continue
+    fi
     if [[ "$line" == vless://* && "$line" == *"&type=xhttp&"* && "$line" != *"&mode="* ]]; then
       before="${line%%&type=xhttp&*}"
       after="${line#*&type=xhttp&}"
@@ -2503,7 +2629,7 @@ decorate_happ_vless_urls() {
       line="${before}&type=grpc&mode=gun&${after}"
     fi
     printf '%s\n' "$line"
-  done
+  done <<< "$input"
 }
 
 # HAPP metadata: profile-title и announce — base64 UTF-8 без переносов (-w0).
@@ -2545,7 +2671,7 @@ if [[ "$universal_sub" == "true" ]]; then
 else
   # HAPP standard subscriptions are text-based server lists. Keep body conservative:
   # only vless:// rows by default; metadata stays in HTTP headers.
-  happ_vless_urls=$(printf '%s' "$vless_urls" | decorate_happ_vless_urls)
+  happ_vless_urls=$(printf '%s' "$vless_urls" | prepare_happ_vless_urls)
   {
     printf '%s' "$happ_vless_urls"
     if [[ -n "$routing_uri" ]]; then
@@ -3607,6 +3733,7 @@ main_menu() {
   run_migration "mlkem_keys_generated"                 "PQ ключи VLESS Encryption (mlkem768x25519plus)" _migrate_mlkem_keys || ((migration_failures++))
   run_migration "xhttp_default_2026"                   "XHTTP+PQ как дефолтный пресет создания профиля" _migrate_xhttp_default_2026 || ((migration_failures++))
   run_migration "subscription_tokens_2026"             "Subscription tokens (Phase 7) для существующих профилей" _migrate_subscription_tokens_2026 || ((migration_failures++))
+  run_migration "happ_legacy_xhttp_route_2026"         "HAPP-compatible legacy XHTTP route" _migrate_happ_legacy_xhttp_route_2026 || ((migration_failures++))
   if [[ ! -f /usr/local/etc/xray/.sni_list_2026 ]]; then
     echo -e "${YELLOW}Перед SNI миграцией доступна команда probe-test для проверки доступности SNI.${NC}"
     echo -n -e "${YELLOW}Запустить probe-test сейчас? [y/N]: ${NC}"
@@ -3626,6 +3753,7 @@ main_menu() {
   run_migration "subhttp_no_default_happ_routing_2026" "HAPP subscription: no default routing profile" _migrate_subhttp_no_default_happ_routing_2026 || ((migration_failures++))
   run_migration "subhttp_stale_profiles_410_2026" "HAPP subscription: stale profile diagnostics" _migrate_subhttp_stale_profiles_410_2026 || ((migration_failures++))
   run_migration "subhttp_happ_xhttp_compat_2026" "HAPP subscription: XHTTP mode/no-limit compatibility" _migrate_subhttp_happ_xhttp_compat_2026 || ((migration_failures++))
+  run_migration "subhttp_happ_legacy_xhttp_2026" "HAPP subscription: prefer legacy XHTTP route" _migrate_subhttp_happ_legacy_xhttp_2026 || ((migration_failures++))
 
   # Aggregate report (RESEARCH §«Error reporting»): чтобы пользователь не пропустил
   # failure среди скроллящегося TUI вывода.
@@ -3852,6 +3980,10 @@ create_profile_all_routes() {
 
   defaults=$(build_transport_defaults "xhttp") || { rm -f "$routes_tmp"; return 1; }
   IFS='|' read -r port _ xhttp_path <<< "$defaults"
+  _append_route_json "xhttp-legacy" "xhttp" "$port" "$default_sni" "chrome" false "" "$xhttp_path"
+
+  defaults=$(build_transport_defaults "xhttp") || { rm -f "$routes_tmp"; return 1; }
+  IFS='|' read -r port _ xhttp_path <<< "$defaults"
   _append_route_json "xhttp-pq" "xhttp" "$port" "$default_sni" "chrome" true "" "$xhttp_path"
 
   defaults=$(build_transport_defaults "tcp-mux") || { rm -f "$routes_tmp"; return 1; }
@@ -3893,7 +4025,7 @@ create_profile_all_routes() {
         uuid: $uuid,
         schema_version: 3,
         multi_route: true,
-        primary_route: "xhttp-pq",
+        primary_route: "xhttp-legacy",
         sub_token: $sub_token,
         created: $created,
         routes: $routes
@@ -3904,7 +4036,7 @@ create_profile_all_routes() {
         fingerprint: $routes[0].fingerprint,
         sni: $routes[0].sni,
         xhttp_path: $routes[0].xhttp_path,
-        pq_enabled: true
+        pq_enabled: ($routes[0].pq_enabled // false)
       }' > "$PROFILES_DIR/$name.json"; then
     rm -f "$PROFILES_DIR/$name.json"
     echo -e "${RED}✗ Не удалось создать JSON профиля${NC}"
@@ -3922,7 +4054,7 @@ create_profile_all_routes() {
   local route_line label transport sni fingerprint pq grpc xhttp
   while IFS=$'\t' read -r label transport port sni fingerprint pq grpc xhttp; do
     echo -e "${CYAN} → Маршрут ${label}: ${transport} :${port}${NC}"
-    if ! add_inbound "$uuid" "$transport" "$port" "$sni" "$fingerprint" "$grpc" "$xhttp"; then
+    if ! add_inbound "$uuid" "$transport" "$port" "$sni" "$fingerprint" "$grpc" "$xhttp" "$pq"; then
       [[ -n "$rollback_config" ]] && cp "$rollback_config" "$CONFIG_FILE"
       rm -f "$PROFILES_DIR/$name.json"
       local p
@@ -4179,13 +4311,16 @@ add_inbound() {
   local fingerprint=${5:-"chrome"}
   local grpc_service_name=$6
   local xhttp_path=$7
+  local pq_enabled=${8:-}
   local short_id=$(openssl rand -hex 4)
+  [[ -z "$pq_enabled" && "$transport" == "xhttp" ]] && pq_enabled=true
 
-  # Phase 6 REQ-A04: для XHTTP-инбаундов читаем PQ decryption из файла.
+  # Phase 6 REQ-A04: для PQ XHTTP-инбаундов читаем decryption из файла.
+  # HAPP fallback XHTTP использует decryption=none, иначе это не fallback.
   # Файл создан Plan 6.1 (install.sh при свежей установке ИЛИ миграция .mlkem_keys_generated).
   # Если файл отсутствует — это runtime-ошибка: миграция должна была сработать.
-  local vless_decryption=""
-  if [[ "$transport" == "xhttp" ]]; then
+  local vless_decryption="none"
+  if [[ "$transport" == "xhttp" && "$pq_enabled" == "true" ]]; then
     if [[ ! -f "$VLESS_DECRYPTION_FILE" ]]; then
       echo -e "${RED}✗ PQ ключи отсутствуют: $VLESS_DECRYPTION_FILE${NC}"
       echo -e "${YELLOW}  Перезапустите xrayebator — миграция .mlkem_keys_generated должна сгенерировать ключи${NC}"
