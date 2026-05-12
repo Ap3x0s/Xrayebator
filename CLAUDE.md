@@ -80,9 +80,9 @@ fi
 
 Xray runs as non-root user `xray` with `CAP_NET_BIND_SERVICE` via systemd drop-in file. The `install.sh` creates the user and sets file ownership. The `safe_jq_write()` function preserves `644` permissions; `fix_xray_permissions()` restores ownership after writes.
 
-### Add-on services
+### Add-on services (deprecated v2.0)
 
-- **AdGuard Home** (menu item 7): Standalone binary at `/opt/AdGuardHome/`, systemd service, Web UI on 127.0.0.1:3000 (SSH tunnel only), DNS on 0.0.0.0:53. Xray config points DNS to 127.0.0.1 when integrated. Port 53 is NOT opened in UFW (loopback bypasses firewall). When DNS is `127.0.0.1`, config migrations must skip DNS changes.
+- **AdGuard Home** — Removed from the interactive menu in v2.0. If `/opt/AdGuardHome/AdGuardHome` is detected during `xrayebator update`, update.sh force-uninstalls it through `_adguard_force_uninstall_if_present` after rolling Xray DNS back to DoH Local (`https+local://1.1.1.1/dns-query`). `uninstall_adguard_home()` remains in `xrayebator` for manual emergency use.
 
 ## Coding Patterns
 
