@@ -5,17 +5,17 @@
 See: .planning/PROJECT.md (updated 2026-05-09)
 
 **Core value:** VPN стабильно и быстро работает через ТСПУ — соединение не падает, блокировки обходятся надёжно
-**Current focus:** v2.0 Phase 8 IN PROGRESS — 08-01 DONE, next 08-02 bypass routing menu.
+**Current focus:** v2.0 Phase 8 IN PROGRESS — 08-01 + 08-02 DONE, next 08-03 AdGuard cleanup.
 
 ## Current Position
 
 Milestone: v2.0 — Post-Quantum & HAPP
-Phase: 8 of 8 (Polish: SNI 2026 + Vision Seed + bypass routing + AdGuard cleanup) — 1/3 plans DONE
-Plan: 08-01 ✓ DONE (3/3 tasks, commits a328bbc + 436ad0f + f64f5c2)
-Status: Phase 4 ✓ | Phase 5 ✓ | Phase 6 ✓ | Phase 7 ✓ | Phase 8 in progress (08-01 ✓, next 08-02)
-Last activity: 2026-05-12 — Plan 08-01 executed: SNI 2026 migration + KNOWN_DEFAULTS_v1 preserving user-custom entries, standalone `xrayebator probe-test`, main_menu point 4 consolidated into `manage_profile_menu`, experimental `manage_profile_advanced_menu` for testpre/testseed with RED warning + Xray version check + safe_jq_write to profile/config, `edit_happ_announce_menu` registered under HAPP subscription menu point 5, generated subhttp.sh now emits announce header/body comment only for non-empty announce.txt. REQ-E01..E04 satisfied.
+Phase: 8 of 8 (Polish: SNI 2026 + Vision Seed + bypass routing + AdGuard cleanup) — 2/3 plans DONE
+Plan: 08-02 ✓ DONE (3/3 tasks, commits 1b5d434 + bcfbebb + b7b9a8c)
+Status: Phase 4 ✓ | Phase 5 ✓ | Phase 6 ✓ | Phase 7 ✓ | Phase 8 in progress (08-01 ✓, 08-02 ✓, next 08-03)
+Last activity: 2026-05-12 — Plan 08-02 executed: bypass routing helpers, SNI conflict guard, PREPEND `routing.rules` mutation via safe_jq_write, interactive bypass menu at main_menu item 11, granular 5-group default bundle, remove/reset flows, and `.bypass_routing_2026` first-run opt-in migration. REQ-F01..F05 satisfied.
 
-Progress: [#########░] 88% (Phases 4+5+6+7 ✓; Phase 8 1/3 plans complete)
+Progress: [#########░] 93% (Phases 4+5+6+7 ✓; Phase 8 2/3 plans complete)
 
 ## Performance Metrics
 
@@ -213,7 +213,8 @@ Progress: [##########] 100% (Phases 4+5+6+7 ✓; Phase 8 final polish remains)
 - 07-03 DONE (2026-05-11) — _select_subscription_port + install_subscription_public_tls (REQ-C02/C08 nginx+certbot+ufw limit) + install_subscription_local_only (REQ-C03 loopback) + manage_subscription_menu (REQ-C12 URL/QR/revoke + PQ-aware vless gate REQ-C14) + happ_settings_menu + _happ_edit_field (REQ-C13 atomic TUI editor) + happ_subscription_menu wrapper + main_menu пункт 9 + create_profile success-screen primary URL/QR. Commits a95bd99 + 692732d + f375954.
 - Phase 7 COMPLETE — все REQ-C* (C01..C14) satisfied; готов к Phase 8.
 - 08-01 DONE (2026-05-12) — SNI list 2026 + `.sni_list_2026` migration + `probe-test` CLI + manage_profile hub + Vision Seed advanced submenu + HAPP announcement editor/emission. REQ-E01..E04 ✓. Commits a328bbc + 436ad0f + f64f5c2.
-- Phase 8 in progress — next 08-02 bypass routing menu.
+- 08-02 DONE (2026-05-12) — bypass routing menu (main_menu 11), SNI conflict guard, granular 5-group bundle, safe_jq_write PREPEND routing.rules, remove/reset flows, `.bypass_routing_2026` opt-in migration. REQ-F01..F05 ✓. Commits 1b5d434 + bcfbebb + b7b9a8c.
+- Phase 8 in progress — next 08-03 AdGuard cleanup.
 
 ### Phase 4 plan artifacts
 
