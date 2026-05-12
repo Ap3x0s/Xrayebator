@@ -27,6 +27,31 @@ VLESS_ENCRYPTION_FILE="/usr/local/etc/xray/.vless_encryption"
 SNI_LIST="$DATA_DIR/sni_list.txt"
 ASCII_ART="$DATA_DIR/ascii_art.txt"
 
+# Хардкод-список SNI shipped в v1.0 sni_list.txt. Используется миграциями
+# SNI v2.0+ — все, что НЕ в этом set, считается user-custom и не трогается.
+# При расширении v2.0 list — обновить v2 set отдельно.
+readonly -a KNOWN_DEFAULTS_v1=(
+  # ru_whitelist priority 1
+  "www.ozon.ru" "api.ozon.ru" "st.ozon.ru" "ir.ozon.ru"
+  "www.wildberries.ru" "splitter.wb.ru"
+  "www.sberbank.ru" "www.tinkoff.ru" "www.alfabank.ru"
+  "www.nspk.ru" "sbp.nspk.ru"
+  "stats.vk-portal.net" "sun6-21.userapi.com" "sun6-20.userapi.com"
+  "queuev4.vk.com" "eh.vk.com"
+  "www.kinopoisk.ru" "www.1tv.ru" "www.rbc.ru" "www.vedomosti.ru"
+  "www.gosuslugi.ru" "www.mos.ru" "www.spb.gov.ru"
+  # yandex_cdn priority 2
+  "speller.yandex.net" "api-maps.yandex.ru" "spell.yandex.net"
+  "advapi.yandex.net" "mc.yandex.ru" "suggest.yandex.ru"
+  # foreign priority 3
+  "www.github.com" "raw.githubusercontent.com" "api.github.com"
+  "www.cloudflare.com" "cdn.cloudflare.net" "aws.amazon.com"
+  # fallback priority 4
+  "www.mozilla.org" "www.ubuntu.com" "www.debian.org"
+  # Apple/iCloud (исторически — будут удалены)
+  "apple.com" "www.apple.com" "icloud.com" "www.icloud.com"
+)
+
 # ═══════════════════════════════════════════════════════════
 # SOURCE-SAFETY GUARD (Phase 7, REQ-C10)
 # ═══════════════════════════════════════════════════════════
@@ -1245,6 +1270,147 @@ _migrate_subscription_tokens_2026() {
   return 1
 }
 
+_migrate_sni_list_2026() {
+  local sni_file="$SNI_LIST"
+  if [[ ! -f "$sni_file" && -f /usr/local/etc/xray/sni_list.txt ]]; then
+    sni_file="/usr/local/etc/xray/sni_list.txt"
+  fi
+  [[ -f "$sni_file" ]] || return 1
+
+  local -A known_defaults=()
+  local domain
+  for domain in "${KNOWN_DEFAULTS_v1[@]}"; do
+    known_defaults["$domain"]=1
+  done
+
+  local -a to_add_p1=(
+    "online.uralsib.ru|ru_whitelist|1"
+    "online.vtb.ru|ru_whitelist|1"
+    "www.cdek.ru|ru_whitelist|1"
+    "www.pochta.ru|ru_whitelist|1"
+    "www.avito.ru|ru_whitelist|1"
+  )
+  local -a to_add_p3=(
+    "github.com|foreign|3"
+  )
+
+  local changed=0
+  local line entry
+  for entry in "${to_add_p1[@]}" "${to_add_p3[@]}"; do
+    if ! grep -Fxq "$entry" "$sni_file" 2>/dev/null; then
+      changed=1
+      break
+    fi
+  done
+
+  if [[ $changed -eq 0 ]]; then
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      domain="${line%%|*}"
+      if [[ -n "${known_defaults[$domain]:-}" ]] && [[ "$domain" =~ (^|\.)(apple|icloud)\.com$ ]]; then
+        changed=1
+        break
+      fi
+    done < "$sni_file"
+  fi
+
+  [[ $changed -eq 0 ]] && return 1
+
+  local tmp
+  tmp=$(mktemp /tmp/sni-list.XXXXXX) || {
+    echo -e "${RED}  ✗ mktemp failed для SNI list${NC}"
+    return 2
+  }
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    domain="${line%%|*}"
+    if [[ -n "${known_defaults[$domain]:-}" ]] && [[ "$domain" =~ (^|\.)(apple|icloud)\.com$ ]]; then
+      continue
+    fi
+    printf '%s\n' "$line" >> "$tmp"
+  done < "$sni_file"
+
+  for entry in "${to_add_p1[@]}" "${to_add_p3[@]}"; do
+    domain="${entry%%|*}"
+    local exists=0
+    while IFS='|' read -r existing_domain _ _ || [[ -n "$existing_domain" ]]; do
+      [[ "$existing_domain" == "$domain" ]] && { exists=1; break; }
+    done < "$tmp"
+    [[ $exists -eq 0 ]] && printf '%s\n' "$entry" >> "$tmp"
+  done
+
+  if [[ ! -s "$tmp" ]]; then
+    rm -f "$tmp"
+    echo -e "${RED}  ✗ SNI migration produced empty file${NC}"
+    return 2
+  fi
+
+  mv "$tmp" "$sni_file"
+  chown xray:xray "$sni_file" 2>/dev/null || true
+  chmod 644 "$sni_file" 2>/dev/null || true
+
+  echo -e "${GREEN}✓ SNI list 2026 обновлен: РФ-банки/логистика + github, apple/icloud удалены${NC}"
+  return 0
+}
+
+probe_sni() {
+  local sni="$1"
+  local timeout=8
+  local tls_out tls_status="FAIL"
+  tls_out=$(timeout "$timeout" openssl s_client \
+    -connect "${sni}:443" \
+    -servername "$sni" \
+    -tls1_3 \
+    </dev/null 2>&1)
+  echo "$tls_out" | grep -q "Verify return code: 0" && tls_status="OK"
+
+  local http_code latency
+  read -r http_code latency < <(
+    curl -s -o /dev/null \
+      --connect-timeout "$timeout" \
+      --max-time "$timeout" \
+      -w "%{http_code} %{time_total}" \
+      "https://${sni}/" 2>/dev/null || echo "000 0"
+  )
+
+  printf "%-32s | %-10s | %-10s | %6ss\n" \
+    "$sni" "${http_code:-000}" "TLS ${tls_status}" "${latency:-?}"
+}
+
+probe_test_command() {
+  local sni_file="$SNI_LIST"
+  if [[ ! -f "$sni_file" && -f /usr/local/etc/xray/sni_list.txt ]]; then
+    sni_file="/usr/local/etc/xray/sni_list.txt"
+  fi
+  if [[ ! -f "$sni_file" ]]; then
+    echo -e "${RED}✗ SNI list не найден: $SNI_LIST${NC}"
+    return 1
+  fi
+
+  echo -e "${BLUE}════════════════════════════════════════════════════${NC}"
+  echo -e "${BLUE} PROBE TEST: проверка SNI с VPS${NC}"
+  echo -e "${BLUE}════════════════════════════════════════════════════${NC}"
+  echo ""
+  printf "${CYAN}%-32s | %-10s | %-10s | %6s${NC}\n" "SNI" "HTTP" "TLS" "latency"
+  printf "%-32s-+-%-10s-+-%-10s-+-%6s\n" "--------------------------------" "----------" "----------" "------"
+
+  local total=0
+  local ok_count=0
+  local sni category priority row
+  while IFS='|' read -r sni category priority || [[ -n "$sni" ]]; do
+    [[ "$sni" =~ ^#.*$ ]] && continue
+    [[ "$sni" =~ ^[[:space:]]*$ ]] && continue
+    [[ -z "$sni" ]] && continue
+
+    row=$(probe_sni "$sni")
+    echo "$row"
+    ((total++))
+    [[ "$row" == *"TLS OK"* ]] && ((ok_count++))
+  done < "$sni_file"
+
+  printf "%-32s-+-%-10s-+-%-10s-+-%6s\n" "--------------------------------" "----------" "----------" "------"
+  echo -e "${GREEN}Доступны: ${ok_count}/${total} SNI${NC}"
+}
+
 # ═══════════════════════════════════════════════════════════
 # END HELPER FUNCTIONS
 # ═══════════════════════════════════════════════════════════
@@ -2425,6 +2591,19 @@ main_menu() {
   run_migration "mlkem_keys_generated"                 "PQ ключи VLESS Encryption (mlkem768x25519plus)" _migrate_mlkem_keys || ((migration_failures++))
   run_migration "xhttp_default_2026"                   "XHTTP+PQ как дефолтный пресет создания профиля" _migrate_xhttp_default_2026 || ((migration_failures++))
   run_migration "subscription_tokens_2026"             "Subscription tokens (Phase 7) для существующих профилей" _migrate_subscription_tokens_2026 || ((migration_failures++))
+  if [[ ! -f /usr/local/etc/xray/.sni_list_2026 ]]; then
+    echo -e "${YELLOW}Перед SNI миграцией доступна команда probe-test для проверки доступности SNI.${NC}"
+    echo -n -e "${YELLOW}Запустить probe-test сейчас? [y/N]: ${NC}"
+    local probe_ans
+    read -r probe_ans
+    probe_ans=${probe_ans:-N}
+    if [[ "$probe_ans" =~ ^[yYдД]$ ]]; then
+      probe_test_command
+      echo -n -e "${YELLOW}Нажмите Enter для продолжения миграции...${NC}"
+      read -r _
+    fi
+  fi
+  run_migration "sni_list_2026" "SNI list 2026 (РФ-банки/логистика, удалить apple/icloud)" _migrate_sni_list_2026 || ((migration_failures++))
 
   # Aggregate report (RESEARCH §«Error reporting»): чтобы пользователь не пропустил
   # failure среди скроллящегося TUI вывода.
@@ -4859,6 +5038,10 @@ if [[ "$XRAYEBATOR_SOURCED" -eq 0 ]]; then
       shift
       update_command "$@"
       ;;
+    probe-test)
+      shift
+      probe_test_command
+      ;;
     ""|menu)
       main_menu
       ;;
@@ -4867,6 +5050,7 @@ if [[ "$XRAYEBATOR_SOURCED" -eq 0 ]]; then
       echo -e "${YELLOW}Использование:${NC}"
       echo -e "  ${CYAN}sudo xrayebator${NC}         — открыть меню"
       echo -e "  ${CYAN}sudo xrayebator update${NC}  — обновить Xray-core"
+      echo -e "  ${CYAN}sudo xrayebator probe-test${NC}  — проверить доступность SNI с VPS"
       exit 1
       ;;
   esac

@@ -1,5 +1,5 @@
 # XRAYEBATOR - Категоризированный список SNI
-# Последнее обновление: февраль 2026
+# Последнее обновление: май 2026
 # Формат: домен|категория|приоритет
 # Категории: ru_whitelist, yandex_cdn, foreign, fallback
 
@@ -23,6 +23,13 @@ www.tinkoff.ru|ru_whitelist|1
 www.alfabank.ru|ru_whitelist|1
 www.nspk.ru|ru_whitelist|1
 sbp.nspk.ru|ru_whitelist|1
+online.uralsib.ru|ru_whitelist|1
+online.vtb.ru|ru_whitelist|1
+
+# Логистика / госструктуры / маркетплейсы (приоритет 1)
+www.cdek.ru|ru_whitelist|1
+www.pochta.ru|ru_whitelist|1
+www.avito.ru|ru_whitelist|1
 
 # VK/Госмониторинг
 stats.vk-portal.net|ru_whitelist|1
@@ -60,6 +67,7 @@ suggest.yandex.ru|yandex_cdn|2
 # ═══════════════════════════════════════════════════════════
 
 www.github.com|foreign|3
+github.com|foreign|3
 raw.githubusercontent.com|foreign|3
 api.github.com|foreign|3
 www.cloudflare.com|foreign|3
