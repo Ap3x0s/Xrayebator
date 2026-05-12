@@ -451,6 +451,46 @@ fix_xray_permissions() {
   chmod 600 /usr/local/etc/xray/.private_key 2>/dev/null || true
 }
 
+ensure_xray_service_unit() {
+  if systemctl cat xray.service >/dev/null 2>&1; then
+    return 0
+  fi
+
+  echo -e "${YELLOW}  ⚠ systemd unit xray.service не найден — создаю базовый unit${NC}"
+  cat > /etc/systemd/system/xray.service <<'SVCEOF'
+[Unit]
+Description=Xray Service
+Documentation=https://github.com/XTLS/Xray-core
+After=network.target nss-lookup.target
+Wants=network-online.target
+
+[Service]
+User=xray
+Group=xray
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+ExecStart=/usr/local/bin/xray run -config /usr/local/etc/xray/config.json
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target
+SVCEOF
+  chmod 644 /etc/systemd/system/xray.service
+  systemctl daemon-reload
+  systemctl enable xray >/dev/null 2>&1 || true
+
+  if systemctl cat xray.service >/dev/null 2>&1; then
+    echo -e "${GREEN}  ✓ xray.service создан${NC}"
+    return 0
+  fi
+
+  echo -e "${RED}  ✗ Не удалось создать xray.service${NC}"
+  return 1
+}
+
 # Безопасный перезапуск Xray с валидацией конфига
 # Returns: 0=success, 1=failure (validation/restart failed; rollback attempted)
 safe_restart_xray() {
@@ -486,6 +526,10 @@ safe_restart_xray() {
       cp "$latest_backup" "$CONFIG_FILE"
       echo -e "${GREEN}  ✓ Конфиг восстановлен из: $(basename "$latest_backup")${NC}"
     fi
+    return 1
+  fi
+
+  if ! ensure_xray_service_unit; then
     return 1
   fi
 
@@ -1465,8 +1509,10 @@ _apply_bypass_rule() {
       '.routing.rules = [{"type":"field","domain":$domains,"outboundTag":"direct"}] + .routing.rules' \
       "$CONFIG_FILE"; then
     fix_xray_permissions
-    safe_restart_xray
-    return 0
+    if safe_restart_xray; then
+      return 0
+    fi
+    return 2
   fi
   return 2
 }
@@ -1487,8 +1533,10 @@ _bypass_remove_rule() {
         end
       ]' "$CONFIG_FILE"; then
     fix_xray_permissions
-    safe_restart_xray
-    return 0
+    if safe_restart_xray; then
+      return 0
+    fi
+    return 2
   fi
   return 2
 }
@@ -1502,8 +1550,10 @@ _bypass_reset_all() {
         select(.outboundTag != "direct" or (.network // null) != null or (.port // null) != null or (((.domain // []) | length) == 0))
       ]' "$CONFIG_FILE"; then
     fix_xray_permissions
-    safe_restart_xray
-    return 0
+    if safe_restart_xray; then
+      return 0
+    fi
+    return 2
   fi
   return 2
 }
@@ -2907,6 +2957,9 @@ main_menu() {
         ;;
       experimental)
         echo -e "${MAGENTA}[Experimental]${NC} Экспериментальная версия"
+        ;;
+      *)
+        echo -e "${MAGENTA}[Branch]${NC} ${current_branch}"
         ;;
     esac
     echo ""
@@ -4687,6 +4740,7 @@ _bypass_apply_bundle() {
   local -a group_names=()
   local -a group_domains=()
   local -a state=()
+  local cursor=0
   local gid gname doms_csv
 
   while IFS='|' read -r gid gname doms_csv; do
@@ -4704,6 +4758,7 @@ _bypass_apply_bundle() {
     echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
     echo ""
     echo -e "${YELLOW}Выберите группы для применения:${NC}"
+    echo -e "${CYAN}↑/↓ — выбор, Space — вкл/выкл, Enter — применить, q/Esc — отмена${NC}"
     echo ""
 
     local i
@@ -4711,16 +4766,18 @@ _bypass_apply_bundle() {
       local mark="[ ]"
       [[ "${state[$i]}" == "on" ]] && mark="[x]"
       local count
-      count=$(printf '%s' "${group_domains[$i]}" | tr ',' '\n' | sed '/^$/d' | wc -l)
-      echo -e "${CYAN} $((i+1)))${NC} $mark ${group_names[$i]} (${count} доменов)"
+      count=$(awk -F',' '{print NF}' <<< "${group_domains[$i]}")
+      local pointer=" "
+      [[ $i -eq $cursor ]] && pointer=">"
+      echo -e "${CYAN}${pointer} $((i+1)))${NC} $mark ${group_names[$i]} (${count} доменов)"
     done
 
     echo ""
-    echo -n -e "${YELLOW}Номер группы = toggle, apply = применить, cancel = отмена: ${NC}"
-    local choice
-    read -r choice
-    case "$choice" in
-      apply)
+    echo -n -e "${YELLOW}Клавиша: ${NC}"
+    local key rest
+    IFS= read -rsn1 key
+    case "$key" in
+      "")
         local all_doms_csv=""
         for i in "${!group_ids[@]}"; do
           if [[ "${state[$i]}" == "on" ]]; then
@@ -4738,34 +4795,54 @@ _bypass_apply_bundle() {
         doms_json=$(printf '%s' "$all_doms_csv" | tr ',' '\n' | sed '/^$/d' | jq -R '"domain:" + .' | jq -s '.')
         local domain_count
         domain_count=$(printf '%s' "$doms_json" | jq 'length')
-        echo -n -e "${YELLOW}Применить ${domain_count} доменов? [y/N]: ${NC}"
-        local confirm
-        read -r confirm
-        [[ "$confirm" =~ ^[yYдД]$ ]] || { echo -e "${CYAN}✓ Отменено${NC}"; sleep 1; return; }
+        echo -e "${CYAN}Применяю ${domain_count} доменов...${NC}"
 
         if _apply_bypass_rule "$doms_json"; then
           echo -e "${GREEN}✓ Дефолтный bundle применен${NC}"
         else
-          echo -e "${RED}✗ Bundle не применен${NC}"
+          echo -e "${RED}✗ Bundle не применен. Если был создан бэкап, config.json откатан safe_restart_xray.${NC}"
         fi
         echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
         read -r _
         return
         ;;
-      cancel|0)
+      " ")
+        if [[ "${state[$cursor]}" == "on" ]]; then
+          state[$cursor]="off"
+        else
+          state[$cursor]="on"
+        fi
+        ;;
+      q|Q)
         return
         ;;
+      $'\e')
+        rest=""
+        IFS= read -rsn2 -t 0.1 rest || true
+        case "$rest" in
+          "[A")
+            ((cursor--))
+            [[ $cursor -lt 0 ]] && cursor=$((${#group_ids[@]} - 1))
+            ;;
+          "[B")
+            ((cursor++))
+            [[ $cursor -ge ${#group_ids[@]} ]] && cursor=0
+            ;;
+          *)
+            return
+            ;;
+        esac
+        ;;
       *)
-        if [[ "$choice" =~ ^[0-9]+$ ]] && [[ "$choice" -ge 1 ]] && [[ "$choice" -le ${#group_ids[@]} ]]; then
-          local idx=$((choice-1))
+        # Fallback для терминалов без нормальных escape-последовательностей.
+        if [[ "$key" =~ ^[0-9]$ ]] && [[ "$key" -ge 1 ]] && [[ "$key" -le ${#group_ids[@]} ]]; then
+          local idx=$((key-1))
+          cursor=$idx
           if [[ "${state[$idx]}" == "on" ]]; then
             state[$idx]="off"
           else
             state[$idx]="on"
           fi
-        else
-          echo -e "${RED}Неверный выбор${NC}"
-          sleep 1
         fi
         ;;
     esac

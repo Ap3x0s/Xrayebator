@@ -348,6 +348,35 @@ if ! id "xray" &>/dev/null; then
   echo -e "${GREEN}  ✓ Пользователь xray создан${NC}"
 fi
 
+# Create base systemd unit if the Xray package/zip install did not provide one.
+if ! systemctl cat xray.service >/dev/null 2>&1; then
+  cat > /etc/systemd/system/xray.service <<'SVCEOF'
+[Unit]
+Description=Xray Service
+Documentation=https://github.com/XTLS/Xray-core
+After=network.target nss-lookup.target
+Wants=network-online.target
+
+[Service]
+User=xray
+Group=xray
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+ExecStart=/usr/local/bin/xray run -config /usr/local/etc/xray/config.json
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target
+SVCEOF
+  chmod 644 /etc/systemd/system/xray.service
+  echo -e "${GREEN}  ✓ xray.service создан${NC}"
+else
+  echo -e "${CYAN}  → xray.service уже существует${NC}"
+fi
+
 # Create systemd drop-in for non-root with capabilities
 mkdir -p /etc/systemd/system/xray.service.d
 cat > /etc/systemd/system/xray.service.d/security.conf << 'SVCEOF'
@@ -713,6 +742,8 @@ curl -fsSL "${RAW_BASE_URL}/uninstall.sh" -o "${SCRIPTS_DIR}/uninstall.sh" 2>/de
 chmod +x "${SCRIPTS_DIR}/uninstall.sh" 2>/dev/null
 ln -sf "${SCRIPTS_DIR}/update.sh" /usr/local/bin/xrayebator-update 2>/dev/null
 ln -sf "${SCRIPTS_DIR}/uninstall.sh" /usr/local/bin/xrayebator-uninstall 2>/dev/null
+echo "$GITHUB_BRANCH" > /usr/local/etc/xray/.current_branch
+chown xray:xray /usr/local/etc/xray/.current_branch 2>/dev/null || true
 echo -e "${GREEN}✓ Скрипты установлены${NC}\n"
 
 # Запуск Xray
