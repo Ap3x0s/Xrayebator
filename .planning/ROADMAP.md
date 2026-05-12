@@ -208,7 +208,7 @@ Plans:
 Plans:
 - [x] 08-01-sni-2026-probe-test-vision-seed-announce-PLAN.md — Migration .sni_list_2026 с защитой KNOWN_DEFAULTS_v1 user-custom + standalone CLI `xrayebator probe-test` (curl + openssl s_client) + manage_profile_advanced_menu (experimental testpre/testseed) + happ_subscription_menu пункт "Настроить announcement" (REQ-E01, E02, E03, E04) — DONE 2026-05-12
 - [x] 08-02-bypass-routing-menu-PLAN.md — bypass_routing_menu в main_menu (item 11) + granular multi-select bundle (5 групп) + _sni_in_use HARD-BLOCK guard + safe_jq_write PREPEND в routing.rules с `domain:` префикс + миграция .bypass_routing_2026 opt-in (REQ-F01, F02, F03, F04, F05) — DONE 2026-05-12
-- [ ] 08-03-adguard-cleanup-PLAN.md — update.sh inline auto-uninstall блок (DNS rollback BEFORE stop AdGuard) + удаление xrayebator menu пункта 7 / adguard_home_menu / adguard_status (uninstall_adguard_home preserved) + CLAUDE.md обновление (Add-on services удалена) — deferred from Phase 5
+- [x] 08-03-adguard-cleanup-PLAN.md — update.sh inline auto-uninstall блок (DNS rollback BEFORE stop AdGuard) + удаление xrayebator menu пункта 7 / adguard_home_menu / adguard_status (uninstall_adguard_home preserved) + CLAUDE.md обновление (Add-on services deprecated) — DONE 2026-05-12
 
 ---
 

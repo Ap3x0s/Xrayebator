@@ -5,17 +5,17 @@
 See: .planning/PROJECT.md (updated 2026-05-09)
 
 **Core value:** VPN стабильно и быстро работает через ТСПУ — соединение не падает, блокировки обходятся надёжно
-**Current focus:** v2.0 Phase 8 IN PROGRESS — 08-01 + 08-02 DONE, next 08-03 AdGuard cleanup.
+**Current focus:** v2.0 Phase 8 execution COMPLETE (3/3 plans DONE) — verifier pending.
 
 ## Current Position
 
 Milestone: v2.0 — Post-Quantum & HAPP
-Phase: 8 of 8 (Polish: SNI 2026 + Vision Seed + bypass routing + AdGuard cleanup) — 2/3 plans DONE
-Plan: 08-02 ✓ DONE (3/3 tasks, commits 1b5d434 + bcfbebb + b7b9a8c)
-Status: Phase 4 ✓ | Phase 5 ✓ | Phase 6 ✓ | Phase 7 ✓ | Phase 8 in progress (08-01 ✓, 08-02 ✓, next 08-03)
-Last activity: 2026-05-12 — Plan 08-02 executed: bypass routing helpers, SNI conflict guard, PREPEND `routing.rules` mutation via safe_jq_write, interactive bypass menu at main_menu item 11, granular 5-group default bundle, remove/reset flows, and `.bypass_routing_2026` first-run opt-in migration. REQ-F01..F05 satisfied.
+Phase: 8 of 8 (Polish: SNI 2026 + Vision Seed + bypass routing + AdGuard cleanup) — 3/3 plans DONE
+Plan: 08-03 ✓ DONE (2/2 tasks, commits 0461a05 + c4f835f)
+Status: Phase 4 ✓ | Phase 5 ✓ | Phase 6 ✓ | Phase 7 ✓ | Phase 8 execution complete (verification pending)
+Last activity: 2026-05-12 — Plan 08-03 executed: update.sh `_adguard_force_uninstall_if_present` with DNS rollback before AdGuard stop/removal, call before DNS migration, main_menu item 7 removed, `adguard_home_menu`/`install_adguard_home`/`adguard_status` removed, `uninstall_adguard_home` preserved, CLAUDE.md Add-on services marked deprecated. Phase 8 plans 08-01..08-03 all have SUMMARY.md.
 
-Progress: [#########░] 93% (Phases 4+5+6+7 ✓; Phase 8 2/3 plans complete)
+Progress: [##########] 100% (Phase 8 execution complete; verifier pending)
 
 ## Performance Metrics
 
@@ -214,7 +214,8 @@ Progress: [##########] 100% (Phases 4+5+6+7 ✓; Phase 8 final polish remains)
 - Phase 7 COMPLETE — все REQ-C* (C01..C14) satisfied; готов к Phase 8.
 - 08-01 DONE (2026-05-12) — SNI list 2026 + `.sni_list_2026` migration + `probe-test` CLI + manage_profile hub + Vision Seed advanced submenu + HAPP announcement editor/emission. REQ-E01..E04 ✓. Commits a328bbc + 436ad0f + f64f5c2.
 - 08-02 DONE (2026-05-12) — bypass routing menu (main_menu 11), SNI conflict guard, granular 5-group bundle, safe_jq_write PREPEND routing.rules, remove/reset flows, `.bypass_routing_2026` opt-in migration. REQ-F01..F05 ✓. Commits 1b5d434 + bcfbebb + b7b9a8c.
-- Phase 8 in progress — next 08-03 AdGuard cleanup.
+- 08-03 DONE (2026-05-12) — update.sh force-uninstall AdGuard with DNS rollback first, main_menu AdGuard item removed, adguard install/status entry points removed, uninstall_adguard_home preserved, CLAUDE.md deprecated note. Commits 0461a05 + c4f835f.
+- Phase 8 execution COMPLETE — verifier pending.
 
 ### Phase 4 plan artifacts
 
