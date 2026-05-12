@@ -1689,6 +1689,29 @@ _migrate_subhttp_stale_profiles_410_2026() {
   return 1
 }
 
+_migrate_subhttp_happ_xhttp_compat_2026() {
+  if [[ ! -f /usr/local/etc/xray/.subscription_installed ]]; then
+    echo -e "${CYAN}  → HAPP subscription не установлена — HAPP XHTTP compatibility migration skip${NC}"
+    return 1
+  fi
+
+  echo -e "${CYAN}  → Регенерация subhttp.sh для HAPP XHTTP compatibility...${NC}"
+  if ! install_subscription_server >/dev/null 2>&1; then
+    echo -e "${RED}  ✗ Не удалось регенерировать subhttp.sh${NC}"
+    return 2
+  fi
+
+  if systemctl is-active --quiet xrayebator-sub.service; then
+    systemctl restart xrayebator-sub.service || {
+      echo -e "${RED}  ✗ Не удалось перезапустить xrayebator-sub.service${NC}"
+      return 2
+    }
+    echo -e "${GREEN}  ✓ xrayebator-sub.service перезапущен${NC}"
+  fi
+
+  return 1
+}
+
 _sni_in_use() {
   local domain="$1"
   local -ar REALITY_DEFAULT_SNIS=(
@@ -2467,6 +2490,22 @@ if [[ "$query_lc" == *"format=v2ray"* || "$query_lc" == *"format=base64"* || "$q
   universal_sub=true
 fi
 
+decorate_happ_vless_urls() {
+  local line before after
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ "$line" == vless://* && "$line" == *"&type=xhttp&"* && "$line" != *"&mode="* ]]; then
+      before="${line%%&type=xhttp&*}"
+      after="${line#*&type=xhttp&}"
+      line="${before}&type=xhttp&mode=auto&${after}"
+    elif [[ "$line" == vless://* && "$line" == *"&type=grpc&"* && "$line" != *"&mode="* ]]; then
+      before="${line%%&type=grpc&*}"
+      after="${line#*&type=grpc&}"
+      line="${before}&type=grpc&mode=gun&${after}"
+    fi
+    printf '%s\n' "$line"
+  done
+}
+
 # HAPP metadata: profile-title и announce — base64 UTF-8 без переносов (-w0).
 profile_title_b64=$(printf '%s' "$profile_name" | base64 -w0)
 ANNOUNCE_FILE="$HAPP_ANNOUNCE_FILE"
@@ -2504,19 +2543,11 @@ if [[ "$universal_sub" == "true" ]]; then
   # классический v2ray-sub: только proxy URI, без HAPP comments/routing.
   printf '%s' "$vless_urls" | base64 -w0 > "$body_tmp"
 else
-  # Body order: comments → vless:// routes → happ://routing.
-  # Некоторые HAPP-парсеры считают первую `://` строку primary connection — vless routes
-  # должны быть ПЕРЕД happ://routing чтобы парсер выбрал правильный primary URL.
+  # HAPP standard subscriptions are text-based server lists. Keep body conservative:
+  # only vless:// rows by default; metadata stays in HTTP headers.
+  happ_vless_urls=$(printf '%s' "$vless_urls" | decorate_happ_vless_urls)
   {
-    printf '#profile-update-interval: %s\n' "$HAPP_PROFILE_UPDATE_INTERVAL"
-    printf '#profile-title: base64:%s\n' "$profile_title_b64"
-    if [[ -n "$ANNOUNCE_COMMENT" ]]; then
-      printf '%s\n' "$ANNOUNCE_COMMENT"
-    fi
-    printf '#subscription-userinfo: %s\n' "$sub_userinfo"
-    printf '#support-url: %s\n' "$HAPP_SUPPORT_URL"
-    printf '#profile-web-page-url: %s\n' "$HAPP_WEB_URL"
-    printf '%s' "$vless_urls"
+    printf '%s' "$happ_vless_urls"
     if [[ -n "$routing_uri" ]]; then
       printf '%s\n' "$routing_uri"
     fi
@@ -2535,6 +2566,7 @@ printf 'cache-control: no-store\r\n'
 if [[ "$universal_sub" != "true" ]]; then
   printf 'profile-update-interval: %s\r\n' "$HAPP_PROFILE_UPDATE_INTERVAL"
   printf 'profile-title: base64:%s\r\n' "$profile_title_b64"
+  printf 'no-limit-xhttp-enabled: 1\r\n'
   if [[ -n "$ANNOUNCE_HEADER" ]]; then
     printf '%s\r\n' "$ANNOUNCE_HEADER"
   fi
@@ -3593,6 +3625,7 @@ main_menu() {
   run_migration "subhttp_client_compat_2026" "HAPP/v2rayNG subscription client compatibility" _migrate_subhttp_client_compat_2026 || ((migration_failures++))
   run_migration "subhttp_no_default_happ_routing_2026" "HAPP subscription: no default routing profile" _migrate_subhttp_no_default_happ_routing_2026 || ((migration_failures++))
   run_migration "subhttp_stale_profiles_410_2026" "HAPP subscription: stale profile diagnostics" _migrate_subhttp_stale_profiles_410_2026 || ((migration_failures++))
+  run_migration "subhttp_happ_xhttp_compat_2026" "HAPP subscription: XHTTP mode/no-limit compatibility" _migrate_subhttp_happ_xhttp_compat_2026 || ((migration_failures++))
 
   # Aggregate report (RESEARCH §«Error reporting»): чтобы пользователь не пропустил
   # failure среди скроллящегося TUI вывода.
