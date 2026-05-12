@@ -1610,6 +1610,29 @@ _migrate_subhttp_client_compat_2026() {
   return 1
 }
 
+_migrate_subhttp_no_default_happ_routing_2026() {
+  if [[ ! -f /usr/local/etc/xray/.subscription_installed ]]; then
+    echo -e "${CYAN}  → HAPP subscription не установлена — no-default-routing migration skip${NC}"
+    return 1
+  fi
+
+  echo -e "${CYAN}  → Регенерация subhttp.sh без default HAPP routing profile...${NC}"
+  if ! install_subscription_server >/dev/null 2>&1; then
+    echo -e "${RED}  ✗ Не удалось регенерировать subhttp.sh${NC}"
+    return 2
+  fi
+
+  if systemctl is-active --quiet xrayebator-sub.service; then
+    systemctl restart xrayebator-sub.service || {
+      echo -e "${RED}  ✗ Не удалось перезапустить xrayebator-sub.service${NC}"
+      return 2
+    }
+    echo -e "${GREEN}  ✓ xrayebator-sub.service перезапущен${NC}"
+  fi
+
+  return 1
+}
+
 _sni_in_use() {
   local domain="$1"
   local -ar REALITY_DEFAULT_SNIS=(
@@ -2390,15 +2413,17 @@ if [[ -s "$ANNOUNCE_FILE" ]]; then
   fi
 fi
 
-# HAPP routing import payload: кастомный JSON или минимальный default.
-if [[ -f "$HAPP_ROUTING_JSON_FILE" ]]; then
+# HAPP routing import payload: только явный opt-in.
+# Важно: это маршрутизация приложения HAPP, а не список Xrayebator connection routes.
+# Пустой fallback rules:[] опасен — он может перезаписать/активировать пустой routing
+# profile в клиенте. Поэтому по умолчанию отдаём только VLESS-ноды.
+routing_uri=""
+if [[ -s "$HAPP_ROUTING_JSON_FILE" ]] && jq -e . "$HAPP_ROUTING_JSON_FILE" >/dev/null 2>&1; then
   routing_json=$(cat "$HAPP_ROUTING_JSON_FILE")
-else
-  routing_json='{"name":"xrayebator-default","rules":[]}'
+  # base64url (RFC 4648 §5): base64 → tr +/ -_ → strip padding =.
+  routing_b64url=$(printf '%s' "$routing_json" | base64 -w0 | tr '+/' '-_' | tr -d '=')
+  routing_uri="happ://routing/onadd/${routing_b64url}"
 fi
-# base64url (RFC 4648 §5): base64 → tr +/ -_ → strip padding =.
-routing_b64url=$(printf '%s' "$routing_json" | base64 -w0 | tr '+/' '-_' | tr -d '=')
-routing_uri="happ://routing/onadd/${routing_b64url}"
 
 # subscription-userinfo expire: jq override hook (.expire поле в profile JSON),
 # fallback 4102444800 (год 2099 — placeholder для v2.0; real-time tracking deferred к post-v2.0).
@@ -2424,7 +2449,9 @@ else
     printf '#support-url: %s\n' "$HAPP_SUPPORT_URL"
     printf '#profile-web-page-url: %s\n' "$HAPP_WEB_URL"
     printf '%s' "$vless_urls"
-    printf '%s\n' "$routing_uri"
+    if [[ -n "$routing_uri" ]]; then
+      printf '%s\n' "$routing_uri"
+    fi
   } > "$body_tmp"
 fi
 
@@ -2446,7 +2473,9 @@ if [[ "$universal_sub" != "true" ]]; then
   printf 'subscription-userinfo: %s\r\n' "$sub_userinfo"
   printf 'support-url: %s\r\n' "$HAPP_SUPPORT_URL"
   printf 'profile-web-page-url: %s\r\n' "$HAPP_WEB_URL"
-  printf 'routing: %s\r\n' "$routing_uri"
+  if [[ -n "$routing_uri" ]]; then
+    printf 'routing: %s\r\n' "$routing_uri"
+  fi
 fi
 printf '\r\n'
 cat "$body_tmp"
@@ -2480,8 +2509,9 @@ HAPP_PROFILE_UPDATE_INTERVAL=24
 # Если файл существует и не пуст — его содержимое попадёт в #announce: base64:... (UTF-8 safe).
 HAPP_ANNOUNCE_FILE="/usr/local/etc/xray/announce.txt"
 
-# Файл с кастомным HAPP routing JSON (опционально). Если отсутствует — отдаётся
-# минимальный default routing ({"name":"xrayebator-default","rules":[]}).
+# Файл с кастомным HAPP routing JSON (опционально). Если отсутствует или пустой —
+# routing profile НЕ отправляется, чтобы не сбрасывать маршрутизацию клиента.
+# Важно: это routing приложения HAPP, не список Xrayebator connection routes.
 # Base64url-кодируется в happ://routing/onadd/<...>.
 HAPP_ROUTING_JSON_FILE="/usr/local/etc/xray/.happ_routing.json"
 HAPP_DEFAULTS_EOF
@@ -3470,6 +3500,7 @@ main_menu() {
   run_migration "bypass_routing_2026" "Bypass routing first-run prompt (опционально)" _migrate_bypass_routing_2026 || ((migration_failures++))
   run_migration "subhttp_multiroute_2026" "HAPP subhttp multi-route handler" _migrate_subhttp_multiroute_2026 || ((migration_failures++))
   run_migration "subhttp_client_compat_2026" "HAPP/v2rayNG subscription client compatibility" _migrate_subhttp_client_compat_2026 || ((migration_failures++))
+  run_migration "subhttp_no_default_happ_routing_2026" "HAPP subscription: no default routing profile" _migrate_subhttp_no_default_happ_routing_2026 || ((migration_failures++))
 
   # Aggregate report (RESEARCH §«Error reporting»): чтобы пользователь не пропустил
   # failure среди скроллящегося TUI вывода.
