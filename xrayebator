@@ -307,6 +307,12 @@ _generate_vless_url_pure() {
   fi
   encoded_xhttp_path=$(jq -nr --arg path "$xhttp_path" '$path|@uri')
 
+  # Live-config guard: profile JSON без соответствующего inbound в config.json — сирота.
+  # Не выдаём такой vless:// в subscription, иначе клиент получает нерабочий маршрут.
+  if ! jq -e --argjson p "$port" '.inbounds[] | select(.port == $p)' "$CONFIG_FILE" >/dev/null 2>&1; then
+    return 1
+  fi
+
   # short_id — читаем из config.json по порту (зеркало логики generate_connection)
   local short_id
   short_id=$(jq -r --argjson p "$port" \
