@@ -267,15 +267,30 @@ read_profile_transport_metadata() {
 # Используется generate_connection() в интерактиве и subhttp.sh в Plan 7.2.
 _generate_vless_url_pure() {
   local profile_file="$1"
+  local route_index="${2:-}"
   [[ -f "$profile_file" ]] || return 1
 
   local profile_name uuid transport port fingerprint sni
   profile_name=$(basename "$profile_file" .json)
   uuid=$(jq -r '.uuid' "$profile_file") || return 1
-  transport=$(jq -r '.transport' "$profile_file") || return 1
-  port=$(jq -r '.port' "$profile_file") || return 1
-  fingerprint=$(jq -r '.fingerprint // "chrome"' "$profile_file")
-  sni=$(jq -r '.sni // "www.ozon.ru"' "$profile_file")
+  if [[ -z "$route_index" ]] && jq -e '(.routes // []) | length > 0' "$profile_file" >/dev/null 2>&1; then
+    route_index=0
+  fi
+
+  local route_label=""
+  if [[ -n "$route_index" ]]; then
+    transport=$(jq -r --argjson i "$route_index" '.routes[$i].transport // empty' "$profile_file") || return 1
+    port=$(jq -r --argjson i "$route_index" '.routes[$i].port // empty' "$profile_file") || return 1
+    fingerprint=$(jq -r --argjson i "$route_index" '.routes[$i].fingerprint // .fingerprint // "chrome"' "$profile_file")
+    sni=$(jq -r --argjson i "$route_index" '.routes[$i].sni // .sni // "www.ozon.ru"' "$profile_file")
+    route_label=$(jq -r --argjson i "$route_index" '.routes[$i].label // .routes[$i].transport // empty' "$profile_file")
+  else
+    transport=$(jq -r '.transport' "$profile_file") || return 1
+    port=$(jq -r '.port' "$profile_file") || return 1
+    fingerprint=$(jq -r '.fingerprint // "chrome"' "$profile_file")
+    sni=$(jq -r '.sni // "www.ozon.ru"' "$profile_file")
+  fi
+  [[ -n "$route_label" && "$route_label" != "null" ]] && profile_name="${profile_name}-${route_label}"
 
   local server_ip clean_public_key
   server_ip=$(get_server_ip)
@@ -283,8 +298,13 @@ _generate_vless_url_pure() {
 
   # Transport metadata (grpc service name / xhttp path) и url-encoded path
   local transport_metadata grpc_service_name xhttp_path encoded_xhttp_path
-  transport_metadata=$(read_profile_transport_metadata "$profile_file")
-  IFS='|' read -r grpc_service_name xhttp_path <<< "$transport_metadata"
+  if [[ -n "$route_index" ]]; then
+    grpc_service_name=$(jq -r --argjson i "$route_index" '.routes[$i].grpc_service_name // ""' "$profile_file")
+    xhttp_path=$(jq -r --argjson i "$route_index" '.routes[$i].xhttp_path // "/xhttp"' "$profile_file")
+  else
+    transport_metadata=$(read_profile_transport_metadata "$profile_file")
+    IFS='|' read -r grpc_service_name xhttp_path <<< "$transport_metadata"
+  fi
   encoded_xhttp_path=$(jq -nr --arg path "$xhttp_path" '$path|@uri')
 
   # short_id — читаем из config.json по порту (зеркало логики generate_connection)
@@ -309,7 +329,11 @@ _generate_vless_url_pure() {
       ;;
     xhttp)
       local pq_enabled
-      pq_enabled=$(jq -r '.pq_enabled // false' "$profile_file" 2>/dev/null)
+      if [[ -n "$route_index" ]]; then
+        pq_enabled=$(jq -r --argjson i "$route_index" '.routes[$i].pq_enabled // false' "$profile_file" 2>/dev/null)
+      else
+        pq_enabled=$(jq -r '.pq_enabled // false' "$profile_file" 2>/dev/null)
+      fi
       if [[ "$pq_enabled" == "true" ]]; then
         [[ -f "$VLESS_ENCRYPTION_FILE" ]] || return 1
         local raw_encryption encoded_encryption
@@ -328,6 +352,34 @@ _generate_vless_url_pure() {
   esac
 
   return 0
+}
+
+_profile_route_count() {
+  local profile_file="$1"
+  jq -r '(.routes // []) | length' "$profile_file" 2>/dev/null || echo 0
+}
+
+_generate_vless_urls_for_profile() {
+  local profile_file="$1"
+  [[ -f "$profile_file" ]] || return 1
+
+  local route_count
+  route_count=$(_profile_route_count "$profile_file")
+  if [[ "$route_count" =~ ^[0-9]+$ ]] && [[ "$route_count" -gt 0 ]]; then
+    local i
+    for ((i=0; i<route_count; i++)); do
+      _generate_vless_url_pure "$profile_file" "$i" || return 1
+      printf '\n'
+    done
+  else
+    _generate_vless_url_pure "$profile_file" || return 1
+    printf '\n'
+  fi
+}
+
+_profile_has_pq_route() {
+  local profile_file="$1"
+  jq -e '(.pq_enabled == true) or any((.routes // [])[]; .pq_enabled == true)' "$profile_file" >/dev/null 2>&1
 }
 
 # ═══════════════════════════════════════════════════════════
@@ -354,6 +406,13 @@ _subscription_base_url() {
     echo "https://${domain}:${port}"
   fi
   return 0
+}
+
+_subscription_is_local_only() {
+  local domain port
+  domain=$(cat /usr/local/etc/xray/.subscription_domain 2>/dev/null || echo "127.0.0.1")
+  port=$(cat /usr/local/etc/xray/.subscription_port 2>/dev/null || echo "8080")
+  [[ "$domain" == "127.0.0.1" || "$domain" == "localhost" || "$port" == "8080" ]]
 }
 
 write_profile_transport_metadata() {
@@ -1428,6 +1487,29 @@ _migrate_bypass_routing_2026() {
   return 1
 }
 
+_migrate_subhttp_multiroute_2026() {
+  if [[ ! -f /usr/local/etc/xray/.subscription_installed ]]; then
+    echo -e "${CYAN}  → HAPP subscription не установлена — subhttp migration skip${NC}"
+    return 1
+  fi
+
+  echo -e "${CYAN}  → Регенерация subhttp.sh для multi-route подписок...${NC}"
+  if ! install_subscription_server >/dev/null 2>&1; then
+    echo -e "${RED}  ✗ Не удалось регенерировать subhttp.sh${NC}"
+    return 2
+  fi
+
+  if systemctl is-active --quiet xrayebator-sub.service; then
+    systemctl restart xrayebator-sub.service || {
+      echo -e "${RED}  ✗ Не удалось перезапустить xrayebator-sub.service${NC}"
+      return 2
+    }
+    echo -e "${GREEN}  ✓ xrayebator-sub.service перезапущен${NC}"
+  fi
+
+  return 1
+}
+
 _sni_in_use() {
   local domain="$1"
   local -ar REALITY_DEFAULT_SNIS=(
@@ -2169,8 +2251,8 @@ done
 profile_name=$(basename "$profile_file" .json)
 short_token="${token:0:8}"
 
-# Построить vless:// через pure-функцию из xrayebator (Plan 7.1 REQ-C10).
-vless_url=$(_generate_vless_url_pure "$profile_file" 2>/dev/null) || emit_404
+# Построить все vless:// маршруты профиля через pure-функции из xrayebator.
+vless_urls=$(_generate_vless_urls_for_profile "$profile_file" 2>/dev/null) || emit_404
 
 # HAPP metadata: profile-title и announce — base64 UTF-8 без переносов (-w0).
 profile_title_b64=$(printf '%s' "$profile_name" | base64 -w0)
@@ -2201,9 +2283,9 @@ routing_uri="happ://routing/onadd/${routing_b64url}"
 expire_value=$(jq -r '.expire // 4102444800' "$profile_file" 2>/dev/null)
 sub_userinfo="upload=0; download=0; total=0; expire=${expire_value}"
 
-# Body order (N9 fix): comments → vless:// → happ://routing.
-# Некоторые HAPP-парсеры считают первую `://` строку primary connection — vless должен
-# быть ПЕРЕД happ://routing чтобы парсер выбрал правильный primary URL.
+# Body order: comments → vless:// routes → happ://routing.
+# Некоторые HAPP-парсеры считают первую `://` строку primary connection — vless routes
+# должны быть ПЕРЕД happ://routing чтобы парсер выбрал правильный primary URL.
 body_tmp="/tmp/subhttp_body.$$"
 {
   printf '#profile-update-interval: %s\n' "$HAPP_PROFILE_UPDATE_INTERVAL"
@@ -2214,7 +2296,7 @@ body_tmp="/tmp/subhttp_body.$$"
   printf '#subscription-userinfo: %s\n' "$sub_userinfo"
   printf '#support-url: %s\n' "$HAPP_SUPPORT_URL"
   printf '#profile-web-page-url: %s\n' "$HAPP_WEB_URL"
-  printf '%s\n' "$vless_url"
+  printf '%s' "$vless_urls"
   printf '%s\n' "$routing_uri"
 } > "$body_tmp"
 
@@ -2551,6 +2633,13 @@ manage_subscription_menu() {
   # B1: base URL ВСЕГДА через shared helper (Plan 7.2). НЕТ инлайн-построения.
   local base_url
   base_url=$(_subscription_base_url)
+  local local_only=false
+  if _subscription_is_local_only; then
+    local_only=true
+    echo -e "${RED}⚠ Подписка сейчас в local-only режиме: ${base_url}${NC}"
+    echo -e "${YELLOW}  Этот URL НЕ работает с телефона/внешнего клиента. Включите public TLS в меню подписки.${NC}"
+    echo ""
+  fi
 
   local profiles=($(ls -1 "$PROFILES_DIR" 2>/dev/null | sed 's/.json$//'))
   if [[ ${#profiles[@]} -eq 0 ]]; then
@@ -2596,10 +2685,20 @@ manage_subscription_menu() {
     local url="${base_url}/sub/${token}"
     echo -e "${BLUE}═══ Профиль: ${selected} ═══${NC}"
     echo ""
-    echo -e "${BLUE}Subscription URL:${NC}"
-    echo -e "  ${GREEN}$url${NC}"
+    if [[ "$local_only" == "true" ]]; then
+      echo -e "${YELLOW}Local-only debug URL:${NC}"
+      echo -e "  ${YELLOW}$url${NC}"
+      echo -e "${RED}  Не QR-кодить для телефона: 127.0.0.1 у клиента указывает на сам клиент.${NC}"
+    else
+      echo -e "${BLUE}Subscription URL:${NC}"
+      echo -e "  ${GREEN}$url${NC}"
+    fi
     echo ""
-    echo -e "${CYAN} 1)${NC} Показать QR-код subscription URL"
+    if [[ "$local_only" == "true" ]]; then
+      echo -e "${CYAN} 1)${NC} Включить public TLS для внешней подписки"
+    else
+      echo -e "${CYAN} 1)${NC} Показать QR-код subscription URL"
+    fi
     echo -e "${CYAN} 2)${NC} Revoke (сгенерировать новый sub_token)"
     echo -e "${CYAN} 3)${NC} Показать raw vless:// (advanced)"
     echo -e "${CYAN} 0)${NC} Назад"
@@ -2610,9 +2709,19 @@ manage_subscription_menu() {
     case "$act" in
       1)
         # REQ-C14: QR ВСЕГДА для короткого subscription URL (HTTPS короткая строка).
-        echo ""
-        qrencode -t ANSIUTF8 "$url"
-        echo ""
+        if [[ "$local_only" == "true" ]]; then
+          install_subscription_public_tls
+          base_url=$(_subscription_base_url)
+          if _subscription_is_local_only; then
+            local_only=true
+          else
+            local_only=false
+          fi
+        else
+          echo ""
+          qrencode -t ANSIUTF8 "$url"
+          echo ""
+        fi
         echo -n -e "${YELLOW}Enter для продолжения...${NC}"
         read -r _
         ;;
@@ -2644,14 +2753,18 @@ manage_subscription_menu() {
         # Threshold-based (length > N) рискует ложно блокировать legacy с длинным SNI/xhttp_path.
         # Точный сигнал — pq_enabled поле в profile JSON (Phase 6 REQ-A04 / schema_version:2).
         local raw pq_enabled
-        raw=$(_generate_vless_url_pure "$pfile" 2>/dev/null) || {
+        raw=$(_generate_vless_urls_for_profile "$pfile" 2>/dev/null) || {
           echo -e "${RED}✗ Не удалось построить vless://${NC}"
           sleep 2
           continue
         }
-        pq_enabled=$(jq -r '.pq_enabled // false' "$pfile" 2>/dev/null)
+        if _profile_has_pq_route "$pfile"; then
+          pq_enabled=true
+        else
+          pq_enabled=false
+        fi
         echo ""
-        echo -e "${CYAN}Raw vless:// URL:${NC}"
+        echo -e "${CYAN}Raw vless:// URL(s):${NC}"
         echo -e "${YELLOW}${raw}${NC}"
         echo ""
         if [[ "$pq_enabled" == "true" ]]; then
@@ -2861,7 +2974,12 @@ happ_subscription_menu() {
       # B1: status-line через shared helper, никакого инлайна.
       local _status_url
       _status_url=$(_subscription_base_url)
-      echo -e "${GREEN}  ✓ Установлено: ${_status_url}${NC}"
+      if _subscription_is_local_only; then
+        echo -e "${YELLOW}  ⚠ Local-only: ${_status_url}${NC}"
+        echo -e "${RED}    Не подходит для внешнего клиента. Включите public TLS (пункт 1).${NC}"
+      else
+        echo -e "${GREEN}  ✓ Public subscription: ${_status_url}${NC}"
+      fi
       echo ""
     else
       echo -e "${YELLOW}  ⚠ Не установлено${NC}"
@@ -2922,6 +3040,7 @@ main_menu() {
   fi
   run_migration "sni_list_2026" "SNI list 2026 (РФ-банки/логистика, удалить apple/icloud)" _migrate_sni_list_2026 || ((migration_failures++))
   run_migration "bypass_routing_2026" "Bypass routing first-run prompt (опционально)" _migrate_bypass_routing_2026 || ((migration_failures++))
+  run_migration "subhttp_multiroute_2026" "HAPP subhttp multi-route handler" _migrate_subhttp_multiroute_2026 || ((migration_failures++))
 
   # Aggregate report (RESEARCH §«Error reporting»): чтобы пользователь не пропустил
   # failure среди скроллящегося TUI вывода.
@@ -3029,6 +3148,9 @@ create_profile_menu() {
     sleep 2
     return
   fi
+  create_profile_all_routes "$profile_name"
+  return
+
   echo ""
   echo -e "${BLUE}╔════════════════════════════════════════════════════════════╗${NC}"
   echo -e "${BLUE}║              ВЫБЕРИТЕ ТИП МАРШРУТА                        ║${NC}"
@@ -3094,6 +3216,194 @@ create_profile_menu() {
     0) return ;;
     *) echo -e "${RED}Неверный выбор${NC}"; sleep 2; return ;;
   esac
+}
+
+create_profile_all_routes() {
+  local name="$1"
+  local uuid
+  uuid=$(uuidgen)
+
+  local sub_token
+  sub_token=$(openssl rand -hex 16)
+  if [[ ! "$sub_token" =~ ^[a-f0-9]{32}$ ]]; then
+    echo -e "${RED}✗ Не удалось сгенерировать sub_token (openssl?)${NC}"
+    return 1
+  fi
+
+  local default_sni
+  default_sni=$(grep -v '^#' "$SNI_LIST" 2>/dev/null | grep -v '^[[:space:]]*$' | head -n 1 | cut -d'|' -f1)
+  [[ -z "$default_sni" ]] && default_sni="www.ozon.ru"
+
+  local routes_tmp
+  routes_tmp=$(mktemp /tmp/xrayebator-routes.XXXXXX) || {
+    echo -e "${RED}✗ mktemp failed${NC}"
+    return 1
+  }
+
+  _append_route_json() {
+    local label="$1" transport="$2" port="$3" sni="$4" fingerprint="$5" pq_enabled="$6" grpc_service_name="$7" xhttp_path="$8"
+    jq -n \
+      --arg label "$label" \
+      --arg transport "$transport" \
+      --argjson port "$port" \
+      --arg sni "$sni" \
+      --arg fingerprint "$fingerprint" \
+      --argjson pq_enabled "$pq_enabled" \
+      --arg grpc_service_name "$grpc_service_name" \
+      --arg xhttp_path "$xhttp_path" \
+      '{
+        label: $label,
+        transport: $transport,
+        port: $port,
+        sni: $sni,
+        fingerprint: $fingerprint
+      }
+      + (if $pq_enabled then {pq_enabled: true, schema_version: 2} else {} end)
+      + (if $grpc_service_name != "" then {grpc_service_name: $grpc_service_name} else {} end)
+      + (if $xhttp_path != "" then {xhttp_path: $xhttp_path} else {} end)' >> "$routes_tmp"
+  }
+
+  local defaults port grpc_service_name xhttp_path
+
+  defaults=$(build_transport_defaults "xhttp") || { rm -f "$routes_tmp"; return 1; }
+  IFS='|' read -r port _ xhttp_path <<< "$defaults"
+  _append_route_json "xhttp-pq" "xhttp" "$port" "$default_sni" "chrome" true "" "$xhttp_path"
+
+  defaults=$(build_transport_defaults "tcp-mux") || { rm -f "$routes_tmp"; return 1; }
+  IFS='|' read -r port _ _ <<< "$defaults"
+  _append_route_json "tcp-mux" "tcp-mux" "$port" "$default_sni" "chrome" false "" ""
+
+  defaults=$(build_transport_defaults "grpc") || { rm -f "$routes_tmp"; return 1; }
+  IFS='|' read -r port grpc_service_name _ <<< "$defaults"
+  _append_route_json "grpc" "grpc" "$port" "www.cloudflare.com" "chrome" false "$grpc_service_name" ""
+
+  defaults=$(build_transport_defaults "tcp") || { rm -f "$routes_tmp"; return 1; }
+  IFS='|' read -r port _ _ <<< "$defaults"
+  _append_route_json "tcp-vision" "tcp" "$port" "$default_sni" "chrome" false "" ""
+
+  defaults=$(build_transport_defaults "tcp-utls") || { rm -f "$routes_tmp"; return 1; }
+  IFS='|' read -r port _ _ <<< "$defaults"
+  _append_route_json "tcp-utls-firefox" "tcp-utls" "$port" "$default_sni" "firefox" false "" ""
+
+  defaults=$(build_transport_defaults "tcp-xudp") || { rm -f "$routes_tmp"; return 1; }
+  IFS='|' read -r port _ _ <<< "$defaults"
+  _append_route_json "tcp-xudp" "tcp-xudp" "$port" "api-maps.yandex.ru" "chrome" false "" ""
+
+  local routes_json
+  routes_json=$(jq -s '.' "$routes_tmp") || {
+    rm -f "$routes_tmp"
+    echo -e "${RED}✗ Не удалось собрать JSON маршрутов${NC}"
+    return 1
+  }
+  rm -f "$routes_tmp"
+
+  if ! jq -n \
+      --arg name "$name" \
+      --arg uuid "$uuid" \
+      --arg sub_token "$sub_token" \
+      --arg created "$(date +%Y-%m-%d\ %H:%M:%S)" \
+      --argjson routes "$routes_json" \
+      '{
+        name: $name,
+        uuid: $uuid,
+        schema_version: 3,
+        multi_route: true,
+        primary_route: "xhttp-pq",
+        sub_token: $sub_token,
+        created: $created,
+        routes: $routes
+      }
+      + {
+        transport: $routes[0].transport,
+        port: $routes[0].port,
+        fingerprint: $routes[0].fingerprint,
+        sni: $routes[0].sni,
+        xhttp_path: $routes[0].xhttp_path,
+        pq_enabled: true
+      }' > "$PROFILES_DIR/$name.json"; then
+    rm -f "$PROFILES_DIR/$name.json"
+    echo -e "${RED}✗ Не удалось создать JSON профиля${NC}"
+    return 1
+  fi
+
+  if ! backup_config "create_profile_$name"; then
+    rm -f "$PROFILES_DIR/$name.json"
+    return 1
+  fi
+  local rollback_config
+  rollback_config=$(ls -t /usr/local/etc/xray/backups/config_*_create_profile_"$name".json 2>/dev/null | head -1)
+
+  local created_ports=()
+  local route_line label transport sni fingerprint pq grpc xhttp
+  while IFS=$'\t' read -r label transport port sni fingerprint pq grpc xhttp; do
+    echo -e "${CYAN} → Маршрут ${label}: ${transport} :${port}${NC}"
+    if ! add_inbound "$uuid" "$transport" "$port" "$sni" "$fingerprint" "$grpc" "$xhttp"; then
+      [[ -n "$rollback_config" ]] && cp "$rollback_config" "$CONFIG_FILE"
+      rm -f "$PROFILES_DIR/$name.json"
+      local p
+      for p in "${created_ports[@]}"; do
+        close_firewall_port "$p"
+      done
+      echo -e "${RED}✗ Не удалось создать маршрут ${label}; профиль удалён, config.json откатан${NC}"
+      echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
+      read -r _
+      return 1
+    fi
+    created_ports+=("$port")
+  done < <(jq -r '.[] | [.label,.transport,.port,.sni,.fingerprint,(.pq_enabled // false),(.grpc_service_name // ""),(.xhttp_path // "")] | @tsv' <<< "$routes_json")
+
+  if ! safe_restart_xray; then
+    rm -f "$PROFILES_DIR/$name.json"
+    local p
+    for p in "${created_ports[@]}"; do
+      close_firewall_port "$p"
+    done
+    echo ""
+    echo -e "${RED}╔═══════════════════════════════════════════════${NC}"
+    echo -e "${RED}         ✗ ПРОФИЛЬ НЕ АКТИВИРОВАН             ${NC}"
+    echo -e "${RED}╚═══════════════════════════════════════════════${NC}"
+    echo ""
+    echo -e "${RED}Xray не принял multi-route конфигурацию. Профиль удалён, config.json откатан.${NC}"
+    echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
+    read -r _
+    return 1
+  fi
+
+  echo ""
+  echo -e "${GREEN}╔═══════════════════════════════════════════════${NC}"
+  echo -e "${GREEN}         ✓ ПРОФИЛЬ УСПЕШНО СОЗДАН!            ${NC}"
+  echo -e "${GREEN}╚═══════════════════════════════════════════════${NC}"
+  echo ""
+  echo -e "${BLUE}Имя профиля:${NC} ${GREEN}$name${NC}"
+  echo -e "${BLUE}UUID:${NC} $uuid"
+  echo -e "${BLUE}Маршрутов:${NC} $(jq 'length' <<< "$routes_json")"
+  jq -r '.[] | "  - \(.label): \(.transport) :\(.port) sni=\(.sni)"' <<< "$routes_json"
+
+  if [[ -f /usr/local/etc/xray/.subscription_installed ]]; then
+    local _base _url
+    _base=$(_subscription_base_url)
+    _url="${_base}/sub/${sub_token}"
+    echo ""
+    echo -e "${GREEN}═══ HAPP SUBSCRIPTION URL ═══${NC}"
+    if _subscription_is_local_only; then
+      echo -e "${YELLOW}Local-only debug URL:${NC} ${_url}"
+      echo -e "${RED}QR не показываю: 127.0.0.1 доступен только с VPS/SSH tunnel, не с телефона.${NC}"
+      echo -e "${YELLOW}Для внешнего клиента включите: Главное меню → Подписка HAPP → Public TLS.${NC}"
+    else
+      echo -e "${BLUE}URL:${NC} ${GREEN}${_url}${NC}"
+      qrencode -t ANSIUTF8 "$_url"
+    fi
+  else
+    echo ""
+    echo -e "${YELLOW}ℹ HAPP-подписка ещё не установлена. Включите через 'Главное меню → Подписка HAPP'.${NC}"
+  fi
+
+  echo ""
+  echo -e "${CYAN}Одна подписка этого профиля отдаёт все маршруты.${NC}"
+  echo ""
+  fix_xray_permissions
+  echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
+  read -r _
 }
 
 # Создание профиля
@@ -3252,9 +3562,15 @@ create_profile() {
       local _url="${_base}/sub/${_tok}"
       echo ""
       echo -e "${GREEN}═══ HAPP SUBSCRIPTION URL ═══${NC}"
-      echo -e "${BLUE}URL:${NC} ${GREEN}${_url}${NC}"
-      echo ""
-      qrencode -t ANSIUTF8 "$_url"
+      if _subscription_is_local_only; then
+        echo -e "${YELLOW}Local-only debug URL:${NC} ${_url}"
+        echo -e "${RED}QR не показываю: 127.0.0.1 доступен только с VPS/SSH tunnel, не с телефона.${NC}"
+        echo -e "${YELLOW}Для внешнего клиента включите: Главное меню → Подписка HAPP → Public TLS.${NC}"
+      else
+        echo -e "${BLUE}URL:${NC} ${GREEN}${_url}${NC}"
+        echo ""
+        qrencode -t ANSIUTF8 "$_url"
+      fi
     fi
   else
     echo ""
@@ -3594,8 +3910,52 @@ delete_profile_menu() {
     echo -n -e "${RED}Вы уверены, что хотите удалить профиль '$profile_name'? (y/N): ${NC}"
     read confirm
     if [[ "$confirm" =~ ^[yYдД]$ ]]; then
-      local port=$(jq -r '.port' "$PROFILES_DIR/$profile_name.json")
-      local uuid=$(jq -r '.uuid' "$PROFILES_DIR/$profile_name.json")
+      local profile_file="$PROFILES_DIR/$profile_name.json"
+      local uuid=$(jq -r '.uuid' "$profile_file")
+      local route_count
+      route_count=$(_profile_route_count "$profile_file")
+
+      if [[ "$route_count" =~ ^[0-9]+$ ]] && [[ "$route_count" -gt 0 ]]; then
+        local config_ok=true
+        local port clients_count
+        local route_ports=()
+        while IFS= read -r port; do
+          [[ -z "$port" ]] && continue
+          route_ports+=("$port")
+          clients_count=$(jq -r --argjson port "$port" \
+            '.inbounds[] | select(.port == $port) | .settings.clients | length' \
+            "$CONFIG_FILE" 2>/dev/null)
+          [[ -z "$clients_count" ]] && clients_count=0
+          if [[ "$clients_count" -le 1 ]]; then
+            safe_jq_write --argjson port "$port" 'del(.inbounds[] | select(.port == $port))' "$CONFIG_FILE" || config_ok=false
+          else
+            safe_jq_write --arg uuid "$uuid" --argjson port "$port" \
+              '(.inbounds[] | select(.port == $port) | .settings.clients) |= map(select(.id != $uuid))' \
+              "$CONFIG_FILE" || config_ok=false
+          fi
+        done < <(jq -r '.routes[].port' "$profile_file")
+
+        if [[ "$config_ok" == "true" ]]; then
+          rm -f "$profile_file"
+          local p
+          for p in "${route_ports[@]}"; do
+            close_firewall_port "$p"
+          done
+          safe_restart_xray
+          fix_xray_permissions
+          echo ""
+          echo -e "${GREEN}✓ Multi-route профиль '$profile_name' успешно удален${NC}"
+        else
+          echo ""
+          echo -e "${RED}✗ Ошибка обновления конфига — профиль НЕ удалён${NC}"
+        fi
+        echo ""
+        echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
+        read
+        return
+      fi
+
+      local port=$(jq -r '.port' "$profile_file")
 
       # Считаем клиентов через config.json (надёжнее чем файлы профилей)
       local clients_count=$(jq -r --argjson port "$port" \
@@ -3756,6 +4116,42 @@ manage_profile_menu() {
 generate_connection() {
   local profile_name=$1
   local profile_file="$PROFILES_DIR/$profile_name.json"
+  local route_count
+  route_count=$(_profile_route_count "$profile_file")
+  if [[ "$route_count" =~ ^[0-9]+$ ]] && [[ "$route_count" -gt 0 ]]; then
+    show_ascii
+    echo -e "${GREEN}═══════════════════════════════════════════════${NC}"
+    echo -e "${GREEN}    ДАННЫЕ ДЛЯ ПОДКЛЮЧЕНИЯ: $profile_name${NC}"
+    echo -e "${GREEN}═══════════════════════════════════════════════${NC}\n"
+    echo -e "${BLUE}Маршруты в профиле:${NC}"
+    jq -r '.routes[] | "  - \(.label): \(.transport) :\(.port) sni=\(.sni)"' "$profile_file"
+    echo ""
+
+    if [[ -f /usr/local/etc/xray/.subscription_installed ]]; then
+      local token base_url url
+      token=$(jq -r '.sub_token // ""' "$profile_file")
+      base_url=$(_subscription_base_url)
+      url="${base_url}/sub/${token}"
+      if _subscription_is_local_only; then
+        echo -e "${YELLOW}Local-only debug subscription:${NC} ${url}"
+        echo -e "${RED}QR не показываю: 127.0.0.1 не доступен внешнему клиенту.${NC}"
+      else
+        echo -e "${BLUE}Subscription URL:${NC} ${GREEN}${url}${NC}"
+        echo ""
+        qrencode -t ANSIUTF8 "$url"
+      fi
+    fi
+
+    echo ""
+    echo -e "${CYAN}Raw vless:// строки (advanced):${NC}"
+    _generate_vless_urls_for_profile "$profile_file" | sed 's/^/  /'
+    echo ""
+    echo -e "${YELLOW}Для HAPP используйте subscription URL: он отдаёт все маршруты одной подпиской.${NC}"
+    echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
+    read -r _
+    return 0
+  fi
+
   local uuid=$(jq -r '.uuid' "$profile_file")
   local transport=$(jq -r '.transport' "$profile_file")
   local port=$(jq -r '.port' "$profile_file")
