@@ -3,7 +3,7 @@
 **Milestone:** v2.0 — Post-Quantum & HAPP
 **Phases:** 5 (Phase 4 → Phase 8, продолжение нумерации после v1.0)
 **Total requirements:** 44 (D×7 + B×5 + A×10 + C×13 + E×4 + F×5)
-**Estimated total plans:** 11
+**Estimated total plans:** 12
 **Date:** 2026-05-09
 **Source:** REQUIREMENTS.md + research/SUMMARY.md (12 decisions FINAL)
 
@@ -15,7 +15,7 @@
 - [x] **Phase 5: Auto-update Xray-core + xmux explicit** — `update_xray_core()` в update.sh + явный xmux-блок для XHTTP-инбаундов (completed 2026-05-09)
 - [x] **Phase 6: Post-Quantum (VLESS Encryption + ML-KEM)** — дефолт XHTTP+Reality+`mlkem768x25519plus.native`, per-profile upgrade in-place, legacy-fallback на уровне отдельных профилей через `create_profile_menu` (completed 2026-05-10)
 - [x] **Phase 7: HAPP Subscription Server** — public TLS subscription per profile (nginx+LE → local handler), HAPP metadata+routing, QR for subscription URL, revoke menu (completed 2026-05-11)
-- [ ] **Phase 8: Polish (SNI 2026 + experimental Vision Seed + bypass routing)** — обновлённый SNI list под РФ-доноров + advanced testpre/testseed + меню обхода VPN для Steam/банков/госуслуг
+- [ ] **Phase 8: Polish (SNI 2026 + experimental Vision Seed + bypass routing + AdGuard cleanup)** — обновленный SNI list под РФ-доноров + advanced testpre/testseed + меню обхода VPN для Steam/банков/госуслуг + deferred AdGuard force-uninstall
 
 ---
 
@@ -171,9 +171,9 @@ Plans:
 
 ---
 
-### Phase 8: Polish (SNI 2026 + experimental Vision Seed + bypass routing)
+### Phase 8: Polish (SNI 2026 + experimental Vision Seed + bypass routing + AdGuard cleanup)
 
-**Goal**: SNI list актуализирован под РФ-доноров 2026 (банки, логистика, маркетплейсы), оператор получает опциональное experimental-меню для testpre/testseed и полноценное меню обхода VPN (Steam, банки, gosuslugi, OZON, Yandex), а HAPP announce-текст редактируется одной кнопкой.
+**Goal**: SNI list актуализирован под РФ-доноров 2026 (банки, логистика, маркетплейсы), оператор получает опциональное experimental-меню для testpre/testseed и полноценное меню обхода VPN (Steam, банки, gosuslugi, OZON, Yandex), HAPP announce-текст редактируется одной кнопкой, а deferred AdGuard Home auto-uninstall ит в update.sh с правильным DNS-rollback ordering (без y/N prompt, deprecated as buggy v1.0 feature).
 
 **Depends on**: Phase 7 (REQ-E04 — announce читается subhttp.sh; bypass-routing использует safe-pattern из Phase 4)
 
@@ -186,19 +186,29 @@ Plans:
 4. Пункт меню "Установить announcement для HAPP": запрашивает текст, сохраняет в `/usr/local/etc/xray/announce.txt`. subhttp.sh из Phase 7 читает этот файл и эмиттит как HAPP `announce` header/body comment (base64).
 5. Новое меню "Управление обходом VPN" в `main_menu`: показывает текущие domain rules, позволяет добавить/удалить/сбросить.
 6. При first-time setup (или через меню) предлагается установить дефолтные исключения: Steam (`steamcontent.com`, `steamcdn-a.akamaihd.net`, `steam-chat.com`, `steamcommunity.com`, `cm.steampowered.com`), RU-сервисы (`gosuslugi.ru`, `nalog.gov.ru`, `mos.ru`), RU-банки (`sberbank.ru`, `vtb.ru`, `tinkoff.ru`, `alfabank.ru`), RU e-commerce (`ozon.ru`, `wildberries.ru`, `avito.ru`), Yandex (`yandex.ru`, `ya.ru`, `mail.yandex.ru`).
-7. Bypass-rule добавляется в `routing.rules` через `safe_jq_write` с `outboundTag: "direct"` (существующий freedom outbound), используя `domain:` префикс (suffix matching) для покрытия subdomains.
+7. Bypass-rule добавляется в `routing.rules` через `safe_jq_write` с `outboundTag: "direct"` (существующий freedom outbound), используя `domain:` префикс (suffix matching) для покрытия subdomains. **CRITICAL**: PREPEND (новые правила в начало массива), не APPEND — иначе bypass проигрывает существующим catch-all правилам (Xray routing first-match-wins).
 8. Migration `.bypass_routing_2026` опциональная (НЕ force): при первом запуске v2.0 показывает меню "Хочешь добавить дефолтные bypass-исключения?" — юзер выбирает.
 9. После каждого изменения bypass rules — `safe_restart_xray()`.
+10. **Deferred AdGuard cleanup** (Plan 8.3): `update.sh` при detection `/opt/AdGuardHome/` автоматически (без y/N) откатывает Xray DNS на дефолт (Cloudflare/Google DoH), потом stop AdGuardHome, потом `rm -rf /opt/AdGuardHome/`. Меню-пункт 7 (AdGuard Home) и функции `adguard_home_menu`/`adguard_status` удалены из xrayebator. CLAUDE.md обновлён (секция Add-on services снята).
 
 **Plan structure suggestion**:
-- **Plan 8.1 — SNI 2026 + probe-test + experimental Vision Seed + HAPP announce**: REQ-E01, REQ-E02, REQ-E03, REQ-E04. Группа мелких независимых улучшений, можно сделать одним планом.
-- **Plan 8.2 — Bypass routing menu**: REQ-F01, REQ-F02, REQ-F03, REQ-F04, REQ-F05. Цельная фича: menu + defaults + safe_jq_write на routing.rules + migration + safe_restart.
+- **Plan 8.1 — SNI 2026 + probe-test + experimental Vision Seed + HAPP announce**: REQ-E01, REQ-E02, REQ-E03, REQ-E04. Группа мелких независимых улучшений.
+- **Plan 8.2 — Bypass routing menu**: REQ-F01, REQ-F02, REQ-F03, REQ-F04, REQ-F05. Цельная фича: menu + defaults + safe_jq_write на routing.rules (PREPEND) + migration + safe_restart + _sni_in_use hard-block guard.
+- **Plan 8.3 — AdGuard cleanup (deferred from Phase 5)**: Force-uninstall в update.sh (DNS-rollback BEFORE stop ordering, без y/N) + удаление menu-кода в xrayebator + обновление CLAUDE.md. Скоупно вне REQ-E/F, но per CONTEXT.md выделено в отдельный план для чистого разделения ответственности.
 
 **Risks**:
 - **User custom SNI determination**: как отличить добавленные пользователем SNI от ship-ed defaults? *Митигация:* поддерживать в xrayebator hardcoded `KNOWN_DEFAULTS_v1` set; всё, что не в этом set — user custom, не трогать.
-- **Конфликт между bypass routing и pq-trigger SNI**: если юзер добавит в bypass `*.cloudflare.com`, а Reality SNI указан на cloudflare-сертификат — handshake пойдёт мимо VPN. *Митигация:* в TUI меню при добавлении домена warn-ить если он совпадает с любым SNI из profiles/*.json.
+- **Конфликт между bypass routing и pq-trigger SNI**: если юзер добавит в bypass `*.cloudflare.com`, а Reality SNI указан на cloudflare-сертификат — handshake пойдёт мимо VPN. *Митигация:* HARD-BLOCK в TUI меню при добавлении домена если он совпадает с любым SNI из profiles/*.json — никакого override (per locked CONTEXT.md decision).
+- **AdGuard auto-uninstall ломает установки юзеров, использующих AdGuard как локальный DNS**: force-uninstall без y/N может разрушить рабочий setup. *Митигация:* DNS rollback ВЫПОЛНЯЕТСЯ ПЕРВЫМ (до stop AdGuard), Xray переходит на Cloudflare/Google DoH ДО того как AdGuard пропадёт; deprecation-message в update.sh объясняет почему AdGuard убран. Risk accepted per CONTEXT.md (feature deprecated, v1.0 user assumption broken intentionally).
 
-**Estimated complexity**: M (2 plans, набор полировочных и UX-фич без архитектурной сложности; bypass routing — самая большая часть)
+**Estimated complexity**: M (3 plans, набор полировочных и UX-фич без архитектурной сложности; bypass routing — самая большая часть; AdGuard cleanup механически прост)
+
+**Plans:** 3 plans
+
+Plans:
+- [ ] 08-01-sni-2026-probe-test-vision-seed-announce-PLAN.md — Migration .sni_list_2026 с защитой KNOWN_DEFAULTS_v1 user-custom + standalone CLI `xrayebator probe-test` (curl + openssl s_client) + manage_profile_advanced_menu (experimental testpre/testseed) + happ_subscription_menu пункт "Настроить announcement" (REQ-E01, E02, E03, E04)
+- [ ] 08-02-bypass-routing-menu-PLAN.md — bypass_routing_menu в main_menu (item 11) + granular multi-select bundle (5 групп) + _sni_in_use HARD-BLOCK guard + safe_jq_write PREPEND в routing.rules с `domain:` префикс + миграция .bypass_routing_2026 opt-in (REQ-F01, F02, F03, F04, F05)
+- [ ] 08-03-adguard-cleanup-PLAN.md — update.sh inline auto-uninstall блок (DNS rollback BEFORE stop AdGuard) + удаление xrayebator menu пункта 7 / adguard_home_menu / adguard_status (uninstall_adguard_home preserved) + CLAUDE.md обновление (Add-on services удалена) — deferred from Phase 5
 
 ---
 
@@ -208,9 +218,9 @@ Plans:
 |-------|----------------|--------|-----------|
 | 4. Foundation (Audit Fixes) | 2/2 | Complete | 2026-05-09 |
 | 5. Auto-update + xmux explicit | 2/2 | Complete | 2026-05-09 |
-| 6. Post-Quantum (VLESS Encryption + ML-KEM) | 0/3 | Not started | - |
-| 7. HAPP Subscription Server | 0/3 | Not started | - |
-| 8. Polish (SNI + Vision Seed + Bypass) | 0/2 | Not started | - |
+| 6. Post-Quantum (VLESS Encryption + ML-KEM) | 3/3 | Complete | 2026-05-10 |
+| 7. HAPP Subscription Server | 3/3 | Complete | 2026-05-11 |
+| 8. Polish (SNI + Vision Seed + Bypass + AdGuard cleanup) | 0/3 | Planned | - |
 
 ---
 
