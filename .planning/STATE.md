@@ -237,10 +237,10 @@ Progress: [##########] 100% (Phases 4+5+6+7 ✓; Phase 8 final polish remains)
 
 ## Session Continuity
 
-Last session: 2026-05-11
-Stopped at: Plan 07-03 DONE (3/3 tasks committed: a95bd99 public TLS installer + local-only fallback + port preflight, 692732d manage_subscription_menu + create_profile success-screen, f375954 happ_settings_menu + _happ_edit_field + happ_subscription_menu wrapper + main_menu integration). SUMMARY.md создан. xrayebator: 4386 → 4873 строк (+487). Phase 7 COMPLETE — все REQ-C01..C14 satisfied. B1 invariant: 4 call sites _subscription_base_url. M5: PQ-aware QR gate через jq .pq_enabled. M6: 14 read -r в новых функциях.
-Resume file: ROADMAP.md → Phase 8 (final polish + AdGuard cleanup)
-Next: запустить planning для Phase 8: REQ-D* (documentation finalize), Plan 8.1 v2.0 release notes + clients compat matrix, Plan 8.2 install.sh integration с opt-in HAPP subscription server prompt, Plan 8.3 deferred AdGuard cleanup (предложение uninstall existing AdGuard при xrayebator update). Также — VPS smoke на staging: certbot LE rate-limit, socat health после длительной работы, HAPP revoke refresh-flow на реальных клиентах.
+Last session: 2026-05-12
+Stopped at: Phase 8 context gathered — 08-CONTEXT.md создан (commit cb32b41). 4 gray areas обсуждены, 16 решений зафиксированы: SNI 2026 force-migration + post-probe-test + KNOWN_DEFAULTS_v1 защита; bypass routing opt-in first-run + granular multi-select + hard block для SNI conflict + domain: suffix; Vision Seed hidden submenu в manage_profile + явный risk + immediate apply + research-defaults; HAPP announce free-form 1-line + отдельный пункт в happ_subscription_menu; Plan 8.3 AdGuard force uninstall при xrayebator update + удаление menu-кода. Plan structure: 3 plans (8.1 SNI+VS+announce, 8.2 bypass, 8.3 AdGuard cleanup).
+Resume file: .planning/phases/08-polish-sni-vision-bypass-routing/08-CONTEXT.md
+Next: /gsd:research-phase 8 — research нужен для (1) testpre/testseed defaults из Xray docs/source + минимальная версия, (2) AdGuard Home uninstall corner cases (DNS config refs cleanup), (3) probe-test command pattern из аналогов; затем /gsd:plan-phase 8 для создания 3 PLAN.md (8.1+8.2+8.3).
  == 2, но открывающий heredoc-маркер физически на той же строке что и cat — используем grep -c SUBHTTP_EOF == 2 (open+close, оба ровно равны 2)
 
 ## Project Reference
@@ -337,7 +337,7 @@ Progress: [##########] 100% (Phases 4+5+6+7 ✓; Phase 8 final polish remains)
 
 ## Session Continuity
 
-Last session: 2026-05-11
-Stopped at: Plan 07-03 DONE (3/3 tasks committed: a95bd99 public TLS installer + local-only fallback + port preflight, 692732d manage_subscription_menu + create_profile success-screen, f375954 happ_settings_menu + _happ_edit_field + happ_subscription_menu wrapper + main_menu integration). SUMMARY.md создан. xrayebator: 4386 → 4873 строк (+487). Phase 7 COMPLETE — все REQ-C01..C14 satisfied. B1 invariant: 4 call sites _subscription_base_url. M5: PQ-aware QR gate через jq .pq_enabled. M6: 14 read -r в новых функциях.
-Resume file: ROADMAP.md → Phase 8 (final polish + AdGuard cleanup)
-Next: запустить planning для Phase 8: REQ-D* (documentation finalize), Plan 8.1 v2.0 release notes + clients compat matrix, Plan 8.2 install.sh integration с opt-in HAPP subscription server prompt, Plan 8.3 deferred AdGuard cleanup (предложение uninstall existing AdGuard при xrayebator update). Также — VPS smoke на staging: certbot LE rate-limit, socat health после длительной работы, HAPP revoke refresh-flow на реальных клиентах.
+Last session: 2026-05-12
+Stopped at: Phase 8 context gathered — 08-CONTEXT.md создан (commit cb32b41). 4 gray areas обсуждены, 16 решений зафиксированы: SNI 2026 force-migration + post-probe-test + KNOWN_DEFAULTS_v1 защита; bypass routing opt-in first-run + granular multi-select + hard block для SNI conflict + domain: suffix; Vision Seed hidden submenu в manage_profile + явный risk + immediate apply + research-defaults; HAPP announce free-form 1-line + отдельный пункт в happ_subscription_menu; Plan 8.3 AdGuard force uninstall при xrayebator update + удаление menu-кода. Plan structure: 3 plans (8.1 SNI+VS+announce, 8.2 bypass, 8.3 AdGuard cleanup).
+Resume file: .planning/phases/08-polish-sni-vision-bypass-routing/08-CONTEXT.md
+Next: /gsd:research-phase 8 — research нужен для (1) testpre/testseed defaults из Xray docs/source + минимальная версия, (2) AdGuard Home uninstall corner cases (DNS config refs cleanup), (3) probe-test command pattern из аналогов; затем /gsd:plan-phase 8 для создания 3 PLAN.md (8.1+8.2+8.3).
