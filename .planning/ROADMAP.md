@@ -15,7 +15,7 @@
 - [x] **Phase 5: Auto-update Xray-core + xmux explicit** — `update_xray_core()` в update.sh + явный xmux-блок для XHTTP-инбаундов (completed 2026-05-09)
 - [x] **Phase 6: Post-Quantum (VLESS Encryption + ML-KEM)** — дефолт XHTTP+Reality+`mlkem768x25519plus.native`, per-profile upgrade in-place, legacy-fallback на уровне отдельных профилей через `create_profile_menu` (completed 2026-05-10)
 - [x] **Phase 7: HAPP Subscription Server** — public TLS subscription per profile (nginx+LE → local handler), HAPP metadata+routing, QR for subscription URL, revoke menu (completed 2026-05-11)
-- [ ] **Phase 8: Polish (SNI 2026 + experimental Vision Seed + bypass routing + AdGuard cleanup)** — обновленный SNI list под РФ-доноров + advanced testpre/testseed + меню обхода VPN для Steam/банков/госуслуг + deferred AdGuard force-uninstall
+- [x] **Phase 8: Polish (SNI 2026 + experimental Vision Seed + bypass routing + AdGuard cleanup)** — обновленный SNI list под РФ-доноров + advanced testpre/testseed + меню обхода VPN для Steam/банков/госуслуг + deferred AdGuard force-uninstall (completed 2026-05-12)
 
 ---
 
@@ -220,7 +220,7 @@ Plans:
 | 5. Auto-update + xmux explicit | 2/2 | Complete | 2026-05-09 |
 | 6. Post-Quantum (VLESS Encryption + ML-KEM) | 3/3 | Complete | 2026-05-10 |
 | 7. HAPP Subscription Server | 3/3 | Complete | 2026-05-11 |
-| 8. Polish (SNI + Vision Seed + Bypass + AdGuard cleanup) | 0/3 | Planned | - |
+| 8. Polish (SNI + Vision Seed + Bypass + AdGuard cleanup) | 3/3 | Complete | 2026-05-12 |
 
 ---
 
