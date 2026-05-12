@@ -2559,6 +2559,8 @@ install_subscription_ip_tls() {
   chmod -R 755 "$webroot"
 
   cat > /etc/nginx/sites-available/xrayebator-sub << NGINX_HTTP_EOF
+limit_req_zone \$binary_remote_addr zone=xrayebator_sub:10m rate=30r/m;
+
 server {
     listen 80;
     listen [::]:80;
@@ -2613,6 +2615,7 @@ NGINX_HTTP_EOF
     echo -e "${YELLOW}Проверьте, что порт 80 доступен снаружи и VPS IP совпадает.${NC}"
     return 1
   fi
+  systemctl reset-failed certbot.service 2>/dev/null || true
 
   local cert_dir="/etc/letsencrypt/live/${server_ip}"
   if [[ ! -f "$cert_dir/fullchain.pem" || ! -f "$cert_dir/privkey.pem" ]]; then
@@ -2621,6 +2624,8 @@ NGINX_HTTP_EOF
   fi
 
   cat > /etc/nginx/sites-available/xrayebator-sub << NGINX_TLS_EOF
+limit_req_zone \$binary_remote_addr zone=xrayebator_sub:10m rate=30r/m;
+
 server {
     listen 80;
     listen [::]:80;
@@ -2647,10 +2652,16 @@ server {
     ssl_prefer_server_ciphers off;
 
     location /sub/ {
+        access_log off;
+        limit_req zone=xrayebator_sub burst=10 nodelay;
+        add_header Cache-Control "no-store" always;
+        add_header X-Robots-Tag "noindex, nofollow, nosnippet" always;
         proxy_pass http://127.0.0.1:8080;
         proxy_http_version 1.1;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
     }
 
     location / {
@@ -2694,13 +2705,12 @@ NGINX_TLS_EOF
   read -r _
 }
 
-# Public TLS installer (REQ-C02 — default operator flow).
-# Flow: domain prompt → DNS preflight (soft) → email prompt → port preflight (443/8443)
-# → apt install nginx + python3-certbot-nginx → nginx site config → certbot --nginx
-# --non-interactive --agree-tos --redirect → ufw limit (НЕ allow!) → write markers
-# (.subscription_port, .subscription_domain) → systemctl enable --now xrayebator-sub.
-# Display URL финального summary строится через _subscription_base_url (B1 — никакого
-# инлайн-https-build). Все read calls — с -r (M6).
+# Public TLS installer by domain.
+# Flow: domain prompt → DNS preflight (soft) → email prompt → port preflight
+# → nginx HTTP-only ACME site on :80 → certbot certonly --webroot → explicit SSL
+# nginx site on selected public port → markers → enable xrayebator-sub.
+# Важно: не используем certbot --nginx. Он плохо предсказуем на нестандартном
+# HTTPS-порту (8443) и может оставить plain HTTP listener после failed certbot.
 install_subscription_public_tls() {
   show_ascii
   echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
@@ -2752,56 +2762,145 @@ install_subscription_public_tls() {
   pub_port=$(_select_subscription_port)
   echo -e "${CYAN}  → Публичный порт: $pub_port${NC}"
 
-  # apt install nginx + certbot.
-  echo -e "${CYAN}  → Установка nginx + python3-certbot-nginx...${NC}"
-  if ! apt-get install -y nginx python3-certbot-nginx >/dev/null 2>&1; then
-    echo -e "${RED}✗ apt-get install не удалось${NC}"
+  echo -e "${CYAN}  → Установка nginx + certbot...${NC}"
+  if ! apt-get install -y nginx certbot >/dev/null 2>&1; then
+    echo -e "${RED}✗ apt-get install nginx certbot не удалось${NC}"
     return 1
   fi
 
-  # nginx site config (heredoc; $host / $remote_addr ескейпятся через \$ потому что
-  # heredoc unquoted — это nginx-переменные, не shell).
-  cat > /etc/nginx/sites-available/xrayebator-sub << NGINX_EOF
+  local certbot_bin
+  if [[ -x /snap/bin/certbot ]]; then
+    certbot_bin="/snap/bin/certbot"
+  else
+    certbot_bin=$(command -v certbot 2>/dev/null || true)
+  fi
+  if [[ -z "$certbot_bin" || ! -x "$certbot_bin" ]]; then
+    echo -e "${RED}✗ certbot не найден после установки${NC}"
+    return 1
+  fi
+
+  local webroot="/var/www/xrayebator-domain-acme"
+  mkdir -p "$webroot/.well-known/acme-challenge"
+  chmod -R 755 "$webroot"
+
+  cat > /etc/nginx/sites-available/xrayebator-sub << NGINX_HTTP_EOF
+limit_req_zone \$binary_remote_addr zone=xrayebator_sub:10m rate=30r/m;
+
 server {
-    listen ${pub_port};
-    listen [::]:${pub_port};
+    listen 80;
+    listen [::]:80;
     server_name ${domain};
 
-    location /sub/ {
-        proxy_pass http://127.0.0.1:8080;
-        proxy_http_version 1.1;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
+    location ^~ /.well-known/acme-challenge/ {
+        root ${webroot};
+        default_type text/plain;
     }
 
-    # Catch-all для других путей — 404 (не утечка endpoint существования).
     location / {
         return 404;
     }
 }
-NGINX_EOF
+NGINX_HTTP_EOF
   ln -sf /etc/nginx/sites-available/xrayebator-sub /etc/nginx/sites-enabled/xrayebator-sub
-  if ! nginx -t >/dev/null 2>&1; then
+  if ! nginx -t >/tmp/nginx-xrayebator-sub.log 2>&1; then
     echo -e "${RED}✗ nginx -t failed${NC}"
-    rm -f /etc/nginx/sites-enabled/xrayebator-sub
+    cat /tmp/nginx-xrayebator-sub.log
     return 1
   fi
-  systemctl reload nginx
-
-  # certbot --nginx --non-interactive --agree-tos --redirect
-  echo -e "${CYAN}  → Запуск certbot для $domain...${NC}"
-  if ! certbot --nginx -d "$domain" --non-interactive --agree-tos -m "$email" --redirect >/tmp/certbot.log 2>&1; then
-    echo -e "${RED}✗ certbot не смог выдать сертификат. Лог: /tmp/certbot.log${NC}"
-    tail -20 /tmp/certbot.log
-    echo -e "${YELLOW}  → nginx site config оставлен. Можно повторить попытку или выбрать local-only fallback.${NC}"
+  if ! systemctl enable --now nginx >/dev/null 2>&1; then
+    echo -e "${RED}✗ nginx не запустился. Проверьте, не занят ли порт 80 другим сервисом.${NC}"
+    return 1
+  fi
+  if ! systemctl reload nginx >/dev/null 2>&1; then
+    echo -e "${RED}✗ nginx не перечитал HTTP config для ACME challenge${NC}"
     return 1
   fi
 
-  # UFW limit (REQ-C08 — rate-limit, НЕ allow!).
   if command -v ufw &>/dev/null && ufw status | grep -q "Status: active"; then
+    ufw limit 80/tcp >/dev/null 2>&1
     ufw limit "${pub_port}/tcp" >/dev/null 2>&1
     ufw reload >/dev/null 2>&1
-    echo -e "${GREEN}  ✓ UFW: limit ${pub_port}/tcp${NC}"
+    echo -e "${GREEN}  ✓ UFW: limit 80/tcp + ${pub_port}/tcp${NC}"
+  fi
+
+  echo -e "${CYAN}  → Запуск certbot webroot для $domain...${NC}"
+  if ! "$certbot_bin" certonly \
+      --cert-name "$domain" \
+      --webroot \
+      --webroot-path "$webroot" \
+      -d "$domain" \
+      --non-interactive \
+      --agree-tos \
+      -m "$email" \
+      --deploy-hook "systemctl reload nginx" \
+      >/tmp/certbot.log 2>&1; then
+    echo -e "${RED}✗ certbot не смог выдать сертификат. Лог: /tmp/certbot.log${NC}"
+    tail -30 /tmp/certbot.log
+    echo -e "${YELLOW}Проверьте, что порт 80 доступен снаружи, DNS указывает на VPS или Cloudflare проксирует HTTP challenge.${NC}"
+    return 1
+  fi
+  systemctl reset-failed certbot.service 2>/dev/null || true
+
+  local cert_dir="/etc/letsencrypt/live/${domain}"
+  if [[ ! -f "$cert_dir/fullchain.pem" || ! -f "$cert_dir/privkey.pem" ]]; then
+    echo -e "${RED}✗ certbot завершился, но cert files не найдены: $cert_dir${NC}"
+    return 1
+  fi
+
+  cat > /etc/nginx/sites-available/xrayebator-sub << NGINX_TLS_EOF
+limit_req_zone \$binary_remote_addr zone=xrayebator_sub:10m rate=30r/m;
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${domain};
+
+    location ^~ /.well-known/acme-challenge/ {
+        root ${webroot};
+        default_type text/plain;
+    }
+
+    location / {
+        return 404;
+    }
+}
+
+server {
+    listen ${pub_port} ssl http2;
+    listen [::]:${pub_port} ssl http2;
+    server_name ${domain};
+
+    ssl_certificate ${cert_dir}/fullchain.pem;
+    ssl_certificate_key ${cert_dir}/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+
+    location /sub/ {
+        access_log off;
+        limit_req zone=xrayebator_sub burst=10 nodelay;
+        add_header Cache-Control "no-store" always;
+        add_header X-Robots-Tag "noindex, nofollow, nosnippet" always;
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+
+    location / {
+        return 404;
+    }
+}
+NGINX_TLS_EOF
+  if ! nginx -t >/tmp/nginx-xrayebator-sub.log 2>&1; then
+    echo -e "${RED}✗ nginx TLS config failed${NC}"
+    cat /tmp/nginx-xrayebator-sub.log
+    return 1
+  fi
+  if ! systemctl reload nginx >/dev/null 2>&1; then
+    echo -e "${RED}✗ nginx не перечитал TLS config${NC}"
+    return 1
   fi
 
   # Markers — читаются _subscription_base_url (helper из Plan 7.2).
@@ -3230,13 +3329,14 @@ happ_subscription_menu() {
 
     if [[ -f /usr/local/etc/xray/.subscription_installed ]]; then
       # B1: status-line через shared helper, никакого инлайна.
-      local _status_url
+      local _status_url _status_mode
       _status_url=$(_subscription_base_url)
+      _status_mode=$(cat /usr/local/etc/xray/.subscription_mode 2>/dev/null || echo "unknown")
       if _subscription_is_local_only; then
-        echo -e "${YELLOW}  ⚠ Local-only: ${_status_url}${NC}"
+        echo -e "${YELLOW}  ⚠ Local-only (${_status_mode}): ${_status_url}${NC}"
         echo -e "${RED}    Не подходит для внешнего клиента. Включите public TLS (пункт 1).${NC}"
       else
-        echo -e "${GREEN}  ✓ Public subscription: ${_status_url}${NC}"
+        echo -e "${GREEN}  ✓ Public subscription (${_status_mode}): ${_status_url}${NC}"
       fi
       echo ""
     else
