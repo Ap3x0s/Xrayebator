@@ -1352,6 +1352,38 @@ _migrate_sni_list_2026() {
   return 0
 }
 
+_migrate_bypass_routing_2026() {
+  echo ""
+  echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
+  echo -e "${BLUE}  BYPASS ROUTING (новое в v2.0)               ${NC}"
+  echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
+  echo ""
+  echo -e "${CYAN}Можно настроить чтобы определенные домены шли в обход VPN:${NC}"
+  echo -e "  ${YELLOW}-${NC} Steam (CDN, чат, community) — быстрее без VPN"
+  echo -e "  ${YELLOW}-${NC} РФ-сервисы (gosuslugi, nalog, mos) — обязательно с РФ-IP"
+  echo -e "  ${YELLOW}-${NC} РФ-банки (sber, vtb, tinkoff, alfa) — требуют РФ-IP"
+  echo -e "  ${YELLOW}-${NC} Маркетплейсы (ozon, wb, avito)"
+  echo -e "  ${YELLOW}-${NC} Yandex сервисы"
+  echo ""
+  echo -e "${CYAN}Эти домены пойдут через freedom outbound (direct), не через VPN.${NC}"
+  echo ""
+  echo -n -e "${YELLOW}Добавить дефолтные bypass-правила? [y/N]: ${NC}"
+
+  local ans
+  read -r ans
+  ans="${ans:-N}"
+
+  if [[ "$ans" =~ ^[yYдД]$ ]]; then
+    _bypass_apply_bundle
+  else
+    echo -e "${CYAN}Пропущено. Можно настроить позже через главное меню → пункт 11.${NC}"
+    sleep 1
+  fi
+
+  # Marker ставится через run_migration независимо от ответа — больше не спрашивать.
+  return 1
+}
+
 _sni_in_use() {
   local domain="$1"
   local -ar REALITY_DEFAULT_SNIS=(
@@ -2836,6 +2868,7 @@ main_menu() {
     fi
   fi
   run_migration "sni_list_2026" "SNI list 2026 (РФ-банки/логистика, удалить apple/icloud)" _migrate_sni_list_2026 || ((migration_failures++))
+  run_migration "bypass_routing_2026" "Bypass routing first-run prompt (опционально)" _migrate_bypass_routing_2026 || ((migration_failures++))
 
   # Aggregate report (RESEARCH §«Error reporting»): чтобы пользователь не пропустил
   # failure среди скроллящегося TUI вывода.
