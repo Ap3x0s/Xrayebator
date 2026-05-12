@@ -1,10 +1,10 @@
 #!/bin/bash
 
 # ═══════════════════════════════════════════════════════════
-# XRAYEBATOR v1.3.2 EXP - Xray Reality VPN Manager
+# XRAYEBATOR v2.0 - Xray Reality VPN Manager
 # GitHub: https://github.com/howdeploy/Xrayebator
 # License: MIT
-# Экспериментальная версия с исправлениями маршрутизации
+# HAPP subscription + multi-route profile release
 # ═══════════════════════════════════════════════════════════
 
 # Цвета
@@ -1012,7 +1012,7 @@ migrate_xhttp_profiles() {
   fi
 }
 
-# Migration function for routing configuration (v1.3.2)
+# Migration function for routing configuration (v2.0)
 # Adds default "direct" rule if missing
 migrate_routing_config() {
   echo -e "${CYAN}Проверка конфигурации маршрутизации...${NC}"
@@ -2056,12 +2056,13 @@ show_ascii() {
     echo -e "${CYAN}"
     echo ' ╔═══════════════════════════════════╗'
     echo ' ║                                   ║'
-    echo ' ║     XRAYEBATOR v1.3.2 EXP        ║'
+    echo ' ║        XRAYEBATOR v2.0           ║'
     echo ' ║   Xray Reality VPN Manager       ║'
     echo ' ║                                   ║'
     echo ' ╚═══════════════════════════════════╝'
     echo -e "${NC}"
   fi
+  echo -e "${BLUE}Xrayebator v2.0${NC}"
   echo ""
 }
 

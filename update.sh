@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ═══════════════════════════════════════════════════════════
-# XRAYEBATOR UPDATE SCRIPT v1.3.1 FINAL
+# XRAYEBATOR UPDATE SCRIPT v2.0
 # Обновление Xrayebator до последней версии
 # GitHub: https://github.com/howdeploy/Xrayebator
 # ═══════════════════════════════════════════════════════════
@@ -147,7 +147,7 @@ else
   echo -e "${CYAN}"
   echo '╔═══════════════════════════════════════════════════════════╗'
   echo '║                                                           ║'
-  echo '║              XRAYEBATOR UPDATE SCRIPT                     ║'
+  echo '║              XRAYEBATOR UPDATE SCRIPT v2.0                ║'
   echo '║              Обновление & Смена версии                    ║'
   echo '║                                                           ║'
   echo '╚═══════════════════════════════════════════════════════════╝'
@@ -156,7 +156,7 @@ else
   # Показываем текущую ветку если она установлена
   if [[ -f /usr/local/etc/xray/.current_branch ]]; then
     CURRENT_BRANCH=$(cat /usr/local/etc/xray/.current_branch 2>/dev/null || echo "unknown")
-    echo -e "${YELLOW}Текущая версия: ${CYAN}$CURRENT_BRANCH${NC}\n"
+    echo -e "${YELLOW}Текущая ветка: ${CYAN}$CURRENT_BRANCH${NC}\n"
   fi
 
   # Меню выбора ветки
@@ -829,8 +829,8 @@ echo '║                                                           ║'
 echo '╚═══════════════════════════════════════════════════════════╝'
 echo -e "${NC}\n"
 
-echo -e "${CYAN}Установленная версия: ${VERSION_COLOR}${VERSION_NAME} (${GITHUB_BRANCH})${NC}"
-echo -e "${CYAN}Релиз: ${VERSION_COLOR}${VERSION_INFO}${NC}"
+echo -e "${CYAN}Установленная ветка: ${VERSION_COLOR}${VERSION_NAME} (${GITHUB_BRANCH})${NC}"
+echo -e "${CYAN}Релиз Xrayebator: ${VERSION_COLOR}${VERSION_INFO}${NC}"
 echo -e "${CYAN}Резервная копия: ${GREEN}${BACKUP_DIR}${NC}\n"
 
 # Информация по ветке

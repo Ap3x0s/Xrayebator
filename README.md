@@ -2,6 +2,8 @@
 
 Автоматизированная установка и управление личным Xray VLESS Reality на VPS.
 
+**Текущая версия: 2.0**
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Bash](https://img.shields.io/badge/bash-5.0+-green.svg)](https://www.gnu.org/software/bash/)
 [![Xray](https://img.shields.io/badge/Xray-core-blue.svg)](https://github.com/XTLS/Xray-core)
