@@ -2752,10 +2752,8 @@ main_menu() {
     echo -e "${CYAN} 2)${NC} Удалить существующий профиль"
     echo -e "${CYAN} 3)${NC} Подключиться по профилю"
     echo ""
-    echo -e "${MAGENTA} НАСТРОЙКИ МАСКИРОВКИ:${NC}"
-    echo -e "${CYAN} 4)${NC} Подменить SNI профиля (домен маскировки)"
-    echo -e "${CYAN} 5)${NC} Подменить Fingerprint профиля (браузер)"
-    echo -e "${CYAN} 6)${NC} Изменить порт профиля"
+    echo -e "${MAGENTA} УПРАВЛЕНИЕ ПРОФИЛЕМ:${NC}"
+    echo -e "${CYAN} 4)${NC} Управление профилем (SNI / fingerprint / port / advanced)"
     echo ""
     echo -e "${MAGENTA} ДОПОЛНИТЕЛЬНЫЕ ФУНКЦИИ:${NC}"
     echo -e "${CYAN} 7)${NC} AdGuard Home (блокировка рекламы)"
@@ -2775,9 +2773,7 @@ main_menu() {
       1) create_profile_menu ;;
       2) delete_profile_menu ;;
       3) connect_profile_menu ;;
-      4) change_sni_menu ;;
-      5) change_fingerprint_menu ;;
-      6) change_port_menu ;;
+      4) manage_profile_menu ;;
       7) adguard_home_menu ;;
       8) upgrade_profile_to_pq_menu ;;
       9) happ_subscription_menu ;;
@@ -3465,6 +3461,75 @@ connect_profile_menu() {
     echo -e "${RED}✗ Неверный выбор${NC}"
     sleep 2
   fi
+}
+
+manage_profile_menu() {
+  while true; do
+    show_ascii
+    echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
+    echo -e "${BLUE}         УПРАВЛЕНИЕ ПРОФИЛЕМ                  ${NC}"
+    echo -e "${BLUE}═══════════════════════════════════════════════${NC}\n"
+
+    local profiles=($(ls -1 "$PROFILES_DIR" 2>/dev/null | sed 's/.json//'))
+    if [[ ${#profiles[@]} -eq 0 ]]; then
+      echo -e "${RED}Нет созданных профилей${NC}"
+      echo -e "${CYAN}Создайте профиль через главное меню 'Создать новый профиль'${NC}"
+      echo ""
+      echo -n -e "${YELLOW}Нажмите Enter для возврата...${NC}"
+      read -r _
+      return
+    fi
+
+    echo -e "${YELLOW}Выберите профиль для управления:${NC}\n"
+    local i=1
+    local profile
+    for profile in "${profiles[@]}"; do
+      local transport
+      local port
+      local sni
+      transport=$(jq -r '.transport' "$PROFILES_DIR/$profile.json" 2>/dev/null)
+      port=$(jq -r '.port' "$PROFILES_DIR/$profile.json" 2>/dev/null)
+      sni=$(jq -r '.sni' "$PROFILES_DIR/$profile.json" 2>/dev/null)
+      echo -e "${CYAN} $i)${NC} $profile ${BLUE}[$transport:$port sni=$sni]${NC}"
+      ((i++))
+    done
+    echo -e "${CYAN} 0)${NC} Назад в главное меню\n"
+    echo -n -e "${YELLOW}Выбор: ${NC}"
+    local pchoice
+    read -r pchoice
+
+    [[ "$pchoice" == "0" ]] && return
+    if [[ ! "$pchoice" =~ ^[0-9]+$ ]] || [[ $pchoice -lt 1 ]] || [[ $pchoice -gt ${#profiles[@]} ]]; then
+      echo -e "${RED}Неверный выбор${NC}"
+      sleep 1
+      continue
+    fi
+
+    local selected="${profiles[$((pchoice-1))]}"
+
+    while true; do
+      show_ascii
+      echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
+      echo -e "${BLUE}    ДЕЙСТВИЯ С ПРОФИЛЕМ: $selected${NC}"
+      echo -e "${BLUE}═══════════════════════════════════════════════${NC}\n"
+      echo -e "${CYAN} 1)${NC} Изменить SNI (домен маскировки)"
+      echo -e "${CYAN} 2)${NC} Изменить Fingerprint (браузер)"
+      echo -e "${CYAN} 3)${NC} Изменить порт"
+      echo -e "${CYAN} 4)${NC} Адванс настройки (experimental)"
+      echo -e "${CYAN} 0)${NC} Назад (выбрать другой профиль)\n"
+      echo -n -e "${YELLOW}Выбор: ${NC}"
+      local achoice
+      read -r achoice
+      case "$achoice" in
+        1) change_sni_menu ;;
+        2) change_fingerprint_menu ;;
+        3) change_port_menu ;;
+        4) manage_profile_advanced_menu "$selected" ;;
+        0) break ;;
+        *) echo -e "${RED}Неверный выбор${NC}"; sleep 1 ;;
+      esac
+    done
+  done
 }
 
 # Генерация данных подключения
@@ -4288,6 +4353,140 @@ change_port_menu() {
   echo ""
   echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
   read
+}
+
+manage_profile_advanced_menu() {
+  local profile_name="$1"
+  local profile_file="$PROFILES_DIR/$profile_name.json"
+
+  if [[ ! -f "$profile_file" ]]; then
+    echo -e "${RED}Профиль не найден: $profile_name${NC}"
+    sleep 2
+    return
+  fi
+
+  show_ascii
+  echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
+  echo -e "${BLUE}    АДВАНС НАСТРОЙКИ ПРОФИЛЯ (EXPERIMENTAL)   ${NC}"
+  echo -e "${BLUE}    Профиль: $profile_name${NC}"
+  echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
+  echo ""
+  echo -e "${RED}╔═══════════════════════════════════════════════════════════╗${NC}"
+  echo -e "${RED}║  EXPERIMENTAL — VISION SEED                              ║${NC}"
+  echo -e "${RED}╠═══════════════════════════════════════════════════════════╣${NC}"
+  echo -e "${RED}║  Эти поля (testpre/testseed) появились в Xray-core       ║${NC}"
+  echo -e "${RED}║  v1.251201.0 (декабрь 2025). Могут сломать подключения  ║${NC}"
+  echo -e "${RED}║  клиентов на старых версиях Xray. Не тестировалось на   ║${NC}"
+  echo -e "${RED}║  реальных конфигах.                                     ║${NC}"
+  echo -e "${RED}║                                                           ║${NC}"
+  echo -e "${RED}║  testpre на серверной стороне parsed-but-not-used:       ║${NC}"
+  echo -e "${RED}║  pre-connect логика работает только в outbound клиента.  ║${NC}"
+  echo -e "${RED}║  Чтобы testpre дал эффект, клиенту нужно установить      ║${NC}"
+  echo -e "${RED}║  то же значение в своем VLESS outbound.                  ║${NC}"
+  echo -e "${RED}║  testseed работает на обеих сторонах.                    ║${NC}"
+  echo -e "${RED}╚═══════════════════════════════════════════════════════════╝${NC}"
+  echo ""
+  echo -n -e "${YELLOW}Продолжить? [y/N]: ${NC}"
+  local ans
+  read -r ans
+  [[ "$ans" =~ ^[yYдД]$ ]] || return
+
+  local xray_ver
+  xray_ver=$(xray version 2>/dev/null | head -1 | awk '{print $2}')
+  if [[ -n "$xray_ver" ]]; then
+    local major minor
+    major=$(echo "$xray_ver" | cut -d'.' -f1)
+    minor=$(echo "$xray_ver" | cut -d'.' -f2)
+    if [[ "$major" == "1" && "$minor" =~ ^[0-9]+$ && "$minor" -lt 251201 ]]; then
+      echo -e "${YELLOW}Xray-core версия $xray_ver — testpre/testseed появились в v1.251201.0+${NC}"
+      echo -e "${YELLOW}  Поля будут добавлены в config, но эффекта не дадут. Рекомендуется sudo xrayebator update.${NC}"
+      echo -n -e "${YELLOW}Продолжить все равно? [y/N]: ${NC}"
+      read -r ans
+      [[ "$ans" =~ ^[yYдД]$ ]] || return
+    fi
+  fi
+
+  local cur_pre cur_seed
+  cur_pre=$(jq -r '.testpre // "не задано"' "$profile_file" 2>/dev/null)
+  cur_seed=$(jq -c '.testseed // []' "$profile_file" 2>/dev/null)
+  echo -e "${CYAN}Текущие значения: testpre=${cur_pre}, testseed=${cur_seed}${NC}"
+  echo ""
+
+  echo -n -e "${YELLOW}testpre (uint32, 0=off, эффект только на клиенте) [0]: ${NC}"
+  local testpre_val
+  read -r testpre_val
+  testpre_val=${testpre_val:-0}
+  if [[ ! "$testpre_val" =~ ^[0-9]+$ ]]; then
+    echo -e "${YELLOW}Некорректный testpre — будет использован 0${NC}"
+    testpre_val=0
+  fi
+
+  echo -n -e "${YELLOW}testseed (uint32 через пробел, пусто=off) []: ${NC}"
+  local testseed_input
+  read -r testseed_input
+  local -a testseed_values=()
+  local seed
+  for seed in $testseed_input; do
+    if [[ "$seed" =~ ^[0-9]+$ ]]; then
+      testseed_values+=("$seed")
+    else
+      echo -e "${RED}✗ Некорректный testseed элемент: $seed${NC}"
+      sleep 2
+      return
+    fi
+  done
+
+  local testseed_json="[]"
+  if [[ ${#testseed_values[@]} -gt 0 ]]; then
+    testseed_json=$(printf '%s\n' "${testseed_values[@]}" | jq -R 'select(length > 0) | tonumber' | jq -s '.')
+  fi
+
+  echo ""
+  echo -e "${CYAN}Будет применено:${NC}"
+  echo -e "  ${YELLOW}testpre${NC} = $testpre_val"
+  echo -e "  ${YELLOW}testseed${NC} = $testseed_json"
+  echo -n -e "${YELLOW}Применить? [y/N]: ${NC}"
+  local confirm
+  read -r confirm
+  [[ "$confirm" =~ ^[yYдД]$ ]] || { echo -e "${CYAN}✓ Отменено${NC}"; sleep 1; return; }
+
+  local port uuid
+  port=$(jq -r '.port' "$profile_file" 2>/dev/null)
+  uuid=$(jq -r '.uuid' "$profile_file" 2>/dev/null)
+  if [[ ! "$port" =~ ^[0-9]+$ ]] || [[ -z "$uuid" || "$uuid" == "null" ]]; then
+    echo -e "${RED}✗ В профиле нет корректного port/uuid${NC}"
+    sleep 2
+    return
+  fi
+
+  if ! safe_jq_write \
+      --argjson testpre "$testpre_val" \
+      --argjson testseed "$testseed_json" \
+      '. + {testpre: $testpre, testseed: $testseed}' \
+      "$profile_file"; then
+    echo -e "${RED}✗ Ошибка записи profile JSON${NC}"
+    sleep 2
+    return
+  fi
+
+  backup_config "vision_seed"
+  if ! safe_jq_write \
+      --argjson port "$port" \
+      --arg uuid "$uuid" \
+      --argjson testpre "$testpre_val" \
+      --argjson testseed "$testseed_json" \
+      '(.inbounds[] | select(.port == $port) | .settings.clients[] | select(.id == $uuid)) |= (. + {testpre: $testpre, testseed: $testseed})' \
+      "$CONFIG_FILE"; then
+    echo -e "${RED}✗ Ошибка записи config.json${NC}"
+    sleep 2
+    return
+  fi
+
+  fix_xray_permissions
+  safe_restart_xray
+  echo -e "${GREEN}Vision Seed применен. testpre=${testpre_val}, testseed=${testseed_json}${NC}"
+  echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
+  read -r _
 }
 
 # ═══════════════════════════════════════════════════════════
