@@ -5,17 +5,17 @@
 See: .planning/PROJECT.md (updated 2026-05-09)
 
 **Core value:** VPN стабильно и быстро работает через ТСПУ — соединение не падает, блокировки обходятся надёжно
-**Current focus:** v2.0 Phase 7 COMPLETE (3/3 планов DONE) → next Phase 8 (final polish + AdGuard cleanup).
+**Current focus:** v2.0 Phase 8 IN PROGRESS — 08-01 DONE, next 08-02 bypass routing menu.
 
 ## Current Position
 
 Milestone: v2.0 — Post-Quantum & HAPP
-Phase: 7 of 8 (HAPP Subscription Server) — 3/3 планов DONE ✓ COMPLETE
-Plan: 07-03 ✓ DONE (3/3 tasks, commits a95bd99 + 692732d + f375954)
-Status: Phase 4 ✓ | Phase 5 ✓ | Phase 6 ✓ | Phase 7 ✓ (Plans 7.1+7.2+7.3) → next Phase 8 (final polish + AdGuard cleanup)
-Last activity: 2026-05-11 — Plan 07-03 executed: _select_subscription_port (443/8443 preflight через ss), install_subscription_public_tls (REQ-C02 — domain prompt + DNS preflight + certbot --non-interactive + ufw limit REQ-C08 + nginx site config + markers + systemctl enable --now), install_subscription_local_only (REQ-C03 — без nginx/UFW, loopback bypass), manage_subscription_menu (REQ-C12 — URL+QR+revoke через safe_jq_write без рестарта + advanced raw vless с PQ-aware QR gate REQ-C14/M5 через jq .pq_enabled), happ_settings_menu + _happ_edit_field (REQ-C13 — TUI editor .happ_defaults.env с атомарной заменой awk+mktemp+mv), happ_subscription_menu wrapper (registered в main_menu пункт 9), create_profile success-screen теперь показывает subscription URL+QR primary через _subscription_base_url. B1 invariant: 4 call sites helper-а. M6 invariant: 14 read -r в новых функциях. xrayebator: 4386 → 4873 строки. Phase 7 COMPLETE — все REQ-C* satisfied.
+Phase: 8 of 8 (Polish: SNI 2026 + Vision Seed + bypass routing + AdGuard cleanup) — 1/3 plans DONE
+Plan: 08-01 ✓ DONE (3/3 tasks, commits a328bbc + 436ad0f + f64f5c2)
+Status: Phase 4 ✓ | Phase 5 ✓ | Phase 6 ✓ | Phase 7 ✓ | Phase 8 in progress (08-01 ✓, next 08-02)
+Last activity: 2026-05-12 — Plan 08-01 executed: SNI 2026 migration + KNOWN_DEFAULTS_v1 preserving user-custom entries, standalone `xrayebator probe-test`, main_menu point 4 consolidated into `manage_profile_menu`, experimental `manage_profile_advanced_menu` for testpre/testseed with RED warning + Xray version check + safe_jq_write to profile/config, `edit_happ_announce_menu` registered under HAPP subscription menu point 5, generated subhttp.sh now emits announce header/body comment only for non-empty announce.txt. REQ-E01..E04 satisfied.
 
-Progress: [##########] 100% (Phases 4+5+6+7 ✓; Phase 8 final polish remains)
+Progress: [#########░] 88% (Phases 4+5+6+7 ✓; Phase 8 1/3 plans complete)
 
 ## Performance Metrics
 
@@ -212,8 +212,8 @@ Progress: [##########] 100% (Phases 4+5+6+7 ✓; Phase 8 final polish remains)
 - 07-02 DONE (2026-05-11) — _subscription_base_url() shared helper, install_subscription_server() heredoc-генерация subhttp.sh + .happ_defaults.env + xrayebator-sub.service, opt-in marker .subscription_installed, SERVER_IP curl-fix под source. REQ-C01/C05/C06/C07/C09 ✓. Commits 10bfc9a + 56c1113.
 - 07-03 DONE (2026-05-11) — _select_subscription_port + install_subscription_public_tls (REQ-C02/C08 nginx+certbot+ufw limit) + install_subscription_local_only (REQ-C03 loopback) + manage_subscription_menu (REQ-C12 URL/QR/revoke + PQ-aware vless gate REQ-C14) + happ_settings_menu + _happ_edit_field (REQ-C13 atomic TUI editor) + happ_subscription_menu wrapper + main_menu пункт 9 + create_profile success-screen primary URL/QR. Commits a95bd99 + 692732d + f375954.
 - Phase 7 COMPLETE — все REQ-C* (C01..C14) satisfied; готов к Phase 8.
-- При планировании Phase 8 — добавить Plan 8.3 AdGuard cleanup (deferred from Phase 5)
-- ... далее по ROADMAP.md последовательно (7.2 → 7.3 → 8)
+- 08-01 DONE (2026-05-12) — SNI list 2026 + `.sni_list_2026` migration + `probe-test` CLI + manage_profile hub + Vision Seed advanced submenu + HAPP announcement editor/emission. REQ-E01..E04 ✓. Commits a328bbc + 436ad0f + f64f5c2.
+- Phase 8 in progress — next 08-02 bypass routing menu.
 
 ### Phase 4 plan artifacts
 
