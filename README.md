@@ -51,16 +51,16 @@
 - **CPU**: 1 ядро (рекомендуется 2+)
 
 > [!IMPORTANT]
-> **Установка:**
+> **Установка из ветки `feature/happ-subscription-server` для live-проверки:**
 >
 > ```
-> wget -qO- https://raw.githubusercontent.com/howdeploy/Xrayebator/main/install.sh | sudo bash
+> wget -qO- https://raw.githubusercontent.com/howdeploy/xrayebator/refs/heads/feature/happ-subscription-server/install.sh | sudo bash
 > ```
 >
 > или
 >
 > ```
-> curl -fsSL https://raw.githubusercontent.com/howdeploy/Xrayebator/main/install.sh | sudo bash
+> curl -fsSL https://raw.githubusercontent.com/howdeploy/xrayebator/refs/heads/feature/happ-subscription-server/install.sh | sudo bash
 > ```
 
 > [!IMPORTANT]
