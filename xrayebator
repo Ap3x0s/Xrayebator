@@ -371,16 +371,24 @@ _generate_vless_urls_for_profile() {
 
   local route_count
   route_count=$(_profile_route_count "$profile_file")
+  local emitted=0
   if [[ "$route_count" =~ ^[0-9]+$ ]] && [[ "$route_count" -gt 0 ]]; then
-    local i
+    local i url
     for ((i=0; i<route_count; i++)); do
-      _generate_vless_url_pure "$profile_file" "$i" || return 1
-      printf '\n'
+      if url=$(_generate_vless_url_pure "$profile_file" "$i"); then
+        printf '%s\n' "$url"
+        emitted=1
+      fi
     done
   else
-    _generate_vless_url_pure "$profile_file" || return 1
-    printf '\n'
+    local url
+    if url=$(_generate_vless_url_pure "$profile_file"); then
+      printf '%s\n' "$url"
+      emitted=1
+    fi
   fi
+
+  [[ "$emitted" -eq 1 ]] || return 1
 }
 
 _profile_has_pq_route() {
@@ -1579,6 +1587,29 @@ _migrate_subhttp_multiroute_2026() {
   return 1
 }
 
+_migrate_subhttp_client_compat_2026() {
+  if [[ ! -f /usr/local/etc/xray/.subscription_installed ]]; then
+    echo -e "${CYAN}  → HAPP subscription не установлена — client-compat migration skip${NC}"
+    return 1
+  fi
+
+  echo -e "${CYAN}  → Регенерация subhttp.sh для v2rayNG/v2rayN-compatible подписок...${NC}"
+  if ! install_subscription_server >/dev/null 2>&1; then
+    echo -e "${RED}  ✗ Не удалось регенерировать subhttp.sh${NC}"
+    return 2
+  fi
+
+  if systemctl is-active --quiet xrayebator-sub.service; then
+    systemctl restart xrayebator-sub.service || {
+      echo -e "${RED}  ✗ Не удалось перезапустить xrayebator-sub.service${NC}"
+      return 2
+    }
+    echo -e "${GREEN}  ✓ xrayebator-sub.service перезапущен${NC}"
+  fi
+
+  return 1
+}
+
 _sni_in_use() {
   local domain="$1"
   local -ar REALITY_DEFAULT_SNIS=(
@@ -2274,11 +2305,26 @@ HAPP_ROUTING_JSON_FILE="${HAPP_ROUTING_JSON_FILE:-/usr/local/etc/xray/.happ_rout
 # Parse HTTP request line: "GET /sub/<32hex> HTTP/1.1\r"
 read -r request_line || true
 method=$(printf '%s' "$request_line" | awk '{print $1}')
-path=$(printf '%s' "$request_line" | awk '{print $2}')
+request_target=$(printf '%s' "$request_line" | awk '{print $2}')
+path="${request_target%%\?*}"
+query=""
+if [[ "$request_target" == *\?* ]]; then
+  query="${request_target#*\?}"
+fi
 
 # Drain remaining headers — нужны только чтобы socat не блокировал client.
+# User-Agent нужен для совместимости: v2rayNG/v2rayN ждут обычный v2ray subscription,
+# HAPP ждёт HAPP metadata + happ://routing.
+user_agent=""
 while IFS= read -r header_line; do
-  [[ "$header_line" == $'\r' || -z "$header_line" ]] && break
+  header_line="${header_line%$'\r'}"
+  [[ -z "$header_line" ]] && break
+  case "$header_line" in
+    [Uu][Ss][Ee][Rr]-[Aa][Gg][Ee][Nn][Tt]:*)
+      user_agent="${header_line#*:}"
+      user_agent="${user_agent#"${user_agent%%[![:space:]]*}"}"
+      ;;
+  esac
 done
 
 # Constant-time 404 (REQ-C06): идентичные body+headers, ВСЕГДА sleep 0.1 ПЕРЕД ответом.
@@ -2323,6 +2369,13 @@ short_token="${token:0:8}"
 # Построить все vless:// маршруты профиля через pure-функции из xrayebator.
 vless_urls=$(_generate_vless_urls_for_profile "$profile_file" 2>/dev/null) || emit_404
 
+query_lc=$(printf '%s' "$query" | tr '[:upper:]' '[:lower:]')
+ua_lc=$(printf '%s' "$user_agent" | tr '[:upper:]' '[:lower:]')
+universal_sub=false
+if [[ "$query_lc" == *"format=v2ray"* || "$query_lc" == *"format=base64"* || "$query_lc" == *"client=v2rayng"* || "$ua_lc" == *"v2rayng"* || "$ua_lc" == *"v2rayn"* ]]; then
+  universal_sub=true
+fi
+
 # HAPP metadata: profile-title и announce — base64 UTF-8 без переносов (-w0).
 profile_title_b64=$(printf '%s' "$profile_name" | base64 -w0)
 ANNOUNCE_FILE="$HAPP_ANNOUNCE_FILE"
@@ -2352,22 +2405,28 @@ routing_uri="happ://routing/onadd/${routing_b64url}"
 expire_value=$(jq -r '.expire // 4102444800' "$profile_file" 2>/dev/null)
 sub_userinfo="upload=0; download=0; total=0; expire=${expire_value}"
 
-# Body order: comments → vless:// routes → happ://routing.
-# Некоторые HAPP-парсеры считают первую `://` строку primary connection — vless routes
-# должны быть ПЕРЕД happ://routing чтобы парсер выбрал правильный primary URL.
 body_tmp="/tmp/subhttp_body.$$"
-{
-  printf '#profile-update-interval: %s\n' "$HAPP_PROFILE_UPDATE_INTERVAL"
-  printf '#profile-title: base64:%s\n' "$profile_title_b64"
-  if [[ -n "$ANNOUNCE_COMMENT" ]]; then
-    printf '%s\n' "$ANNOUNCE_COMMENT"
-  fi
-  printf '#subscription-userinfo: %s\n' "$sub_userinfo"
-  printf '#support-url: %s\n' "$HAPP_SUPPORT_URL"
-  printf '#profile-web-page-url: %s\n' "$HAPP_WEB_URL"
-  printf '%s' "$vless_urls"
-  printf '%s\n' "$routing_uri"
-} > "$body_tmp"
+if [[ "$universal_sub" == "true" ]]; then
+  # v2rayNG сначала пытается Base64-decode subscription body. Даём ему
+  # классический v2ray-sub: только proxy URI, без HAPP comments/routing.
+  printf '%s' "$vless_urls" | base64 -w0 > "$body_tmp"
+else
+  # Body order: comments → vless:// routes → happ://routing.
+  # Некоторые HAPP-парсеры считают первую `://` строку primary connection — vless routes
+  # должны быть ПЕРЕД happ://routing чтобы парсер выбрал правильный primary URL.
+  {
+    printf '#profile-update-interval: %s\n' "$HAPP_PROFILE_UPDATE_INTERVAL"
+    printf '#profile-title: base64:%s\n' "$profile_title_b64"
+    if [[ -n "$ANNOUNCE_COMMENT" ]]; then
+      printf '%s\n' "$ANNOUNCE_COMMENT"
+    fi
+    printf '#subscription-userinfo: %s\n' "$sub_userinfo"
+    printf '#support-url: %s\n' "$HAPP_SUPPORT_URL"
+    printf '#profile-web-page-url: %s\n' "$HAPP_WEB_URL"
+    printf '%s' "$vless_urls"
+    printf '%s\n' "$routing_uri"
+  } > "$body_tmp"
+fi
 
 body_size=$(stat -c%s "$body_tmp" 2>/dev/null || wc -c < "$body_tmp")
 
@@ -2377,15 +2436,18 @@ printf 'content-type: text/plain; charset=utf-8\r\n'
 printf 'content-disposition: attachment; filename="xrayebator-%s.txt"\r\n' "$short_token"
 printf 'content-length: %s\r\n' "$body_size"
 printf 'connection: close\r\n'
-printf 'profile-update-interval: %s\r\n' "$HAPP_PROFILE_UPDATE_INTERVAL"
-printf 'profile-title: base64:%s\r\n' "$profile_title_b64"
-if [[ -n "$ANNOUNCE_HEADER" ]]; then
-  printf '%s\r\n' "$ANNOUNCE_HEADER"
+printf 'cache-control: no-store\r\n'
+if [[ "$universal_sub" != "true" ]]; then
+  printf 'profile-update-interval: %s\r\n' "$HAPP_PROFILE_UPDATE_INTERVAL"
+  printf 'profile-title: base64:%s\r\n' "$profile_title_b64"
+  if [[ -n "$ANNOUNCE_HEADER" ]]; then
+    printf '%s\r\n' "$ANNOUNCE_HEADER"
+  fi
+  printf 'subscription-userinfo: %s\r\n' "$sub_userinfo"
+  printf 'support-url: %s\r\n' "$HAPP_SUPPORT_URL"
+  printf 'profile-web-page-url: %s\r\n' "$HAPP_WEB_URL"
+  printf 'routing: %s\r\n' "$routing_uri"
 fi
-printf 'subscription-userinfo: %s\r\n' "$sub_userinfo"
-printf 'support-url: %s\r\n' "$HAPP_SUPPORT_URL"
-printf 'profile-web-page-url: %s\r\n' "$HAPP_WEB_URL"
-printf 'routing: %s\r\n' "$routing_uri"
 printf '\r\n'
 cat "$body_tmp"
 
@@ -3407,6 +3469,7 @@ main_menu() {
   run_migration "sni_list_2026" "SNI list 2026 (РФ-банки/логистика, удалить apple/icloud)" _migrate_sni_list_2026 || ((migration_failures++))
   run_migration "bypass_routing_2026" "Bypass routing first-run prompt (опционально)" _migrate_bypass_routing_2026 || ((migration_failures++))
   run_migration "subhttp_multiroute_2026" "HAPP subhttp multi-route handler" _migrate_subhttp_multiroute_2026 || ((migration_failures++))
+  run_migration "subhttp_client_compat_2026" "HAPP/v2rayNG subscription client compatibility" _migrate_subhttp_client_compat_2026 || ((migration_failures++))
 
   # Aggregate report (RESEARCH §«Error reporting»): чтобы пользователь не пропустил
   # failure среди скроллящегося TUI вывода.
