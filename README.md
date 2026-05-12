@@ -1,283 +1,305 @@
 # Xrayebator
 
-**Автоматизированная установка и управление Xray Reality VPN на VPS**
+Автоматизированная установка и управление личным Xray VLESS Reality на VPS.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Bash](https://img.shields.io/badge/bash-5.0+-green.svg)](https://www.gnu.org/software/bash/)
 [![Xray](https://img.shields.io/badge/Xray-core-blue.svg)](https://github.com/XTLS/Xray-core)
 
-Требуется личный Xray VLESS для собственных нужд? Впадлу настраивать, хочется автоматизации и удобства? Этот скрипт для тебя!
+Xrayebator ставит Xray-core, создает Reality inbound'ы, генерирует профили и раздает их через HAPP-compatible подписку. Текущая ветка сфокусирована на live-тестировании HAPP subscription: один профиль создает набор маршрутов, а клиент получает их одной ссылкой подписки.
 
-Завайбкодил и бегло перепроверил Киса, недокодер и недо-знайка bash. За последние дни активной разработки и тестов, мной было установлено, что регуляции становятся все жестче. В Xrayebator я вложил и вкладываю все, что способно сохранить доступ к свободному интернету.
+## Статус Ветки
 
-###
+Эта README описывает ветку `feature/happ-subscription-server`, а не старое состояние `main`.
 
----
+Важное отличие от старой архитектуры: теперь профиль не равен одному маршруту. Один профиль содержит несколько routes с одним `sub_token`; подписка `/sub/<token>` отдает только live-маршруты, которые реально есть в `config.json`.
 
-### Возможности
+## Что Сейчас Умеет
 
-- [x] **Автоматическая установка** Xray-core на ваш VPS
-- [x] **6 типов маршрутов:** TCP+Mux, TCP+Vision, TCP+uTLS (Firefox), gRPC, XHTTP, TCP+XUDP (anti-Tele2)
-- [ ] Поддержка: H2, SplitHTTP, WebSocket
-- [x] **Интерактивное управление** всем прямо в терминале
-- [x] **Генерация QR-кодов** для быстрого подключения
-- [x] **Смена SNI, портов и отпечатков** — спешл фо ю, РКН
-- [x] **Блокировка рекламы** — маршрутизация `geosite:category-ads-all` + опциональный AdGuard Home
-- [x] **Все нужные порты откроются** автоматически (UFW)
-- [x] **AdGuard Home** — полноценная блокировка рекламы через DNS, ставится из меню
-- [x] **Мультипрофили на одном порту** — несколько клиентов на одном inbound
-- [x] **TCP BBR** — оптимизация TCP из коробки
-- [x] **Расширенные geo-базы** (Loyalsoldier) для точной маршрутизации
-- [ ] **Быстрая установка и настройка TLS**
+- Установка актуального Xray-core и systemd unit.
+- Создание multi-route профиля: одна подписка, несколько транспортов.
+- HAPP subscription server через `xrayebator-sub.service` + nginx.
+- Public HTTPS subscription по IP VPS или по домену.
+- Local-only режим `127.0.0.1:8080` только для debug/SSH tunnel.
+- HAPP-compatible XHTTP fallback без PQ encryption.
+- Отдельный XHTTP+PQ маршрут с `mlkem768x25519plus`.
+- v2ray-compatible base64 subscription body для v2rayNG/v2rayN.
+- Revoke подписки через смену `sub_token`.
+- Смена SNI, fingerprint, port и advanced-настроек профиля.
+- Bypass routing: домены можно отправлять напрямую, не через VPN.
+- Автоматические миграции существующих профилей при запуске `xrayebator`.
 
-> ~~Автоподбор рабочей связки~~ — вырезан из-за нестабильности. Возможно вернется в будущем.
-> ~~Из коробки работает с AdsPower~~ — не реализовано. Не в приоритете.
+## Чего Здесь Больше Нет
 
----
+- AdGuard Home меню и обещания DNS-фильтрации через AdGuard удалены.
+- Старый список фиксированных портов неактуален: маршруты создаются на случайных высоких портах.
+- Старый режим "выбери один тип профиля" больше не основной: пункт создания профиля сразу создает весь набор маршрутов.
+- H2, WebSocket, SplitHTTP и Clash/mihomo subscriptions не заявлены как поддерживаемые.
 
-### Запуск и настройка
+## Установка
 
-Вам нужен оплаченный VPS сервер где и будет работать VPN. В интернете полно информации, после входа на сервер достаточно ввести одну команду и все работает, но можно и настроить по уму для безопасности, гайд будет ниже.
+Поддерживаются Debian 10+ и Ubuntu 20.04+. Live-тесты этой ветки в основном идут на Debian.
 
-#### Операционная система
-- **Debian** 10+ (Buster, Bullseye, Bookworm, Trixie)
-- **Ubuntu** 20.04+ (Focal, Jammy, Noble)
+Минимум: 512 MB RAM, 1 CPU, 1 GB диска. Нужен root или пользователь с `sudo`.
 
-> Личной мной все тестировалось только на Debian 13. На других системах работа не гарантируется.
+Установка именно из этой ветки:
 
-#### Ресурсы сервера
-- **RAM**: минимум 512 MB (рекомендуется 1 GB+)
-- **Диск**: 1 GB свободного места (2 GB+ если ставите AdGuard Home)
-- **CPU**: 1 ядро (рекомендуется 2+)
+```bash
+curl -fsSL https://raw.githubusercontent.com/howdeploy/Xrayebator/refs/heads/feature/happ-subscription-server/install.sh | sudo bash
+```
 
-> [!IMPORTANT]
-> **Установка из ветки `feature/happ-subscription-server` для live-проверки:**
->
-> ```
-> wget -qO- https://raw.githubusercontent.com/howdeploy/xrayebator/refs/heads/feature/happ-subscription-server/install.sh | sudo bash
-> ```
->
-> или
->
-> ```
-> curl -fsSL https://raw.githubusercontent.com/howdeploy/xrayebator/refs/heads/feature/happ-subscription-server/install.sh | sudo bash
-> ```
+Альтернатива через `wget`:
 
-> [!IMPORTANT]
-> Внутри приложения под каждым пунктом есть небольшое пояснение, поэтому внутри можете ознакомиться с видами маршрутов и портов.
+```bash
+wget -qO- https://raw.githubusercontent.com/howdeploy/Xrayebator/refs/heads/feature/happ-subscription-server/install.sh | sudo bash
+```
 
-### Рекомендации по безопасности (опционально)
-Из коробки можно установить просто на root (никаких манипуляций на VPS). Однако по хорошему требуется отдельный пользователь. Вот как его настроить. Все что в <например> нужно заменить на ваши данные, а "<>" удалить.
+Если установка уже есть и нужно просто подтянуть последний скрипт этой ветки:
 
-`adduser <username>` - подставляем имя нашего пользователя
-`usermod -aG sudo <username>` - добавляем его в группу sudo
-`su - <username>` подключаемся к этому юзеру
+```bash
+sudo curl -fsSL 'https://raw.githubusercontent.com/howdeploy/Xrayebator/refs/heads/feature/happ-subscription-server/xrayebator' -o /usr/local/bin/xrayebator
+sudo chmod +x /usr/local/bin/xrayebator
+sudo xrayebator
+```
 
-На вашем ПК откуда вы зашли через ssh через терминал:
-`ssh-keygen -t ed25519 -C <your_email@example.com>`
-`ssh-copy-id <username>@<айпи_сервера>`
+Обновление через updater с указанием ветки:
 
-Затем подключитель по ssh с именем этого юзера <username>@айпи_сервера>. Если все работает, можно убрать авторизацию по паролю и опционально удалить логин с рута.
+```bash
+sudo xrayebator-update feature/happ-subscription-server
+```
 
-`sudo nano /etc/ssh/sshd_config` - откроет текстовый редактор и конфиг ssh
+## Быстрый Старт
 
-Ищем следующие строчки и меняем их значения, если перед ними стоит # - удалите символ.
+1. Запустите меню:
 
-> Внимание! Если потеряете ssh ключи, не сможете больше зайти на сервер. Убедитесь, что все сделали верно, только потом меняйте параметры.
+```bash
+sudo xrayebator
+```
 
-PermitRootLogin no - нельзя зайти от root
-PasswordAuthentication no - нельзя зайти по паролю
-PubkeyAuthentication yes - вход через ssh ключ
+2. Выберите `1) Создать новый профиль`.
 
-### Использование
+Создание профиля автоматически добавит набор маршрутов:
 
-#### Запуск приложения
-`xrayebator` - для рут пользователей
-`sudo xrayebator` - для обычных пользователей
+| Маршрут | Назначение |
+| --- | --- |
+| `xhttp-legacy` | Основной HAPP-compatible XHTTP, `decryption=none`, без PQ. |
+| `xhttp-pq` | XHTTP + VLESS post-quantum encryption `mlkem768x25519plus`. |
+| `tcp-mux` | TCP Reality без Vision-flow, запасной вариант. |
+| `grpc` | gRPC Reality, чувствителен к HTTP/2/SNI. |
+| `tcp-vision` | TCP Reality + Vision. |
+| `tcp-utls-firefox` | TCP Vision с fingerprint Firefox. |
+| `tcp-xudp` | TCP Vision + XUDP, узкий fallback для жестких мобильных сетей. |
 
-#### Главное меню
+3. Выберите `9) Подписка HAPP`.
 
-1. **Создать новый профиль** — каждый профиль это отдельное подключение
-2. **Удалить существующий профиль** — снести подключение
-3. **Подключиться по профилю** — данные для вашего клиента, чтобы подключиться
-4. **Подменить SNI** (домен маскировки) — маскирует подключение под указанный сайт, например ВК
-5. **Подменить Fingerprint** (браузер) — подменяет отпечаток браузера
-6. **Изменить порт профиля** — смена порта на тот случай, если провайдер его блокирует
-7. **AdGuard Home** (блокировка рекламы) — установка/удаление/статус AdGuard Home
+4. Для обычного телефона/клиента выберите один из public-режимов:
 
-#### Типы маршрутов
+| Пункт | Когда использовать |
+| --- | --- |
+| `1) Установить public TLS по IP VPS` | Быстрый режим без домена. URL будет вида `https://<ip>/sub/<token>`. IP certificates у Let's Encrypt short-lived, renew должен работать. |
+| `2) Установить public TLS по домену` | Рекомендуется для постоянного использования. URL будет вида `https://sub.example.com/sub/<token>`. |
+| `3) local-only debug` | Только для проверки на сервере или через SSH tunnel. Не работает напрямую с телефона. |
 
-| # | Маршрут | Порт | Особенности |
-|---|---------|------|-------------|
-| 1 | TCP + Mux + Reality | 443 | **Рекомендуется.** Обходит блокировку Vision, мультиплексирование |
-| 2 | TCP + Vision + Reality | 8443 | Стабильный, быстрый. Vision на 443 детектируется ТСПУ |
-| 3 | TCP + Vision + uTLS (Firefox) | 8443 | Маскировка под Firefox, обходит продвинутый DPI |
-| 4 | gRPC + Reality | 2053 | Требует SNI с HTTP/2 (google.com). Проблемы с sing-box |
-| 5 | XHTTP + Reality | 9443 | Современный, низкая задержка, padding + xmux |
-| 6 | TCP + Vision + XUDP | 443 | Anti-Tele2, SNI api-maps.yandex.ru |
+5. Откройте `4) Управление подпиской`, выберите профиль и покажите QR-код subscription URL.
 
-#### AdGuard Home
+6. Импортируйте подписку в HAPP.
 
-Опциональная интеграция — устанавливается через пункт 7 в главном меню. Работает как локальный DNS-сервер на VPS.
+## Домен и DNS
 
-**Что делает:**
-- Xray резолвит все домены через AdGuard Home (127.0.0.1:53)
-- Рекламные домены получают NXDOMAIN — двухуровневая блокировка
-- Web UI на порту 3000 для управления фильтрами и статистикой
+Для доменного режима создайте `A` запись на IPv4 VPS. `AAAA` используйте только если IPv6 реально настроен и доступен на VPS.
 
-**Что ставится:**
-- DNS на `0.0.0.0:53`, upstream `1.1.1.1` + `8.8.8.8`
-- Фильтры: AdGuard DNS filter + AdAway из коробки
-- Логин/пароль создаётся при установке (bcrypt)
-- Web UI на `127.0.0.1:3000` — **не торчит в интернет**, доступ через SSH-туннель:
-  ```
-  ssh -L 3000:127.0.0.1:3000 root@ваш_ip
-  ```
-  Затем открываете `http://localhost:3000`
+Если домен в Cloudflare, для тестов надежнее поставить запись в режим `DNS only`, а не `Proxied`. Certbot должен достучаться до VPS по HTTP challenge на 80 порту.
 
-**Без AdGuard Home** реклама блокируется только через маршрутизацию Xray (`geosite:category-ads-all`), что покрывает ~30-40% рекламы. С AdGuard Home — значительно больше.
+Если 443 занят Xray или другим сервисом, подписка автоматически уйдет на 8443, и URL будет с портом: `https://domain:8443/sub/<token>`.
 
-> Любая смена настроек маскировки требует пересоздать заново ссылку/qr для подключения, это можно сделать через "Подключиться к профилю".
+## Как Работает Подписка
 
-### Обновление и удаление
+`xrayebator-sub.service` слушает локально `127.0.0.1:8080`. Наружу его публикует nginx через HTTPS.
 
-`xrayebator-update` - обновит все приложение, опционально, по мере фиксов и добавление новых функций в будущем
-`xrayebator-uninstall` - удалить все, от Xrayebator до самого Xray
+Endpoint имеет вид:
 
-### Клиенты для подключения
+```text
+https://<domain-or-ip>/sub/<32-hex-token>
+```
 
-> В связи с новостями о поломке DNS из-за блокировок VPN провайдерами, рекомендуется на своих клиентах подправить настройки DNS и под рукой иметь список альтернативных ссылок. Если соединение со всем интернетом пропадет, проблема может быть в этом.
+Токен хранится в profile JSON как `sub_token`. Если токен скомпрометирован, используйте `Revoke` в меню подписки: старый URL перестанет работать.
 
-> Также на ПК клиенте не забудь галочку напротив "Режим TUN", все должно работать как часы.
+Поведение по клиентам:
 
-#### Linux
-- **Throne** — [GitHub](https://github.com/throneproj/Throne)
-- **v2raya** — [GitHub](https://github.com/v2rayA/v2rayA)
-- **Qv2ray** — [GitHub](https://github.com/Qv2ray/Qv2ray)
+- HAPP получает plain-text список `vless://` routes, HAPP headers и опциональный `happ://routing/onadd/...`.
+- Если есть `xhttp-legacy`, HAPP не получает PQ-XHTTP как XHTTP-кандидат.
+- v2rayNG/v2rayN получают классический base64 body без HAPP metadata.
+- Старые profile JSON без live inbound не показываются в меню подписки; старые URL возвращают `410 Gone`.
 
-#### Android
-- **v2rayNG** — [GitHub](https://github.com/2dust/v2rayNG)
-- **NekoBox** — [GitHub](https://github.com/MatsuriDayo/NekoBoxForAndroid)
+## Клиенты
 
-#### iOS
-- **Shadowrocket** — [App Store](https://apps.apple.com/app/shadowrocket/id932747118)
-- **V2Box** — [App Store](https://apps.apple.com/app/v2box-v2ray-client/id6446814690)
+Совместимость на 12 мая 2026.
 
-#### Windows
-- **Throne** — [GitHub](https://github.com/throneproj/Throne)
-- **v2rayN** — [GitHub](https://github.com/2dust/v2rayN)
-- **NekoRay** — [GitHub](https://github.com/MatsuriDayo/nekoray)
+| Клиент | Статус | Комментарий |
+| --- | --- | --- |
+| HAPP | Рекомендуется | Основной целевой клиент этой ветки. Поддерживает добавление стандартной подписки по URL/QR и VLESS links. |
+| v2rayNG | Частично | Получает v2ray-compatible base64 подписку. HAPP routing metadata не используется. Для нестабильных маршрутов переключайтесь на TCP/gRPC/legacy raw route. |
+| v2rayN | Частично | Подписки с VLESS поддерживаются, но HAPP-specific metadata не используется. |
+| Shadowrocket | Advanced/manual | Может быть полезен для raw VLESS, но не является основным клиентом для HAPP subscription flow. |
+| sing-box / Hiddify / NekoBox / mihomo | Не целевые | Не рассчитывайте на PQ-XHTTP и HAPP subscription routing. Используйте только вручную проверенные legacy маршруты. |
 
-#### macOS
-- **Throne** — [GitHub](https://github.com/throneproj/Throne)
-- **V2RayXS** — [GitHub](https://github.com/tzmax/V2RayXS)
-- **Qv2ray** — [GitHub](https://github.com/Qv2ray/Qv2ray)
+Практическая рекомендация: для HAPP импортируйте именно subscription URL, а не отдельный raw `vless://`. Для диагностики можно смотреть raw routes через `Подключиться по профилю`, но основной UX этой ветки — одна подписка на профиль.
 
----
+Ссылки на документацию клиентов:
 
-### FAQ (how is FAQ pronounced? "fack")
+- HAPP: https://www.happ.su/main/faq/adding-configuration-subscription
+- v2rayNG: https://github.com/2dust/v2rayNG
+- v2rayN subscription format: https://github.com/2dust/v2rayN/wiki/Description-of-subscription
 
-#### Сколько пользователей можно подключить?
+## Главное Меню
 
-Неограниченно. Можете создать профили для себя и своих близких. Несколько профилей могут делить один порт (один inbound, разные UUID).
+Актуальные пункты:
 
-#### Подключение не работает после смены SNI/Fingerprint
+| Пункт | Назначение |
+| --- | --- |
+| `1` | Создать новый multi-route профиль. |
+| `2` | Удалить профиль и связанные inbound'ы. |
+| `3` | Показать данные подключения по профилю. |
+| `4` | Управление профилем: SNI, fingerprint, port, advanced. |
+| `8` | Обновить отдельный профиль до PQ XHTTP. |
+| `9` | HAPP subscription: public TLS, local handler, URL/QR/revoke. |
+| `11` | Bypass routing: домены напрямую, минуя VPN. |
 
-Это нормально. Получите новую ссылку/QR-код через меню "Подключиться по профилю".
+## Bypass Routing
 
-#### Можно ли использовать несколько профилей одновременно?
+Bypass routing добавляет правила в Xray routing, чтобы выбранные домены шли через `freedom` outbound напрямую.
 
-Да! Создавайте сколько угодно и добавляйте к себе в клиент, переключаясь между ними. Разные порты и маршруты дают больше вариантов для обхода блокировок.
+Есть дефолтный bundle с группами:
 
-#### Подключение с клиента не работает!
+- Steam
+- RU-сервисы
+- RU-банки
+- RU-маркетплейсы
+- Yandex
 
-Возможно ваш провайдер блокирует что-то из списка в порядке очередности:
-1. Маршрут — создайте профиль с другим типом (например TCP+Mux вместо Vision)
-2. SNI — замените его и запросите снова подключение
-3. Порт — замените ваше подключение на другой порт
-4. Fingerprint — попробуйте firefox вместо chrome
+Меню интерактивное: стрелки двигают выбор, пробел включает/выключает группу, Enter применяет настройки.
 
-> Лучше заранее сделать и сохранить 2-4 вида подключения, чтобы между ними переключать в экстренной ситуации.
+## Безопасность Подписки
 
-#### Какой маршрут выбрать?
+URL подписки нельзя считать публичным. Он защищен opaque token'ом, но любой, кто получил URL, может скачать список routes.
 
-**TCP + Mux (порт 443)** — универсальный, рекомендуется для большинства. Обходит детектирование Vision по паттерну множественных TLS.
+Что уже сделано:
 
-**TCP + XUDP (порт 443)** — если у вас Tele2 и жесткие блокировки.
+- token 32 hex символа;
+- `/sub/<token>` без валидного токена возвращает одинаковый 404;
+- stale profile возвращает 410 без выдачи маршрутов;
+- nginx добавляет `Cache-Control: no-store`;
+- endpoint `/` и любые не-`/sub/` пути возвращают 404;
+- есть rate limit на nginx location `/sub/`;
+- revoke меняет `sub_token`.
 
-**XHTTP (порт 9443)** — если хотите максимальную скрытность, но нужен клиент с поддержкой XHTTP (sing-box 1.8+, v2rayN 6.x+).
+Что нужно делать оператору:
 
-#### Я повторно использовал приложение и меня выкинуло с сервера
+- не публиковать subscription URL в открытых чатах;
+- при утечке нажать `Revoke`;
+- не использовать local-only URL для внешнего клиента;
+- не держать Cloudflare/прокси/панели на том же домене без понимания nginx config.
 
-Если подключиться к вашему же ВПН и затем на сервере что-то делать в Xrayebator, вас может выбросить ssh. Самый легкий способ этого избежать: подключаться к серверу не с одного из ваших же маршрутов.
+## Частые Проблемы
 
-Или же прописать настройки в ssh на своем ПК (Linux/MacOS):
-`sudo nano /etc/ssh/sshd_config` - редактируем настройки
+### HAPP не обновляет подписку
 
-#Отправлять keep-alive пакеты каждые 60 секунд
-ClientAliveInterval 60
-#Количество попыток (60 сек x 120 = 2 часа до отключения)
-ClientAliveCountMax 120
-#Использовать TCP keep-alive
-TCPKeepAlive yes
+Проверьте URL с VPS:
 
-Ctrl + O, Enter, Ctrl + X
+```bash
+curl -vkI https://your-domain/sub/
+curl -vk https://your-domain/sub/<token>
+```
 
-`sudo systemctl restart sshd`
+`/sub/` без токена должен вернуть 404. `/sub/<token>` должен вернуть 200 и тело с `vless://`.
 
-#### В ходе установки или работы вылезла ошибка
+Проверьте сервисы:
 
-Первым делом с помощью `CTRL + SHIFT + C` скопируйте ее из терминала и пришлите любой нейросети. Она сформулирует проблему и пути решения.
+```bash
+systemctl status xrayebator-sub --no-pager -l
+systemctl status nginx --no-pager -l
+```
 
-Если же проблема в моем коде, вы можете до меня достучаться в **телеграм** или через **issue**, я там уже по ситуации буду действовать.
+### URL показывает 127.0.0.1
 
-#### Я вроде обновил, но не обновилось
+Вы включили local-only режим. Он нужен только для debug. Для телефона включите `Подписка HAPP` -> `public TLS по IP` или `public TLS по домену`.
 
-Принудительно скачайте update.sh и запустите его, чтобы подтянуть финальные версии файлов из репозитория.
-`sudo curl -fsSL https://raw.githubusercontent.com/howdeploy/Xrayebator/experimental/update.sh \
-  -o /usr/local/etc/xray/scripts/update.sh`
- `sudo chmod +x /usr/local/etc/xray/scripts/update.sh`
- `sudo /usr/local/etc/xray/scripts/update.sh`
+### URL показывает IP, хотя домен уже добавлен
 
-#### AdGuard Home не блокирует рекламу / не работает
+Нужно заново включить доменный режим в меню `Подписка HAPP` -> `Установить public TLS по домену`. DNS запись сама по себе не меняет `.subscription_domain`.
 
-1. Проверьте статус: `xrayebator` → 7 → 3 (Показать статус)
-2. Убедитесь что порт 53 слушает и служба active
-3. Откройте Web UI (`http://ваш_ip:3000`) и проверьте что фильтры обновлены
-4. Если DNS не резолвится — проверьте что systemd-resolved не конфликтует
+### XHTTP в HAPP не работает
 
----
+Для HAPP должен использоваться `xhttp-legacy`, а не `xhttp-pq`. После обновления до актуальной ветки запустите `sudo xrayebator`, дождитесь миграций и обновите подписку в HAPP.
 
-### Лицензия
+Проверьте, что в профиле появился route `xhttp-legacy`, а в live config есть его порт:
 
-Этот проект распространяется под лицензией **MIT License**. См. файл [LICENSE](LICENSE) для подробностей.
+```bash
+jq -r '.routes[] | [.label,.transport,.port,(.pq_enabled // false)] | @tsv' /usr/local/etc/xray/profiles/<profile>.json
+```
 
----
+### v2rayNG то подключается, то нет
 
-### Благодарности
+v2rayNG не является основным клиентом HAPP flow. Он получает v2ray-compatible body, но маршруты все равно зависят от поддержки конкретного транспорта и версии Xray core внутри клиента. Начинайте с TCP routes, затем проверяйте gRPC/XHTTP отдельно.
 
-- [Umalanif/xray-server-setup](https://github.com/Umalanif/xray-server-setup) — за референс с uTLS и автоматизацию
-- [ServerTechnologies/simple-xray-core](https://github.com/ServerTechnologies/simple-xray-core) — за удобное и быстрое развертывание
-- [XTLS/Xray-core](https://github.com/XTLS/Xray-core) — за отличный протокол
-- [AdGuardTeam/AdGuardHome](https://github.com/AdguardTeam/AdGuardHome) — за DNS-фильтрацию рекламы
+### После смены SNI, port или fingerprint старое подключение умерло
 
-- Моему сообществу за поддержку на протяжении этих лет, без вас бы помер и не вайбкодил
+Это нормально. После таких изменений обновите подписку в клиенте или заново получите raw route.
 
----
+### На сервере есть старые профили test3/test4, но они не работают
 
-### Поддержка проекта
+Если profile JSON указывает на порты, которых уже нет в `config.json`, это stale profile. Новая подписка такие routes не выдает; старый token вернет `410 Gone`.
 
-Если пригодилось, то поставьте звезду на GitHub! Не знаю зачем они мне, но давайте.
+## Полезные Команды
 
-**Также можно подкинуть деньгу на эти адреса:**
+Запуск меню:
+
+```bash
+sudo xrayebator
+```
+
+Обновление этой ветки:
+
+```bash
+sudo xrayebator-update feature/happ-subscription-server
+```
+
+Проверка Xray:
+
+```bash
+sudo /usr/local/bin/xray test -config /usr/local/etc/xray/config.json
+sudo systemctl status xray --no-pager -l
+```
+
+Проверка подписочного backend:
+
+```bash
+sudo systemctl status xrayebator-sub --no-pager -l
+curl -sS -i http://127.0.0.1:8080/sub/
+```
+
+Удаление:
+
+```bash
+sudo xrayebator-uninstall
+```
+
+## Лицензия
+
+MIT License. См. [LICENSE](LICENSE).
+
+## Благодарности
+
+- [XTLS/Xray-core](https://github.com/XTLS/Xray-core)
+- [HAPP](https://www.happ.su/)
+- [2dust/v2rayNG](https://github.com/2dust/v2rayNG)
+- [2dust/v2rayN](https://github.com/2dust/v2rayN)
+
+## Поддержка Проекта
+
+Если проект пригодился, поставьте звезду на GitHub.
 
 EVM: `0x7acE4442b92f2769c24484c78A13024B139E1A5b`
 Solana: `FS9RBrG5yXJty3WNWgkBkfai6BfNoYxGMFeH1LQEpRZr`
 TON: `UQA56zsOv3zvU5x-p7iNNDL8jHh9dt7Q7WlY_gfbaj4ZhcyT`
 BTC: `34EznmkBGpBu4dUnzoHL5GBnpg2Rq86v4H`
-
-> Вы не иронично можете помочь, поддержав бессоные ночи за вайбкодом любой копеечкой. Верю в солидарность и поддержку гражданского общества.
-
----
-
-**Сделано для свободного интернета**
