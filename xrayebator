@@ -1958,10 +1958,16 @@ vless_url=$(_generate_vless_url_pure "$profile_file" 2>/dev/null) || emit_404
 
 # HAPP metadata: profile-title и announce — base64 UTF-8 без переносов (-w0).
 profile_title_b64=$(printf '%s' "$profile_name" | base64 -w0)
-announce_b64=""
-if [[ -f "$HAPP_ANNOUNCE_FILE" ]]; then
-  announce_text=$(cat "$HAPP_ANNOUNCE_FILE")
-  announce_b64=$(printf '%s' "$announce_text" | base64 -w0)
+ANNOUNCE_FILE="$HAPP_ANNOUNCE_FILE"
+ANNOUNCE_HEADER=""
+ANNOUNCE_COMMENT=""
+if [[ -s "$ANNOUNCE_FILE" ]]; then
+  _ann_text=$(head -c 200 "$ANNOUNCE_FILE" | tr -d '\n\r')
+  if [[ -n "$_ann_text" ]]; then
+    _ann_b64=$(printf '%s' "$_ann_text" | base64 -w0)
+    ANNOUNCE_HEADER="announce: base64:${_ann_b64}"
+    ANNOUNCE_COMMENT="#announce: base64:${_ann_b64}"
+  fi
 fi
 
 # HAPP routing import payload: кастомный JSON или минимальный default.
@@ -1986,12 +1992,12 @@ body_tmp="/tmp/subhttp_body.$$"
 {
   printf '#profile-update-interval: %s\n' "$HAPP_PROFILE_UPDATE_INTERVAL"
   printf '#profile-title: base64:%s\n' "$profile_title_b64"
+  if [[ -n "$ANNOUNCE_COMMENT" ]]; then
+    printf '%s\n' "$ANNOUNCE_COMMENT"
+  fi
   printf '#subscription-userinfo: %s\n' "$sub_userinfo"
   printf '#support-url: %s\n' "$HAPP_SUPPORT_URL"
   printf '#profile-web-page-url: %s\n' "$HAPP_WEB_URL"
-  if [[ -n "$announce_b64" ]]; then
-    printf '#announce: base64:%s\n' "$announce_b64"
-  fi
   printf '%s\n' "$vless_url"
   printf '%s\n' "$routing_uri"
 } > "$body_tmp"
@@ -2006,12 +2012,12 @@ printf 'content-length: %s\r\n' "$body_size"
 printf 'connection: close\r\n'
 printf 'profile-update-interval: %s\r\n' "$HAPP_PROFILE_UPDATE_INTERVAL"
 printf 'profile-title: base64:%s\r\n' "$profile_title_b64"
+if [[ -n "$ANNOUNCE_HEADER" ]]; then
+  printf '%s\r\n' "$ANNOUNCE_HEADER"
+fi
 printf 'subscription-userinfo: %s\r\n' "$sub_userinfo"
 printf 'support-url: %s\r\n' "$HAPP_SUPPORT_URL"
 printf 'profile-web-page-url: %s\r\n' "$HAPP_WEB_URL"
-if [[ -n "$announce_b64" ]]; then
-  printf 'announce: base64:%s\r\n' "$announce_b64"
-fi
 printf 'routing: %s\r\n' "$routing_uri"
 printf '\r\n'
 cat "$body_tmp"
@@ -2531,6 +2537,99 @@ _happ_edit_field() {
   sleep 1
 }
 
+# Редактор operator announcement для HAPP subscription (REQ-E04).
+# subhttp.sh читает announce.txt на каждый request; после изменения регенерируем
+# handler, если subscription server уже установлен.
+edit_happ_announce_menu() {
+  local ann_file="/usr/local/etc/xray/announce.txt"
+
+  while true; do
+    show_ascii
+    echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
+    echo -e "${BLUE}    HAPP ANNOUNCEMENT (текст подписки)         ${NC}"
+    echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
+    echo ""
+
+    if [[ -s "$ann_file" ]]; then
+      echo -e "${GREEN}Текущий announcement:${NC}"
+      head -c 200 "$ann_file"
+      echo ""
+      echo ""
+    else
+      echo -e "${YELLOW}Announcement не задан (HAPP header отсутствует)${NC}"
+      echo ""
+    fi
+
+    echo -e "${CYAN} 1)${NC} Установить/изменить текст"
+    echo -e "${CYAN} 2)${NC} Очистить (убрать announcement)"
+    echo -e "${CYAN} 0)${NC} Назад"
+    echo ""
+    echo -n -e "${YELLOW}Выбор: ${NC}"
+    local choice
+    read -r choice
+
+    case "$choice" in
+      1)
+        echo -e "${YELLOW}Введите однострочный текст (~200 char max, без переносов строк):${NC}"
+        echo -n -e "${CYAN}> ${NC}"
+        local new_text
+        read -r new_text
+        new_text="${new_text:0:200}"
+        new_text="${new_text//$'\n'/}"
+        new_text="${new_text//$'\r'/}"
+        if [[ -z "$new_text" ]]; then
+          rm -f "$ann_file"
+          echo -e "${GREEN}Announcement очищен${NC}"
+        else
+          echo -n -e "${YELLOW}Сохранить '${new_text}'? [y/N]: ${NC}"
+          local confirm
+          read -r confirm
+          if [[ "$confirm" =~ ^[yYдД]$ ]]; then
+            local tmp
+            tmp=$(mktemp /tmp/announce.XXXXXX) || {
+              echo -e "${RED}✗ mktemp failed${NC}"
+              echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
+              read -r _
+              continue
+            }
+            printf '%s' "$new_text" > "$tmp"
+            mv "$tmp" "$ann_file"
+            chown xray:xray "$ann_file" 2>/dev/null || true
+            chmod 644 "$ann_file"
+            echo -e "${GREEN}Announcement сохранен в $ann_file${NC}"
+          else
+            echo -e "${CYAN}✓ Отменено${NC}"
+          fi
+        fi
+        if [[ -f /usr/local/etc/xray/.subscription_installed ]]; then
+          if install_subscription_server >/dev/null 2>&1; then
+            echo -e "${GREEN}subhttp.sh регенерирован с announce-логикой${NC}"
+          else
+            echo -e "${YELLOW}Регенерация subhttp.sh не удалась — переустановите подписку через меню${NC}"
+          fi
+        fi
+        echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
+        read -r _
+        ;;
+      2)
+        rm -f "$ann_file"
+        echo -e "${GREEN}Announcement очищен${NC}"
+        if [[ -f /usr/local/etc/xray/.subscription_installed ]]; then
+          if install_subscription_server >/dev/null 2>&1; then
+            echo -e "${GREEN}subhttp.sh регенерирован без announcement${NC}"
+          else
+            echo -e "${YELLOW}Регенерация subhttp.sh не удалась — переустановите подписку через меню${NC}"
+          fi
+        fi
+        echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
+        read -r _
+        ;;
+      0) return ;;
+      *) echo -e "${RED}Неверный выбор${NC}"; sleep 1 ;;
+    esac
+  done
+}
+
 # Главный wrapper-подменю «Подписка HAPP».
 # Status-line через _subscription_base_url (B1 — никакого инлайн-построения).
 # M6: read с -r.
@@ -2557,6 +2656,7 @@ happ_subscription_menu() {
     echo -e "${CYAN} 2)${NC} Установить (local-only fallback — без домена/UFW)"
     echo -e "${CYAN} 3)${NC} Управление подпиской (URL / QR / revoke)"
     echo -e "${CYAN} 4)${NC} Настройки HAPP (.happ_defaults.env)"
+    echo -e "${CYAN} 5)${NC} Настроить announcement (HAPP)"
     echo -e "${CYAN} 0)${NC} Назад в главное меню"
     echo ""
     echo -n -e "${YELLOW}Выбор: ${NC}"
@@ -2567,6 +2667,7 @@ happ_subscription_menu() {
       2) install_subscription_local_only ;;
       3) manage_subscription_menu ;;
       4) happ_settings_menu ;;
+      5) edit_happ_announce_menu ;;
       0) return ;;
     esac
   done
