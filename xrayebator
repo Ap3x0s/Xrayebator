@@ -2895,6 +2895,9 @@ main_menu() {
     echo -e "${MAGENTA} HAPP SUBSCRIPTION:${NC}"
     echo -e "${CYAN} 9)${NC} Подписка HAPP (public TLS / local handler / revoke)"
     echo ""
+    echo -e "${MAGENTA} BYPASS ROUTING:${NC}"
+    echo -e "${CYAN}11)${NC} Управление обходом VPN"
+    echo ""
     echo -e "${RED} 0)${NC} Выход"
     echo ""
     echo -e "${BLUE}╚════════════════════════════════════════╝${NC}"
@@ -2908,6 +2911,7 @@ main_menu() {
       7) adguard_home_menu ;;
       8) upgrade_profile_to_pq_menu ;;
       9) happ_subscription_menu ;;
+      11) bypass_routing_menu ;;
       0) exit 0 ;;
       *) echo -e "${RED}Неверный выбор${NC}"; sleep 1 ;;
     esac
@@ -4618,6 +4622,228 @@ manage_profile_advanced_menu() {
   echo -e "${GREEN}Vision Seed применен. testpre=${testpre_val}, testseed=${testseed_json}${NC}"
   echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
   read -r _
+}
+
+_bypass_add_single_domain() {
+  echo -n -e "${YELLOW}Введите домен (без domain:, например steamcontent.com): ${NC}"
+  local user_dom
+  read -r user_dom
+  user_dom="${user_dom#domain:}"
+
+  if [[ ! "$user_dom" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}$ ]]; then
+    echo -e "${RED}✗ Некорректный домен${NC}"
+    sleep 2
+    return
+  fi
+
+  echo -n -e "${YELLOW}Добавить domain:${user_dom} в обход VPN? [y/N]: ${NC}"
+  local confirm
+  read -r confirm
+  [[ "$confirm" =~ ^[yYдД]$ ]] || { echo -e "${CYAN}✓ Отменено${NC}"; sleep 1; return; }
+
+  if _apply_bypass_rule "[\"domain:${user_dom}\"]"; then
+    echo -e "${GREEN}✓ domain:${user_dom} добавлен в обход VPN${NC}"
+  else
+    echo -e "${RED}✗ Правило не применено${NC}"
+  fi
+  echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
+  read -r _
+}
+
+_bypass_apply_bundle() {
+  local -a group_ids=()
+  local -a group_names=()
+  local -a group_domains=()
+  local -a state=()
+  local gid gname doms_csv
+
+  while IFS='|' read -r gid gname doms_csv; do
+    [[ -z "$gid" ]] && continue
+    group_ids+=("$gid")
+    group_names+=("$gname")
+    group_domains+=("$doms_csv")
+    state+=("on")
+  done < <(_bypass_bundle_groups)
+
+  while true; do
+    show_ascii
+    echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
+    echo -e "${BLUE}    ДЕФОЛТНЫЙ BYPASS BUNDLE                   ${NC}"
+    echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
+    echo ""
+    echo -e "${YELLOW}Выберите группы для применения:${NC}"
+    echo ""
+
+    local i
+    for i in "${!group_ids[@]}"; do
+      local mark="[ ]"
+      [[ "${state[$i]}" == "on" ]] && mark="[x]"
+      local count
+      count=$(printf '%s' "${group_domains[$i]}" | tr ',' '\n' | sed '/^$/d' | wc -l)
+      echo -e "${CYAN} $((i+1)))${NC} $mark ${group_names[$i]} (${count} доменов)"
+    done
+
+    echo ""
+    echo -n -e "${YELLOW}Номер группы = toggle, apply = применить, cancel = отмена: ${NC}"
+    local choice
+    read -r choice
+    case "$choice" in
+      apply)
+        local all_doms_csv=""
+        for i in "${!group_ids[@]}"; do
+          if [[ "${state[$i]}" == "on" ]]; then
+            all_doms_csv="${all_doms_csv}${all_doms_csv:+,}${group_domains[$i]}"
+          fi
+        done
+
+        if [[ -z "$all_doms_csv" ]]; then
+          echo -e "${YELLOW}Нет выбранных групп. Отменено.${NC}"
+          sleep 1
+          return
+        fi
+
+        local doms_json
+        doms_json=$(printf '%s' "$all_doms_csv" | tr ',' '\n' | sed '/^$/d' | jq -R '"domain:" + .' | jq -s '.')
+        local domain_count
+        domain_count=$(printf '%s' "$doms_json" | jq 'length')
+        echo -n -e "${YELLOW}Применить ${domain_count} доменов? [y/N]: ${NC}"
+        local confirm
+        read -r confirm
+        [[ "$confirm" =~ ^[yYдД]$ ]] || { echo -e "${CYAN}✓ Отменено${NC}"; sleep 1; return; }
+
+        if _apply_bypass_rule "$doms_json"; then
+          echo -e "${GREEN}✓ Дефолтный bundle применен${NC}"
+        else
+          echo -e "${RED}✗ Bundle не применен${NC}"
+        fi
+        echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
+        read -r _
+        return
+        ;;
+      cancel|0)
+        return
+        ;;
+      *)
+        if [[ "$choice" =~ ^[0-9]+$ ]] && [[ "$choice" -ge 1 ]] && [[ "$choice" -le ${#group_ids[@]} ]]; then
+          local idx=$((choice-1))
+          if [[ "${state[$idx]}" == "on" ]]; then
+            state[$idx]="off"
+          else
+            state[$idx]="on"
+          fi
+        else
+          echo -e "${RED}Неверный выбор${NC}"
+          sleep 1
+        fi
+        ;;
+    esac
+  done
+}
+
+_bypass_remove_domain_interactive() {
+  local -a current_domains=()
+  mapfile -t current_domains < <(_bypass_list_current)
+
+  if [[ ${#current_domains[@]} -eq 0 ]]; then
+    echo -e "${YELLOW}Нет правил для удаления${NC}"
+    sleep 1
+    return
+  fi
+
+  echo -e "${CYAN}Текущие bypass-домены:${NC}"
+  local i
+  for i in "${!current_domains[@]}"; do
+    echo -e "${CYAN} $((i+1)))${NC} ${current_domains[$i]}"
+  done
+  echo -e "${CYAN} 0)${NC} Отмена"
+  echo ""
+  echo -n -e "${YELLOW}Выберите правило для удаления: ${NC}"
+  local choice
+  read -r choice
+  [[ "$choice" == "0" ]] && return
+  if [[ ! "$choice" =~ ^[0-9]+$ ]] || [[ "$choice" -lt 1 ]] || [[ "$choice" -gt ${#current_domains[@]} ]]; then
+    echo -e "${RED}Неверный выбор${NC}"
+    sleep 1
+    return
+  fi
+
+  local selected="${current_domains[$((choice-1))]}"
+  local dom="${selected#domain:}"
+  echo -n -e "${YELLOW}Удалить ${selected}? [y/N]: ${NC}"
+  local confirm
+  read -r confirm
+  [[ "$confirm" =~ ^[yYдД]$ ]] || { echo -e "${CYAN}✓ Отменено${NC}"; sleep 1; return; }
+
+  if _bypass_remove_rule "$dom"; then
+    echo -e "${GREEN}✓ ${selected} удален из обхода${NC}"
+  else
+    echo -e "${RED}✗ Не удалось удалить ${selected}${NC}"
+  fi
+  echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
+  read -r _
+}
+
+_bypass_reset_all_interactive() {
+  echo -e "${RED}╔═══════════════════════════════════════════════════════════╗${NC}"
+  echo -e "${RED}║  СБРОС ВСЕХ BYPASS-ПРАВИЛ                                ║${NC}"
+  echo -e "${RED}╚═══════════════════════════════════════════════════════════╝${NC}"
+  echo ""
+  echo -e "${YELLOW}Будут удалены только domain bypass-правила.${NC}"
+  echo -e "${CYAN}Дефолтные правила install.sh (ads, QUIC block, direct catch-all) останутся.${NC}"
+  echo ""
+  echo -n -e "${RED}Действительно сбросить? [y/N]: ${NC}"
+  local confirm
+  read -r confirm
+  [[ "$confirm" =~ ^[yYдД]$ ]] || { echo -e "${CYAN}✓ Отменено${NC}"; sleep 1; return; }
+
+  if _bypass_reset_all; then
+    echo -e "${GREEN}✓ Все bypass-правила удалены${NC}"
+  else
+    echo -e "${RED}✗ Сброс не выполнен${NC}"
+  fi
+  echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
+  read -r _
+}
+
+bypass_routing_menu() {
+  while true; do
+    show_ascii
+    echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
+    echo -e "${BLUE}    УПРАВЛЕНИЕ ОБХОДОМ VPN                    ${NC}"
+    echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
+    echo ""
+
+    local current
+    current=$(_bypass_list_current)
+    if [[ -z "$current" ]]; then
+      echo -e "${YELLOW}  Нет правил обхода (весь трафик через VPN)${NC}"
+    else
+      echo -e "${CYAN}Текущие домены в обходе:${NC}"
+      while IFS= read -r dom; do
+        [[ -n "$dom" ]] && echo -e "  ${GREEN}->${NC} $dom"
+      done <<< "$current"
+    fi
+    echo ""
+
+    echo -e "${CYAN} 1)${NC} Добавить домен в обход"
+    echo -e "${CYAN} 2)${NC} Применить дефолтный bundle (5 групп)"
+    echo -e "${CYAN} 3)${NC} Удалить домен из обхода"
+    echo -e "${CYAN} 4)${NC} Сбросить ВСЕ правила обхода"
+    echo -e "${CYAN} 0)${NC} Назад в главное меню"
+    echo ""
+    echo -n -e "${YELLOW}Выбор: ${NC}"
+
+    local c
+    read -r c
+    case "$c" in
+      1) _bypass_add_single_domain ;;
+      2) _bypass_apply_bundle ;;
+      3) _bypass_remove_domain_interactive ;;
+      4) _bypass_reset_all_interactive ;;
+      0) return ;;
+      *) echo -e "${RED}Неверный выбор${NC}"; sleep 1 ;;
+    esac
+  done
 }
 
 # ═══════════════════════════════════════════════════════════
