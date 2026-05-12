@@ -1352,6 +1352,137 @@ _migrate_sni_list_2026() {
   return 0
 }
 
+_sni_in_use() {
+  local domain="$1"
+  local -ar REALITY_DEFAULT_SNIS=(
+    "www.ozon.ru" "api-maps.yandex.ru" "www.sberbank.ru"
+    "www.gosuslugi.ru" "www.tinkoff.ru" "www.alfabank.ru"
+    "www.kinopoisk.ru" "speller.yandex.net" "www.cloudflare.com"
+  )
+
+  local d
+  for d in "${REALITY_DEFAULT_SNIS[@]}"; do
+    [[ "$d" == "$domain" ]] && return 0
+  done
+
+  if [[ -d "$PROFILES_DIR" ]]; then
+    local profile_snis
+    profile_snis=$(jq -r '.sni // empty' "$PROFILES_DIR"/*.json 2>/dev/null | sort -u)
+    while IFS= read -r psni; do
+      [[ -n "$psni" && "$psni" == "$domain" ]] && return 0
+    done <<< "$profile_snis"
+  fi
+
+  if [[ -f "$CONFIG_FILE" ]]; then
+    local cfg_snis
+    cfg_snis=$(jq -r '[.inbounds[]? | .streamSettings.realitySettings.serverNames // [] | .[]] | .[]' "$CONFIG_FILE" 2>/dev/null | sort -u)
+    while IFS= read -r csni; do
+      [[ -n "$csni" && "$csni" == "$domain" ]] && return 0
+    done <<< "$cfg_snis"
+  fi
+
+  return 1
+}
+
+_bypass_list_current() {
+  jq -r '
+    [.routing.rules[]?
+     | select(.outboundTag == "direct" and (((.domain // []) | length) > 0))
+     | .domain[]
+    ] | unique | .[]
+  ' "$CONFIG_FILE" 2>/dev/null
+}
+
+_apply_bypass_rule() {
+  local domain_list_json="$1"
+  local normalized_json
+  if ! normalized_json=$(printf '%s' "$domain_list_json" | jq -c '
+      if type == "array" and all(.[]; type == "string" and startswith("domain:")) then
+        unique
+      else
+        error("invalid domain list")
+      end
+    ' 2>/dev/null); then
+    echo -e "${RED}✗ Некорректный JSON domain-list для bypass${NC}"
+    return 2
+  fi
+
+  local domain_count
+  domain_count=$(printf '%s' "$normalized_json" | jq 'length' 2>/dev/null)
+  if [[ "$domain_count" == "0" ]]; then
+    echo -e "${YELLOW}Нет доменов для применения${NC}"
+    return 1
+  fi
+
+  local domains_raw
+  domains_raw=$(printf '%s' "$normalized_json" | jq -r '.[] | ltrimstr("domain:")')
+  local dom
+  while IFS= read -r dom; do
+    [[ -z "$dom" ]] && continue
+    if _sni_in_use "$dom"; then
+      echo -e "${RED}Конфликт: $dom используется как Reality SNI — добавление сломает handshake${NC}"
+      echo -e "${YELLOW}  Bypass правила не применены. Удалите $dom из списка и попробуйте снова.${NC}"
+      return 1
+    fi
+  done <<< "$domains_raw"
+
+  backup_config "bypass_routing_add"
+  if safe_jq_write \
+      --argjson domains "$normalized_json" \
+      '.routing.rules = [{"type":"field","domain":$domains,"outboundTag":"direct"}] + .routing.rules' \
+      "$CONFIG_FILE"; then
+    fix_xray_permissions
+    safe_restart_xray
+    return 0
+  fi
+  return 2
+}
+
+_bypass_remove_rule() {
+  local d="domain:$1"
+  backup_config "bypass_routing_remove"
+  if safe_jq_write \
+      --arg d "$d" \
+      '.routing.rules = [
+        .routing.rules[] |
+        if (.outboundTag == "direct" and ((.domain // []) | type == "array")) then
+          .domain = ((.domain // []) - [$d])
+          | (if (.domain | length == 0) then empty else . end)
+        else
+          .
+        end
+      ]' "$CONFIG_FILE"; then
+    fix_xray_permissions
+    safe_restart_xray
+    return 0
+  fi
+  return 2
+}
+
+_bypass_reset_all() {
+  backup_config "bypass_routing_reset"
+  if safe_jq_write '
+      .routing.rules = [
+        .routing.rules[] |
+        select(.outboundTag != "direct" or (.network // null) != null or (.port // null) != null or (((.domain // []) | length) == 0))
+      ]' "$CONFIG_FILE"; then
+    fix_xray_permissions
+    safe_restart_xray
+    return 0
+  fi
+  return 2
+}
+
+_bypass_bundle_groups() {
+  cat <<'EOG'
+steam|Steam|steamcontent.com,steamcdn-a.akamaihd.net,steam-chat.com,steamcommunity.com,cm.steampowered.com
+ru_services|RU-сервисы|gosuslugi.ru,nalog.gov.ru,mos.ru
+banks|RU-банки|sberbank.ru,vtb.ru,tinkoff.ru,alfabank.ru
+marketplaces|RU маркетплейсы|ozon.ru,wildberries.ru,avito.ru
+yandex|Yandex|yandex.ru,ya.ru,mail.yandex.ru
+EOG
+}
+
 probe_sni() {
   local sni="$1"
   local timeout=8
