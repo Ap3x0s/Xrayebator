@@ -398,12 +398,16 @@ _subscription_base_url() {
   local domain port
   domain=$(cat /usr/local/etc/xray/.subscription_domain 2>/dev/null || echo "127.0.0.1")
   port=$(cat /usr/local/etc/xray/.subscription_port 2>/dev/null || echo "8080")
+  local host="$domain"
+  if [[ "$host" == *:* && "$host" != \[* ]]; then
+    host="[$host]"
+  fi
   if [[ "$domain" == "127.0.0.1" ]]; then
-    echo "http://${domain}:${port}"
+    echo "http://${host}:${port}"
   elif [[ "$port" == "443" ]]; then
-    echo "https://${domain}"
+    echo "https://${host}"
   else
-    echo "https://${domain}:${port}"
+    echo "https://${host}:${port}"
   fi
   return 0
 }
@@ -413,6 +417,65 @@ _subscription_is_local_only() {
   domain=$(cat /usr/local/etc/xray/.subscription_domain 2>/dev/null || echo "127.0.0.1")
   port=$(cat /usr/local/etc/xray/.subscription_port 2>/dev/null || echo "8080")
   [[ "$domain" == "127.0.0.1" || "$domain" == "localhost" || "$port" == "8080" ]]
+}
+
+_certbot_supports_ip_address() {
+  local certbot_bin="${1:-certbot}"
+  "$certbot_bin" --help all 2>/dev/null | grep -q -- '--ip-address'
+}
+
+_ensure_certbot_ip_tls() {
+  CERTBOT_IP_BIN=""
+
+  local candidate
+  for candidate in /snap/bin/certbot "$(command -v certbot 2>/dev/null || true)"; do
+    [[ -n "$candidate" && -x "$candidate" ]] || continue
+    if _certbot_supports_ip_address "$candidate"; then
+      CERTBOT_IP_BIN="$candidate"
+      return 0
+    fi
+  done
+
+  echo -e "${YELLOW}  → Системный certbot не поддерживает IP certificates; ставлю актуальный certbot через snap...${NC}"
+  if ! apt-get install -y snapd >/dev/null 2>&1; then
+    echo -e "${RED}✗ Не удалось установить snapd для Certbot 5.4+${NC}"
+    return 1
+  fi
+
+  systemctl enable --now snapd.socket >/dev/null 2>&1 || true
+  export PATH="/snap/bin:$PATH"
+
+  if command -v snap >/dev/null 2>&1; then
+    if snap list core >/dev/null 2>&1; then
+      snap refresh core >/tmp/snap-core.log 2>&1 || true
+    elif ! snap install core >/tmp/snap-core.log 2>&1; then
+      echo -e "${RED}✗ snap install core не удался. Лог: /tmp/snap-core.log${NC}"
+      tail -20 /tmp/snap-core.log
+      return 1
+    fi
+
+    if snap list certbot >/dev/null 2>&1; then
+      snap refresh certbot >/tmp/snap-certbot.log 2>&1 || true
+    elif ! snap install --classic certbot >/tmp/snap-certbot.log 2>&1; then
+      echo -e "${RED}✗ snap install certbot не удался. Лог: /tmp/snap-certbot.log${NC}"
+      tail -20 /tmp/snap-certbot.log
+      return 1
+    fi
+  else
+    echo -e "${RED}✗ snap command не найден после установки snapd${NC}"
+    return 1
+  fi
+
+  for candidate in /snap/bin/certbot "$(command -v certbot 2>/dev/null || true)"; do
+    [[ -n "$candidate" && -x "$candidate" ]] || continue
+    if _certbot_supports_ip_address "$candidate"; then
+      CERTBOT_IP_BIN="$candidate"
+      return 0
+    fi
+  done
+
+  echo -e "${RED}✗ Не найден Certbot 5.4+ с поддержкой --ip-address${NC}"
+  return 1
 }
 
 write_profile_transport_metadata() {
@@ -2438,6 +2501,199 @@ _select_subscription_port() {
   return 0
 }
 
+install_subscription_ip_tls() {
+  show_ascii
+  echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
+  echo -e "${BLUE}    УСТАНОВКА ПОДПИСКИ ПО IP VPS (HTTPS)      ${NC}"
+  echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
+  echo ""
+  echo -e "${CYAN}Режим по умолчанию: внешний HAPP-клиент получает https://<IP>/sub/<token>${NC}"
+  echo -e "${YELLOW}Сертификаты на IP у Let's Encrypt short-lived (~6 дней), нужен рабочий renew.${NC}"
+  echo ""
+
+  if [[ ! -f /usr/local/etc/xray/.subscription_installed ]]; then
+    echo -e "${CYAN}  → subhttp.sh ещё не установлен — устанавливаем...${NC}"
+    install_subscription_server || return 1
+  fi
+
+  local server_ip
+  server_ip=$(get_server_ip)
+  if [[ -z "$server_ip" || ! "$server_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo -e "${RED}✗ Не удалось определить публичный IPv4 VPS: ${server_ip:-пусто}${NC}"
+    echo -e "${YELLOW}IPv6 IP-cert режим пока не автоматизирован — используйте домен.${NC}"
+    sleep 3
+    return 1
+  fi
+  echo -e "${CYAN}  → VPS IPv4: ${server_ip}${NC}"
+
+  local email
+  echo -n -e "${YELLOW}Email для Let's Encrypt (renew/account notices): ${NC}"
+  read -r email
+  if [[ -z "$email" ]] || ! [[ "$email" =~ ^[^@]+@[^@]+\.[^@]+$ ]]; then
+    echo -e "${RED}✗ Некорректный email${NC}"
+    sleep 2
+    return 1
+  fi
+
+  local pub_port
+  pub_port=$(_select_subscription_port)
+  echo -e "${CYAN}  → HTTPS порт подписки: $pub_port${NC}"
+
+  echo -e "${CYAN}  → Установка nginx...${NC}"
+  if ! apt-get install -y nginx >/dev/null 2>&1; then
+    echo -e "${RED}✗ apt-get install nginx не удалось${NC}"
+    return 1
+  fi
+
+  local certbot_bin
+  if ! _ensure_certbot_ip_tls; then
+    echo -e "${YELLOW}Нужен Certbot 5.4+ для webroot IP certificates.${NC}"
+    echo -e "${YELLOW}Временно используйте доменный режим или обновите certbot из актуального источника.${NC}"
+    return 1
+  fi
+  certbot_bin="$CERTBOT_IP_BIN"
+  echo -e "${GREEN}  ✓ Certbot с IP support: ${certbot_bin}${NC}"
+
+  local webroot="/var/www/xrayebator-ip-acme"
+  mkdir -p "$webroot/.well-known/acme-challenge"
+  chmod -R 755 "$webroot"
+
+  cat > /etc/nginx/sites-available/xrayebator-sub << NGINX_HTTP_EOF
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${server_ip};
+
+    location ^~ /.well-known/acme-challenge/ {
+        root ${webroot};
+        default_type text/plain;
+    }
+
+    location / {
+        return 404;
+    }
+}
+NGINX_HTTP_EOF
+  ln -sf /etc/nginx/sites-available/xrayebator-sub /etc/nginx/sites-enabled/xrayebator-sub
+  if ! nginx -t >/tmp/nginx-xrayebator-sub.log 2>&1; then
+    echo -e "${RED}✗ nginx -t failed${NC}"
+    cat /tmp/nginx-xrayebator-sub.log
+    return 1
+  fi
+  if ! systemctl enable --now nginx >/dev/null 2>&1; then
+    echo -e "${RED}✗ nginx не запустился. Проверьте, не занят ли порт 80 другим сервисом.${NC}"
+    return 1
+  fi
+  if ! systemctl reload nginx >/dev/null 2>&1; then
+    echo -e "${RED}✗ nginx не перечитал HTTP config для ACME challenge${NC}"
+    return 1
+  fi
+
+  if command -v ufw &>/dev/null && ufw status | grep -q "Status: active"; then
+    ufw limit 80/tcp >/dev/null 2>&1
+    ufw limit "${pub_port}/tcp" >/dev/null 2>&1
+    ufw reload >/dev/null 2>&1
+    echo -e "${GREEN}  ✓ UFW: limit 80/tcp + ${pub_port}/tcp${NC}"
+  fi
+
+  echo -e "${CYAN}  → Запуск certbot IP certificate для ${server_ip}...${NC}"
+  if ! "$certbot_bin" certonly \
+      --cert-name "$server_ip" \
+      --preferred-profile shortlived \
+      --webroot \
+      --webroot-path "$webroot" \
+      --ip-address "$server_ip" \
+      --non-interactive \
+      --agree-tos \
+      -m "$email" \
+      --deploy-hook "systemctl reload nginx" \
+      >/tmp/certbot-ip.log 2>&1; then
+    echo -e "${RED}✗ certbot не смог выдать IP certificate. Лог: /tmp/certbot-ip.log${NC}"
+    tail -30 /tmp/certbot-ip.log
+    echo -e "${YELLOW}Проверьте, что порт 80 доступен снаружи и VPS IP совпадает.${NC}"
+    return 1
+  fi
+
+  local cert_dir="/etc/letsencrypt/live/${server_ip}"
+  if [[ ! -f "$cert_dir/fullchain.pem" || ! -f "$cert_dir/privkey.pem" ]]; then
+    echo -e "${RED}✗ certbot завершился, но cert files не найдены: $cert_dir${NC}"
+    return 1
+  fi
+
+  cat > /etc/nginx/sites-available/xrayebator-sub << NGINX_TLS_EOF
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${server_ip};
+
+    location ^~ /.well-known/acme-challenge/ {
+        root ${webroot};
+        default_type text/plain;
+    }
+
+    location / {
+        return 404;
+    }
+}
+
+server {
+    listen ${pub_port} ssl http2;
+    listen [::]:${pub_port} ssl http2;
+    server_name ${server_ip};
+
+    ssl_certificate ${cert_dir}/fullchain.pem;
+    ssl_certificate_key ${cert_dir}/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+
+    location /sub/ {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+    }
+
+    location / {
+        return 404;
+    }
+}
+NGINX_TLS_EOF
+  if ! nginx -t >/tmp/nginx-xrayebator-sub.log 2>&1; then
+    echo -e "${RED}✗ nginx TLS config failed${NC}"
+    cat /tmp/nginx-xrayebator-sub.log
+    return 1
+  fi
+  if ! systemctl reload nginx >/dev/null 2>&1; then
+    echo -e "${RED}✗ nginx не перечитал TLS config${NC}"
+    return 1
+  fi
+
+  echo "$pub_port" > /usr/local/etc/xray/.subscription_port
+  echo "$server_ip" > /usr/local/etc/xray/.subscription_domain
+  echo "ip_tls" > /usr/local/etc/xray/.subscription_mode
+  chown xray:xray /usr/local/etc/xray/.subscription_port /usr/local/etc/xray/.subscription_domain /usr/local/etc/xray/.subscription_mode 2>/dev/null || true
+
+  systemctl daemon-reload
+  systemctl enable --now xrayebator-sub.service
+  if ! systemctl is-active --quiet xrayebator-sub.service; then
+    echo -e "${RED}✗ xrayebator-sub.service не запустился — проверьте journalctl -u xrayebator-sub${NC}"
+    return 1
+  fi
+
+  local _summary_base
+  _summary_base=$(_subscription_base_url)
+  echo ""
+  echo -e "${GREEN}╔═══════════════════════════════════════════════${NC}"
+  echo -e "${GREEN}    ✓ ПОДПИСКА ПО IP VPS АКТИВНА              ${NC}"
+  echo -e "${GREEN}╚═══════════════════════════════════════════════${NC}"
+  echo ""
+  echo -e "${BLUE}Base URL:${NC} ${GREEN}${_summary_base}${NC}"
+  echo -e "${CYAN}Подписки на профили — через подменю 'Управление подпиской'${NC}"
+  echo ""
+  echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
+  read -r _
+}
+
 # Public TLS installer (REQ-C02 — default operator flow).
 # Flow: domain prompt → DNS preflight (soft) → email prompt → port preflight (443/8443)
 # → apt install nginx + python3-certbot-nginx → nginx site config → certbot --nginx
@@ -2551,7 +2807,8 @@ NGINX_EOF
   # Markers — читаются _subscription_base_url (helper из Plan 7.2).
   echo "$pub_port" > /usr/local/etc/xray/.subscription_port
   echo "$domain" > /usr/local/etc/xray/.subscription_domain
-  chown xray:xray /usr/local/etc/xray/.subscription_port /usr/local/etc/xray/.subscription_domain 2>/dev/null || true
+  echo "domain_tls" > /usr/local/etc/xray/.subscription_mode
+  chown xray:xray /usr/local/etc/xray/.subscription_port /usr/local/etc/xray/.subscription_domain /usr/local/etc/xray/.subscription_mode 2>/dev/null || true
 
   # Активация unit.
   systemctl daemon-reload
@@ -2595,7 +2852,8 @@ install_subscription_local_only() {
 
   echo "8080" > /usr/local/etc/xray/.subscription_port
   echo "127.0.0.1" > /usr/local/etc/xray/.subscription_domain
-  chown xray:xray /usr/local/etc/xray/.subscription_port /usr/local/etc/xray/.subscription_domain 2>/dev/null || true
+  echo "local_only" > /usr/local/etc/xray/.subscription_mode
+  chown xray:xray /usr/local/etc/xray/.subscription_port /usr/local/etc/xray/.subscription_domain /usr/local/etc/xray/.subscription_mode 2>/dev/null || true
 
   systemctl daemon-reload
   systemctl enable --now xrayebator-sub.service
@@ -2695,7 +2953,7 @@ manage_subscription_menu() {
     fi
     echo ""
     if [[ "$local_only" == "true" ]]; then
-      echo -e "${CYAN} 1)${NC} Включить public TLS для внешней подписки"
+      echo -e "${CYAN} 1)${NC} Включить public TLS по IP VPS для внешней подписки"
     else
       echo -e "${CYAN} 1)${NC} Показать QR-код subscription URL"
     fi
@@ -2710,7 +2968,7 @@ manage_subscription_menu() {
       1)
         # REQ-C14: QR ВСЕГДА для короткого subscription URL (HTTPS короткая строка).
         if [[ "$local_only" == "true" ]]; then
-          install_subscription_public_tls
+          install_subscription_ip_tls
           base_url=$(_subscription_base_url)
           if _subscription_is_local_only; then
             local_only=true
@@ -2986,22 +3244,24 @@ happ_subscription_menu() {
       echo ""
     fi
 
-    echo -e "${CYAN} 1)${NC} Установить (public TLS, default — требует домен)"
-    echo -e "${CYAN} 2)${NC} Установить (local-only fallback — без домена/UFW)"
-    echo -e "${CYAN} 3)${NC} Управление подпиской (URL / QR / revoke)"
-    echo -e "${CYAN} 4)${NC} Настройки HAPP (.happ_defaults.env)"
-    echo -e "${CYAN} 5)${NC} Настроить announcement (HAPP)"
+    echo -e "${CYAN} 1)${NC} Установить public TLS по IP VPS ${GREEN}(default, без домена)${NC}"
+    echo -e "${CYAN} 2)${NC} Установить public TLS по домену"
+    echo -e "${CYAN} 3)${NC} Установить local-only debug (127.0.0.1:8080)"
+    echo -e "${CYAN} 4)${NC} Управление подпиской (URL / QR / revoke)"
+    echo -e "${CYAN} 5)${NC} Настройки HAPP (.happ_defaults.env)"
+    echo -e "${CYAN} 6)${NC} Настроить announcement (HAPP)"
     echo -e "${CYAN} 0)${NC} Назад в главное меню"
     echo ""
     echo -n -e "${YELLOW}Выбор: ${NC}"
     local c
     read -r c
     case "$c" in
-      1) install_subscription_public_tls ;;
-      2) install_subscription_local_only ;;
-      3) manage_subscription_menu ;;
-      4) happ_settings_menu ;;
-      5) edit_happ_announce_menu ;;
+      1|"") install_subscription_ip_tls ;;
+      2) install_subscription_public_tls ;;
+      3) install_subscription_local_only ;;
+      4) manage_subscription_menu ;;
+      5) happ_settings_menu ;;
+      6) edit_happ_announce_menu ;;
       0) return ;;
     esac
   done
