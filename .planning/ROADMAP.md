@@ -180,7 +180,7 @@ Plans:
 **Requirements**: REQ-E01, REQ-E02, REQ-E03, REQ-E04, REQ-F01, REQ-F02, REQ-F03, REQ-F04, REQ-F05
 
 **Success Criteria**:
-1. Migration `.sni_list_2026` через `run_migration`: добавляет в priority 1 `lk.usbank.ru`, `online.vtb.ru`, `www.cdek.ru`, `www.pochta.ru`, `www.avito.ru`; добавляет в priority 3 `github.com`; удаляет `apple.com` и любые `*.apple.com`/`*.icloud.com`. Не добавляет `twitch.tv`, `microsoft.com`, `live.com` (TLS fingerprint mismatch). User custom SNI сохраняется (не трогать).
+1. Migration `.sni_list_2026` через `run_migration`: добавляет в priority 1 `online.uralsib.ru`, `online.vtb.ru`, `www.cdek.ru`, `www.pochta.ru`, `www.avito.ru`; добавляет в priority 3 `github.com`; удаляет `apple.com` и любые `*.apple.com`/`*.icloud.com`. Не добавляет `twitch.tv`, `microsoft.com`, `live.com` (TLS fingerprint mismatch). User custom SNI сохраняется (не трогать).
 2. Команда `xrayebator probe-test`: для каждого SNI делает `curl -I https://<sni>` с VPS, отчёт о доступности и handshake-success rate. Выводится перед миграцией для valid-check (рекомендация запускать руками).
 3. Advanced submenu в меню профиля: experimental Vision Seed (`testpre uint32`/`testseed []uint32` поля на VLESS account). Off-by-default. Warning "experimental, может сломать клиентов". Сохраняется в profile JSON и добавляется в `add_inbound`.
 4. Пункт меню "Установить announcement для HAPP": запрашивает текст, сохраняет в `/usr/local/etc/xray/announce.txt`. subhttp.sh из Phase 7 читает этот файл и эмиттит как HAPP `announce` header/body comment (base64).

@@ -8,7 +8,7 @@
 
 Финальная полировка v2.0 в рамках REQ-E01..E04 + REQ-F01..F05 + deferred AdGuard cleanup:
 
-- Обновлённый SNI list под РФ-доноров 2026 (priority 1: vtb/cdek/avito/pochta/usbank; priority 3: github; убрать apple/icloud) с защитой user-custom SNI.
+- Обновленный SNI list под РФ-доноров 2026 (priority 1: vtb/cdek/avito/pochta/uralsib; priority 3: github; убрать apple/icloud) с защитой user-custom SNI.
 - Команда `xrayebator probe-test` — standalone CLI для проверки доступности SNI с VPS.
 - Опциональный experimental submenu для Vision Seed (`testpre`/`testseed`) в меню профиля.
 - HAPP announce editor → `/usr/local/etc/xray/announce.txt` (читается `subhttp.sh`).
