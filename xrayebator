@@ -1957,12 +1957,19 @@ _bypass_reset_all() {
 }
 
 _bypass_bundle_groups() {
+  # Апекс-домены — Xray domain:<apex> делает subdomain-match, поддомены не нужны.
+  # Аудит 2026-05: расширение покрытия antifraud/auth-эндпоинтов (Яндекс Лавка/Такси,
+  # VK ID, Сбер ID, СБП/Mir, ESIA gu-st.ru), переход Тинькофф→T-Bank, Tele2→t2.ru,
+  # появление национального мессенджера max.ru (OTP Госуслуг), Самокат под Сбером.
   cat <<'EOG'
+yandex|Yandex (экосистема)|yandex.ru,yandex.net,yandex.com,ya.ru,ya.cc,yandex.by,yandex.kz,yastatic.net,yastat.net,yandexcloud.net,yandex.cloud,yandexadexchange.net,yandexwebcache.net,yandex-bank.net,yandexgo.com,yango.com,yango.taxi,yango-tech.com,naydex.net,clck.ru,turbopages.org,kinopoisk.ru,kp.ru,dzen.ru,mc.yandex.com,appmetrica.yandex.net,adfox.ru,meteum.ai,shedevrum.ai,berizaryad.ru,elama.ru
+vk|VKontakte|vk.com,vk.ru,vk.me,vk.cc,vk.link,vk.design,vkontakte.ru,mvk.com,vkpay.ru,vkpay.com,userapi.com,userapi.ru,vk-cdn.net,vk-cdn.me,cdn-vk.net,cdn-vk.ru,vk-portal.net,vkcache.com,vkcdnservice.com,vkcloud-static.ru,vktech-static.ru,vkuser.net,vkuseraudio.net,vkuservideo.net,vkuservideo.ru,vkuserlive.net,vkuserphoto.ru,vkusercdn.ru,vkmessenger.com,vkvideo.ru,vkclips.app,vklive.app
+mailru|VK Group / Mail.ru|mail.ru,my.com,my.games,list.ru,bk.ru,inbox.ru,internet.ru,ok.ru,odnoklassniki.ru,boom.ru,boosty.to,youla.ru,youla.io,rustore.ru,mcs.st,max.ru,oneme.ru,sferum.ru,tamtam.chat,mycdn.me,imgsmail.ru,smailru.net,mradx.net,mrgcdn.ru,datacloudmy.com,attachmail.ru,attachmy.com,appsmail.ru,staticmy.com,vmailru.net,bizmrg.com,target.my.com,vk.team,vk.company,vkfest.ru,vkplay.ru,yclients.com,skillbox.ru,skillfactory.ru,uchi.ru,gb.ru
+banks|RU-банки и платежи|sberbank.ru,sber.ru,sberbank.com,sbrf.ru,sberid.ru,sbermarket.ru,sbermegamarket.ru,megamarket.ru,sberauto.com,sbercloud.ru,sberdevices.ru,sberdisk.ru,sberhealth.ru,sberleasing.ru,sberlogistics.ru,sbermobile.ru,sber.pro,sberspasibo.ru,spasibosberbank.ru,sbertech.ru,domclick.ru,tbank.ru,tinkoff.ru,tcsbank.ru,cdn-tinkoff.ru,t-static.ru,tinkoff-group.com,t-tech.ru,t-finance.ru,dolyame.ru,rosbank.ru,vtb.ru,pochtabank.ru,alfabank.ru,alfabank.st,alfadirect.ru,raiffeisen.ru,gazprombank.ru,gpb.ru,rshb.ru,psbank.ru,psb.ru,sovcombank.ru,mkb.ru,mtsbank.ru,otpbank.ru,uralsib.ru,bspb.ru,akbars.ru,tochka.com,domrfbank.ru,zenit.ru,yoomoney.ru,qiwi.com,qiwi.ru,nspk.ru,mironline.ru,mir-pay.ru,sbp.ru,cbr.ru
+marketplaces|RU-маркетплейсы и retail|ozon.ru,ozon.travel,ozonbank.ru,ozonru.net,wildberries.ru,wb.ru,wbbasket.ru,wbstatic.net,avito.ru,avito.st,avito.tech,lamoda.ru,kuper.ru,samokat.ru,vkusvill.ru,magnit.ru,lenta.com,perekrestok.ru,pyaterochka.ru,auchan.ru,detmir.ru,mvideo.ru,citilink.ru,dns-shop.ru,eldorado.ru,fix-price.com,dodopizza.ru,dodois.com
+ru_services|Госуслуги и телеком|gosuslugi.ru,gu-st.ru,nalog.ru,nalog.gov.ru,mos.ru,mosreg.ru,spb.ru,sevastopol.ru,gov.ru,government.ru,kremlin.ru,cikrf.ru,rkn.gov.ru,mvd.ru,mil.ru,sudrf.ru,rosreestr.ru,rosreestr.gov.ru,pfr.gov.ru,fss.ru,gibdd.ru,emias.info,edu.ru,goskey.ru,ebs.ru,pochta.ru,mts.ru,megafon.ru,beeline.ru,tele2.ru,t2.ru,yota.ru,rt.ru,rostelecom.ru
+streaming|RU-стриминг и медиа|ivi.ru,ivi.tv,okko.tv,more.tv,premier.one,start.ru,kion.ru,wink.ru,megogo.net,megogo.ru,rutube.ru,smotrim.ru,1tv.ru,vgtrk.com,ren.tv,ntv.ru,tnt-online.ru,ctc.ru,2x2tv.ru,viju.ru,amediateka.ru,smotreshka.tv,zvuk.com,cdnvideo.ru,trbcdn.net,kinescopecdn.net,ngenix.net
 steam|Steam|steamcontent.com,steamcdn-a.akamaihd.net,steam-chat.com,steamcommunity.com,cm.steampowered.com
-ru_services|RU-сервисы|gosuslugi.ru,nalog.gov.ru,mos.ru
-banks|RU-банки|sberbank.ru,vtb.ru,tinkoff.ru,alfabank.ru
-marketplaces|RU маркетплейсы|ozon.ru,wildberries.ru,avito.ru
-yandex|Yandex|yandex.ru,ya.ru,mail.yandex.ru
 EOG
 }
 
