@@ -46,4 +46,8 @@ grep -q 'chmod 755 /usr/local/bin/xrayebator' update.sh || fail "update.sh must 
 grep -q 'chmod 755 /usr/local/bin/xrayebator' xrayebator || fail "install_subscription_server must repair xrayebator permissions for xray user"
 echo "  ✓ install dependencies/download validation ok"
 
+grep -q 'type=xhttp&mode=auto&path=' xrayebator || fail "raw XHTTP VLESS URLs must include mode=auto"
+grep -q 'type=grpc&mode=gun&serviceName=' xrayebator || fail "raw gRPC VLESS URLs must include mode=gun"
+echo "  ✓ transport URL compatibility ok"
+
 echo "✓ HAPP subscription static checks passed"

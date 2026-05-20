@@ -364,6 +364,8 @@ systemctl status nginx --no-pager -l
 jq -r '.routes[] | [.label,.transport,.port,(.pq_enabled // false)] | @tsv' /usr/local/etc/xray/profiles/<profile>.json
 ```
 
+Последняя колонка здесь — `pq_enabled`, а не health/status. Для всех non-PQ routes значение `false` ожидаемо; `true` должен быть только у `xhttp-pq`.
+
 ### v2rayNG то подключается, то нет
 
 v2rayNG не является основным клиентом HAPP flow. Он получает v2ray-compatible body, но маршруты все равно зависят от поддержки конкретного транспорта и версии Xray-core внутри клиента. Начинайте с TCP routes, затем проверяйте gRPC/XHTTP отдельно.
