@@ -302,7 +302,7 @@ if [[ $? -eq 0 ]] && [[ -s "$UPDATE_TMP" ]]; then
   chmod +x "$UPDATE_TMP"
 
   # Проверяем что скрипт валидный
-  if head -n 1 "$UPDATE_TMP" | grep -q "^#!/bin/bash"; then
+  if head -n 1 "$UPDATE_TMP" | grep -q "^#!/bin/bash" && bash -n "$UPDATE_TMP"; then
     mkdir -p /usr/local/etc/xray/scripts
 
     # Сравниваем с текущей версией
@@ -340,14 +340,41 @@ curl -fsSL --connect-timeout 10 --max-time 60 "${RAW_BASE_URL}/xrayebator" -o "$
 
 if [[ $? -eq 0 ]] && [[ -s "$XRAY_TMP" ]]; then
   chmod +x "$XRAY_TMP"
-  mv "$XRAY_TMP" /usr/local/bin/xrayebator
-  echo -e "${GREEN}✓ xrayebator обновлён${NC}\n"
+  if bash -n "$XRAY_TMP"; then
+    mv "$XRAY_TMP" /usr/local/bin/xrayebator
+    echo -e "${GREEN}✓ xrayebator обновлён${NC}\n"
+  else
+    echo -e "${RED}✗ Скачанный xrayebator не проходит bash -n${NC}"
+    rm -f "$XRAY_TMP" "$UPDATE_SESSION_FILE" "$UPDATE_SESSION_FILE.warned"
+    exit 1
+  fi
 else
   echo -e "${RED}✗ Ошибка загрузки xrayebator${NC}"
   echo -e "${YELLOW}Проверьте доступность ветки '${GITHUB_BRANCH}' на GitHub${NC}"
   rm -f "$XRAY_TMP" "$UPDATE_SESSION_FILE" "$UPDATE_SESSION_FILE.warned"
   exit 1
 fi
+
+# Обновление uninstall.sh и восстановление symlink'ов команд.
+echo -e "${YELLOW}Обновление служебных скриптов...${NC}"
+mkdir -p /usr/local/etc/xray/scripts
+UNINSTALL_TMP=$(mktemp /tmp/xrayebator_uninstall_new_XXXXXX.sh)
+if curl -fsSL --connect-timeout 10 --max-time 30 "${RAW_BASE_URL}/uninstall.sh" -o "$UNINSTALL_TMP" \
+   && [[ -s "$UNINSTALL_TMP" ]] \
+   && head -n 1 "$UNINSTALL_TMP" | grep -q "^#!/bin/bash" \
+   && bash -n "$UNINSTALL_TMP"; then
+  chmod +x "$UNINSTALL_TMP"
+  mv "$UNINSTALL_TMP" /usr/local/etc/xray/scripts/uninstall.sh
+  echo -e "${GREEN}✓ uninstall.sh обновлён${NC}"
+else
+  echo -e "${YELLOW}⚠ Не удалось обновить uninstall.sh${NC}"
+  rm -f "$UNINSTALL_TMP"
+fi
+chmod +x /usr/local/etc/xray/scripts/update.sh 2>/dev/null || true
+chmod +x /usr/local/etc/xray/scripts/uninstall.sh 2>/dev/null || true
+ln -sf /usr/local/etc/xray/scripts/update.sh /usr/local/bin/xrayebator-update 2>/dev/null || true
+ln -sf /usr/local/etc/xray/scripts/uninstall.sh /usr/local/bin/xrayebator-uninstall 2>/dev/null || true
+echo -e "${GREEN}✓ Команды xrayebator-update / xrayebator-uninstall проверены${NC}\n"
 
 # Обновление списка SNI
 echo -e "${YELLOW}Обновление списка SNI...${NC}"
@@ -367,6 +394,27 @@ curl -fsSL "${RAW_BASE_URL}/ascii_art.txt" -o /usr/local/etc/xray/data/ascii_art
 echo -e "${YELLOW}Проверка установленной версии...${NC}"
 VERSION_INFO=$(grep -m 1 "XRAYEBATOR v" /usr/local/bin/xrayebator | sed 's/.*XRAYEBATOR //' | sed 's/ .*//')
 echo -e "${GREEN}✓ Версия: ${VERSION_INFO}${NC}\n"
+
+# Если HAPP subscription уже установлен, его handler — сгенерированный файл.
+# После обновления основного xrayebator нужно перегенерировать subhttp.sh, иначе
+# активная подписка останется на старой логике до ручного запуска меню.
+if [[ -f /usr/local/etc/xray/.subscription_installed ]]; then
+  echo -e "${YELLOW}Обновление HAPP subscription handler...${NC}"
+  if source /usr/local/bin/xrayebator && install_subscription_server >/dev/null 2>&1; then
+    if systemctl is-active --quiet xrayebator-sub.service; then
+      if systemctl restart xrayebator-sub.service; then
+        echo -e "${GREEN}✓ xrayebator-sub.service перезапущен${NC}"
+      else
+        echo -e "${YELLOW}⚠ subhttp.sh обновлён, но xrayebator-sub.service не перезапустился${NC}"
+      fi
+    else
+      echo -e "${GREEN}✓ subhttp.sh обновлён${NC}"
+    fi
+  else
+    echo -e "${YELLOW}⚠ Не удалось регенерировать HAPP handler. Запустите: sudo xrayebator → Подписка HAPP${NC}"
+  fi
+  echo ""
+fi
 
 # Обновление geo-баз (Loyalsoldier enhanced)
 echo -e "${YELLOW}Обновление geo-баз (Loyalsoldier)...${NC}"
