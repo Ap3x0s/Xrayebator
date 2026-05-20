@@ -408,7 +408,13 @@ if [[ -f /usr/local/etc/xray/.subscription_installed ]]; then
         echo -e "${YELLOW}⚠ subhttp.sh обновлён, но xrayebator-sub.service не перезапустился${NC}"
       fi
     else
-      echo -e "${GREEN}✓ subhttp.sh обновлён${NC}"
+      systemctl reset-failed xrayebator-sub.service 2>/dev/null || true
+      if systemctl enable --now xrayebator-sub.service; then
+        echo -e "${GREEN}✓ subhttp.sh обновлён, xrayebator-sub.service запущен${NC}"
+      else
+        echo -e "${YELLOW}⚠ subhttp.sh обновлён, но xrayebator-sub.service не запустился${NC}"
+        echo -e "${YELLOW}  Проверьте: systemctl status xrayebator-sub --no-pager -l${NC}"
+      fi
     fi
   else
     echo -e "${YELLOW}⚠ Не удалось регенерировать HAPP handler. Запустите: sudo xrayebator → Подписка HAPP${NC}"

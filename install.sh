@@ -343,8 +343,22 @@ echo -e "${CYAN}  ${XRAY_VERSION}${NC}\n"
 echo -e "${BLUE}[3/10]${NC} ${YELLOW}Настройка Xray сервиса...${NC}"
 
 # Create xray system user if not exists
-if ! id "xray" &>/dev/null; then
-  useradd -r -s /usr/sbin/nologin -M xray
+if ! getent passwd xray >/dev/null 2>&1; then
+  NOLOGIN_SHELL="/usr/sbin/nologin"
+  [[ -x "$NOLOGIN_SHELL" ]] || NOLOGIN_SHELL="/sbin/nologin"
+  [[ -x "$NOLOGIN_SHELL" ]] || NOLOGIN_SHELL="/bin/false"
+  if ! getent group xray >/dev/null 2>&1; then
+    groupadd -r xray 2>/dev/null || true
+  fi
+  if getent group xray >/dev/null 2>&1; then
+    useradd -r -g xray -s "$NOLOGIN_SHELL" -M -d /nonexistent xray
+  else
+    useradd -r -s "$NOLOGIN_SHELL" -M -d /nonexistent xray
+  fi
+  if ! getent passwd xray >/dev/null 2>&1; then
+    echo -e "${RED}✗ Не удалось создать пользователя xray${NC}"
+    exit 1
+  fi
   echo -e "${GREEN}  ✓ Пользователь xray создан${NC}"
 fi
 

@@ -661,13 +661,47 @@ backup_config() {
   return 0
 }
 
+ensure_xray_runtime_user() {
+  if getent passwd xray >/dev/null 2>&1; then
+    return 0
+  fi
+
+  local nologin="/usr/sbin/nologin"
+  [[ -x "$nologin" ]] || nologin="/sbin/nologin"
+  [[ -x "$nologin" ]] || nologin="/bin/false"
+
+  echo -e "${YELLOW}  ⚠ Пользователь xray отсутствует — создаю runtime user${NC}"
+  if ! getent group xray >/dev/null 2>&1; then
+    groupadd -r xray 2>/dev/null || true
+  fi
+
+  if getent group xray >/dev/null 2>&1; then
+    useradd -r -g xray -s "$nologin" -M -d /nonexistent xray
+  else
+    useradd -r -s "$nologin" -M -d /nonexistent xray
+  fi
+
+  if ! getent passwd xray >/dev/null 2>&1; then
+    echo -e "${RED}  ✗ Не удалось создать пользователя xray${NC}"
+    return 1
+  fi
+
+  echo -e "${GREEN}  ✓ Пользователь xray создан${NC}"
+  return 0
+}
+
 # Восстановление прав файлов для пользователя xray
 fix_xray_permissions() {
+  ensure_xray_runtime_user >/dev/null 2>&1 || true
   chown -R xray:xray /usr/local/etc/xray/ 2>/dev/null || true
   chmod 600 /usr/local/etc/xray/.private_key 2>/dev/null || true
 }
 
 ensure_xray_service_unit() {
+  if ! ensure_xray_runtime_user; then
+    return 1
+  fi
+
   if systemctl cat xray.service >/dev/null 2>&1; then
     return 0
   fi
@@ -2525,6 +2559,10 @@ install_subscription_server() {
   echo -e "${BLUE}     УСТАНОВКА HAPP SUBSCRIPTION SERVER       ${NC}"
   echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
   echo ""
+
+  if ! ensure_xray_runtime_user; then
+    return 1
+  fi
 
   # Pre-flight: socat (handler bind), openssl/base64/jq уже гарантированы install.sh.
   if ! command -v socat &>/dev/null; then
