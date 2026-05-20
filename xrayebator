@@ -2563,6 +2563,7 @@ install_subscription_server() {
   if ! ensure_xray_runtime_user; then
     return 1
   fi
+  chmod 755 /usr/local/bin/xrayebator 2>/dev/null || true
 
   # Pre-flight: socat (handler bind), openssl/base64/jq уже гарантированы install.sh.
   if ! command -v socat &>/dev/null; then

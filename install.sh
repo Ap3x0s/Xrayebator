@@ -745,7 +745,7 @@ if curl -fsSL --connect-timeout 10 --max-time 60 "${RAW_BASE_URL}/xrayebator" -o
    && [[ -s "$XRAYEBATOR_TMP" ]] \
    && head -n 1 "$XRAYEBATOR_TMP" | grep -q "^#!/bin/bash" \
    && bash -n "$XRAYEBATOR_TMP"; then
-  chmod +x "$XRAYEBATOR_TMP"
+  chmod 755 "$XRAYEBATOR_TMP"
   mv "$XRAYEBATOR_TMP" /usr/local/bin/xrayebator
   echo -e "${GREEN}✓ Приложение xrayebator установлено${NC}"
 else
@@ -760,7 +760,7 @@ if curl -fsSL --connect-timeout 10 --max-time 30 "${RAW_BASE_URL}/update.sh" -o 
    && [[ -s "$UPDATE_TMP" ]] \
    && head -n 1 "$UPDATE_TMP" | grep -q "^#!/bin/bash" \
    && bash -n "$UPDATE_TMP"; then
-  chmod +x "$UPDATE_TMP"
+  chmod 755 "$UPDATE_TMP"
   mv "$UPDATE_TMP" "${SCRIPTS_DIR}/update.sh"
 else
   echo -e "${YELLOW}⚠ update.sh не загружен или невалиден${NC}"
@@ -771,7 +771,7 @@ if curl -fsSL --connect-timeout 10 --max-time 30 "${RAW_BASE_URL}/uninstall.sh" 
    && [[ -s "$UNINSTALL_TMP" ]] \
    && head -n 1 "$UNINSTALL_TMP" | grep -q "^#!/bin/bash" \
    && bash -n "$UNINSTALL_TMP"; then
-  chmod +x "$UNINSTALL_TMP"
+  chmod 755 "$UNINSTALL_TMP"
   mv "$UNINSTALL_TMP" "${SCRIPTS_DIR}/uninstall.sh"
 else
   echo -e "${YELLOW}⚠ uninstall.sh не загружен или невалиден${NC}"

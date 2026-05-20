@@ -327,7 +327,7 @@ UPDATE_TMP=$(mktemp /tmp/update_new_XXXXXX.sh)
 curl -fsSL --connect-timeout 10 --max-time 30 "${RAW_BASE_URL}/update.sh" -o "$UPDATE_TMP"
 
 if [[ $? -eq 0 ]] && [[ -s "$UPDATE_TMP" ]]; then
-  chmod +x "$UPDATE_TMP"
+  chmod 755 "$UPDATE_TMP"
 
   # Проверяем что скрипт валидный
   if head -n 1 "$UPDATE_TMP" | grep -q "^#!/bin/bash" && bash -n "$UPDATE_TMP"; then
@@ -367,7 +367,7 @@ XRAY_TMP=$(mktemp /tmp/xrayebator_new_XXXXXX)
 curl -fsSL --connect-timeout 10 --max-time 60 "${RAW_BASE_URL}/xrayebator" -o "$XRAY_TMP"
 
 if [[ $? -eq 0 ]] && [[ -s "$XRAY_TMP" ]]; then
-  chmod +x "$XRAY_TMP"
+  chmod 755 "$XRAY_TMP"
   if bash -n "$XRAY_TMP"; then
     mv "$XRAY_TMP" /usr/local/bin/xrayebator
     echo -e "${GREEN}✓ xrayebator обновлён${NC}\n"
@@ -391,15 +391,16 @@ if curl -fsSL --connect-timeout 10 --max-time 30 "${RAW_BASE_URL}/uninstall.sh" 
    && [[ -s "$UNINSTALL_TMP" ]] \
    && head -n 1 "$UNINSTALL_TMP" | grep -q "^#!/bin/bash" \
    && bash -n "$UNINSTALL_TMP"; then
-  chmod +x "$UNINSTALL_TMP"
+  chmod 755 "$UNINSTALL_TMP"
   mv "$UNINSTALL_TMP" /usr/local/etc/xray/scripts/uninstall.sh
   echo -e "${GREEN}✓ uninstall.sh обновлён${NC}"
 else
   echo -e "${YELLOW}⚠ Не удалось обновить uninstall.sh${NC}"
   rm -f "$UNINSTALL_TMP"
 fi
-chmod +x /usr/local/etc/xray/scripts/update.sh 2>/dev/null || true
-chmod +x /usr/local/etc/xray/scripts/uninstall.sh 2>/dev/null || true
+chmod 755 /usr/local/bin/xrayebator 2>/dev/null || true
+chmod 755 /usr/local/etc/xray/scripts/update.sh 2>/dev/null || true
+chmod 755 /usr/local/etc/xray/scripts/uninstall.sh 2>/dev/null || true
 ln -sf /usr/local/etc/xray/scripts/update.sh /usr/local/bin/xrayebator-update 2>/dev/null || true
 ln -sf /usr/local/etc/xray/scripts/uninstall.sh /usr/local/bin/xrayebator-uninstall 2>/dev/null || true
 echo -e "${GREEN}✓ Команды xrayebator-update / xrayebator-uninstall проверены${NC}\n"
