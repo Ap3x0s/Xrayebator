@@ -1791,93 +1791,8 @@ _migrate_subhttp_happ_xhttp_compat_2026() {
 }
 
 _migrate_happ_legacy_xhttp_route_2026() {
-  echo -e "${CYAN}Проверка legacy XHTTP маршрутов для HAPP...${NC}"
-
-  local migrated=0
-  local profile_file
-  for profile_file in "$PROFILES_DIR"/*.json; do
-    [[ -f "$profile_file" ]] || continue
-
-    if ! jq -e '(.routes // []) | length > 0' "$profile_file" >/dev/null 2>&1; then
-      continue
-    fi
-    if ! jq -e 'any((.routes // [])[]; .label == "xhttp-pq" and .transport == "xhttp")' "$profile_file" >/dev/null 2>&1; then
-      continue
-    fi
-
-    local profile_name uuid base_sni base_fp defaults port xhttp_path route_json
-    profile_name=$(basename "$profile_file" .json)
-
-    local legacy_port legacy_decryption
-    legacy_port=$(jq -r 'first((.routes // [])[] | select(.label == "xhttp-legacy") | .port) // empty' "$profile_file")
-    if [[ "$legacy_port" =~ ^[0-9]+$ ]]; then
-      legacy_decryption=$(jq -r --argjson p "$legacy_port" \
-        '.inbounds[]? | select(.port == $p) | .settings.decryption // empty' \
-        "$CONFIG_FILE" 2>/dev/null)
-      if [[ "$legacy_decryption" == "none" ]]; then
-        continue
-      fi
-      echo -e "${YELLOW}  → $profile_name: legacy XHTTP route stale, пересоздаю${NC}"
-      safe_jq_write --argjson port "$legacy_port" 'del(.routes[] | select(.label == "xhttp-legacy" and .port == $port))' "$profile_file" >/dev/null 2>&1 || return 2
-    fi
-
-    uuid=$(jq -r '.uuid // empty' "$profile_file")
-    [[ -n "$uuid" ]] || {
-      echo -e "${YELLOW}  ⚠ $profile_name: uuid отсутствует, пропуск${NC}"
-      continue
-    }
-
-    base_sni=$(jq -r 'first((.routes // [])[] | select(.label == "xhttp-pq" and .transport == "xhttp") | .sni) // .sni // "www.ozon.ru"' "$profile_file")
-    base_fp=$(jq -r 'first((.routes // [])[] | select(.label == "xhttp-pq" and .transport == "xhttp") | .fingerprint) // .fingerprint // "chrome"' "$profile_file")
-
-    defaults=$(build_transport_defaults "xhttp") || return 2
-    IFS='|' read -r port _ xhttp_path <<< "$defaults"
-    route_json=$(jq -n \
-      --arg label "xhttp-legacy" \
-      --arg transport "xhttp" \
-      --argjson port "$port" \
-      --arg sni "$base_sni" \
-      --arg fingerprint "$base_fp" \
-      --arg xhttp_path "$xhttp_path" \
-      '{
-        "label": $label,
-        transport: $transport,
-        port: $port,
-        sni: $sni,
-        fingerprint: $fingerprint,
-        xhttp_path: $xhttp_path
-      }') || return 2
-
-    echo -e "${YELLOW}  → $profile_name: добавляю HAPP-compatible XHTTP :$port${NC}"
-    if ! safe_jq_write --argjson route "$route_json" '
-      .routes = ([$route] + (.routes // [])) |
-      .primary_route = "xhttp-legacy" |
-      .transport = "xhttp" |
-      .port = $route.port |
-      .fingerprint = $route.fingerprint |
-      .sni = $route.sni |
-      .xhttp_path = $route.xhttp_path |
-      .pq_enabled = false
-    ' "$profile_file"; then
-      echo -e "${RED}  ✗ $profile_name: не удалось обновить profile JSON${NC}"
-      return 2
-    fi
-
-    if ! add_inbound "$uuid" "xhttp" "$port" "$base_sni" "$base_fp" "" "$xhttp_path" false; then
-      echo -e "${RED}  ✗ $profile_name: не удалось создать legacy XHTTP inbound${NC}"
-      safe_jq_write --argjson port "$port" 'del(.routes[] | select(.label == "xhttp-legacy" and .port == $port))' "$profile_file" >/dev/null 2>&1 || true
-      return 2
-    fi
-
-    ((migrated++))
-  done
-
-  if [[ $migrated -gt 0 ]]; then
-    echo -e "${GREEN}✓ Добавлено legacy XHTTP маршрутов: $migrated${NC}"
-    return 0
-  fi
-
-  echo -e "${GREEN}✓ Legacy XHTTP маршруты уже в порядке${NC}"
+  echo -e "${CYAN}  → HAPP больше не добавляет маршруты в существующие профили автоматически${NC}"
+  echo -e "${CYAN}    Быстрый HAPP-flow создаёт отдельный multi-route профиль; ручной контроль — через 'Создать профиль'.${NC}"
   return 1
 }
 
@@ -2911,6 +2826,81 @@ _select_subscription_port() {
   return 0
 }
 
+_happ_find_existing_multiroute_profile() {
+  local profile_file profile_name route_count live_count
+  for profile_file in "$PROFILES_DIR"/*.json; do
+    [[ -f "$profile_file" ]] || continue
+    route_count=$(jq -r '(.routes // []) | length' "$profile_file" 2>/dev/null || echo 0)
+    live_count=$(_profile_live_route_count "$profile_file" 2>/dev/null || echo 0)
+    if [[ "$route_count" =~ ^[0-9]+$ ]] && [[ "$live_count" =~ ^[0-9]+$ ]] && \
+       [[ "$route_count" -ge 7 ]] && [[ "$live_count" -ge 7 ]]; then
+      profile_name=$(basename "$profile_file" .json)
+      echo "$profile_name"
+      return 0
+    fi
+  done
+  return 1
+}
+
+_happ_next_default_profile_name() {
+  local base="happ"
+  local name="$base"
+  local i=1
+  while [[ -e "$PROFILES_DIR/$name.json" ]]; do
+    name="${base}_${i}"
+    ((i++))
+  done
+  echo "$name"
+}
+
+_happ_ensure_default_multiroute_profile() {
+  HAPP_DEFAULT_PROFILE=""
+
+  local existing
+  if existing=$(_happ_find_existing_multiroute_profile); then
+    HAPP_DEFAULT_PROFILE="$existing"
+    echo -e "${CYAN}  → Использую существующий multi-route профиль: ${GREEN}${existing}${NC}"
+    return 0
+  fi
+
+  local profile_name
+  profile_name=$(_happ_next_default_profile_name)
+  echo -e "${CYAN}  → Создаю HAPP профиль '${profile_name}' с 7 маршрутами...${NC}"
+  if ! create_profile_all_routes "$profile_name" "no_pause" "hide_subscription"; then
+    echo -e "${RED}✗ Не удалось создать HAPP multi-route профиль${NC}"
+    return 1
+  fi
+
+  HAPP_DEFAULT_PROFILE="$profile_name"
+  return 0
+}
+
+_happ_print_subscription_url_for_profile() {
+  local profile_name="$1"
+  local profile_file="$PROFILES_DIR/$profile_name.json"
+  local token url
+
+  token=$(jq -r '.sub_token // ""' "$profile_file" 2>/dev/null)
+  if [[ ! "$token" =~ ^[a-f0-9]{32}$ ]]; then
+    echo -e "${YELLOW}  ⚠ У профиля ${profile_name} нет валидного sub_token — URL не показан${NC}"
+    return 1
+  fi
+
+  url="$(_subscription_base_url)/sub/${token}"
+  echo ""
+  echo -e "${GREEN}═══ ГОТОВАЯ HAPP SUBSCRIPTION URL ═══${NC}"
+  echo -e "${BLUE}Профиль:${NC} ${GREEN}${profile_name}${NC}"
+  if _subscription_is_local_only; then
+    echo -e "${YELLOW}Local-only debug URL:${NC} ${url}"
+    echo -e "${RED}QR не показываю: 127.0.0.1 доступен только с VPS/SSH tunnel, не с телефона.${NC}"
+  else
+    echo -e "${BLUE}URL:${NC} ${GREEN}${url}${NC}"
+    qrencode -t ANSIUTF8 "$url"
+  fi
+  echo ""
+  return 0
+}
+
 install_subscription_ip_tls() {
   show_ascii
   echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
@@ -3101,6 +3091,12 @@ NGINX_TLS_EOF
     return 1
   fi
 
+  local _happ_profile
+  if ! _happ_ensure_default_multiroute_profile; then
+    return 1
+  fi
+  _happ_profile="$HAPP_DEFAULT_PROFILE"
+
   local _summary_base
   _summary_base=$(_subscription_base_url)
   echo ""
@@ -3109,7 +3105,8 @@ NGINX_TLS_EOF
   echo -e "${GREEN}╚═══════════════════════════════════════════════${NC}"
   echo ""
   echo -e "${BLUE}Base URL:${NC} ${GREEN}${_summary_base}${NC}"
-  echo -e "${CYAN}Подписки на профили — через подменю 'Управление подпиской'${NC}"
+  _happ_print_subscription_url_for_profile "$_happ_profile"
+  echo -e "${CYAN}Для ручного контроля маршрутов используйте главное меню → 'Создать новый профиль'.${NC}"
   echo ""
   echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
   read -r _
@@ -3327,6 +3324,12 @@ NGINX_TLS_EOF
     return 1
   fi
 
+  local _happ_profile
+  if ! _happ_ensure_default_multiroute_profile; then
+    return 1
+  fi
+  _happ_profile="$HAPP_DEFAULT_PROFILE"
+
   echo ""
   echo -e "${GREEN}╔═══════════════════════════════════════════════${NC}"
   echo -e "${GREEN}    ✓ ПУБЛИЧНАЯ ПОДПИСКА АКТИВНА              ${NC}"
@@ -3336,7 +3339,8 @@ NGINX_TLS_EOF
   local _summary_base
   _summary_base=$(_subscription_base_url)
   echo -e "${BLUE}URL:${NC} ${GREEN}${_summary_base}${NC} (порт ${pub_port})"
-  echo -e "${CYAN}Подписки на профили — через подменю 'Управление подпиской'${NC}"
+  _happ_print_subscription_url_for_profile "$_happ_profile"
+  echo -e "${CYAN}Для ручного контроля маршрутов используйте главное меню → 'Создать новый профиль'.${NC}"
   echo ""
   echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
   read -r _
@@ -3371,9 +3375,16 @@ install_subscription_local_only() {
     return 1
   fi
 
+  local _happ_profile
+  if ! _happ_ensure_default_multiroute_profile; then
+    return 1
+  fi
+  _happ_profile="$HAPP_DEFAULT_PROFILE"
+
   echo ""
   echo -e "${GREEN}✓ Local-only handler запущен на 127.0.0.1:8080${NC}"
   echo -e "${CYAN}  UFW: порт НЕ открыт (loopback bypass).${NC}"
+  _happ_print_subscription_url_for_profile "$_happ_profile"
   echo ""
   echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
   read -r _
@@ -3777,10 +3788,10 @@ happ_subscription_menu() {
       echo ""
     fi
 
-    echo -e "${CYAN} 1)${NC} Установить public TLS по IP VPS ${GREEN}(default, без домена)${NC}"
-    echo -e "${CYAN} 2)${NC} Установить public TLS по домену"
-    echo -e "${CYAN} 3)${NC} Установить local-only debug (127.0.0.1:8080)"
-    echo -e "${CYAN} 4)${NC} Управление подпиской (URL / QR / revoke)"
+    echo -e "${CYAN} 1)${NC} Создать HAPP-подписку по IP VPS ${GREEN}(7 маршрутов + URL/QR)${NC}"
+    echo -e "${CYAN} 2)${NC} Создать HAPP-подписку по домену ${GREEN}(7 маршрутов + URL/QR)${NC}"
+    echo -e "${CYAN} 3)${NC} Local-only debug (127.0.0.1:8080)"
+    echo -e "${CYAN} 4)${NC} Управление существующими подписками (URL / QR / revoke)"
     echo -e "${CYAN} 5)${NC} Настройки HAPP (.happ_defaults.env)"
     echo -e "${CYAN} 6)${NC} Настроить announcement (HAPP)"
     echo -e "${CYAN} 0)${NC} Назад в главное меню"
@@ -3819,7 +3830,7 @@ main_menu() {
   run_migration "mlkem_keys_generated"                 "PQ ключи VLESS Encryption (mlkem768x25519plus)" _migrate_mlkem_keys || ((migration_failures++))
   run_migration "xhttp_default_2026"                   "XHTTP+PQ как дефолтный пресет создания профиля" _migrate_xhttp_default_2026 || ((migration_failures++))
   run_migration "subscription_tokens_2026"             "Subscription tokens (Phase 7) для существующих профилей" _migrate_subscription_tokens_2026 || ((migration_failures++))
-  run_migration "happ_legacy_xhttp_route_2026"         "HAPP-compatible legacy XHTTP route" _migrate_happ_legacy_xhttp_route_2026 || ((migration_failures++))
+  run_migration "happ_legacy_xhttp_route_2026"         "HAPP subscription не меняет существующие профили" _migrate_happ_legacy_xhttp_route_2026 || ((migration_failures++))
   if [[ ! -f /usr/local/etc/xray/.sni_list_2026 ]]; then
     echo -e "${YELLOW}Перед SNI миграцией доступна команда probe-test для проверки доступности SNI.${NC}"
     echo -n -e "${YELLOW}Запустить probe-test сейчас? [y/N]: ${NC}"
@@ -3897,7 +3908,7 @@ main_menu() {
     echo -e "${CYAN} 8)${NC} Обновить профиль до post-quantum (PQ XHTTP+Reality)"
     echo ""
     echo -e "${MAGENTA} HAPP SUBSCRIPTION:${NC}"
-    echo -e "${CYAN} 9)${NC} Подписка HAPP (public TLS / local handler / revoke)"
+    echo -e "${CYAN} 9)${NC} Подписка HAPP (авто 7 маршрутов + URL/QR)"
     echo ""
     echo -e "${MAGENTA} BYPASS ROUTING:${NC}"
     echo -e "${CYAN}11)${NC} Управление обходом VPN"
@@ -3953,9 +3964,9 @@ create_profile_menu() {
   echo -e "${BLUE}║              ВЫБЕРИТЕ ТИП ПРОФИЛЯ                         ║${NC}"
   echo -e "${BLUE}╚════════════════════════════════════════════════════════════╝${NC}"
   echo ""
-  echo -e "${CYAN} 1)${NC} Multi-route профиль ${GREEN}— РЕКОМЕНДУЕТСЯ для HAPP${NC}"
-  echo -e "    ${GREEN}✓${NC} Одна подписка, несколько маршрутов: xhttp-legacy, xhttp-pq, TCP, gRPC"
-  echo -e "    ${GREEN}✓${NC} HAPP получает legacy XHTTP первым, PQ остаётся отдельным маршрутом"
+  echo -e "${CYAN} 1)${NC} Multi-route профиль ${YELLOW}(ручной режим, как готовая HAPP-подписка)${NC}"
+  echo -e "    ${GREEN}✓${NC} Семь маршрутов в одном профиле: xhttp-legacy, xhttp-pq, TCP, gRPC"
+  echo -e "    ${BLUE}ℹ${NC} Обычному HAPP-пользователю проще выбрать пункт 9 в главном меню"
   echo ""
   echo -e "${CYAN} 2)${NC} VLESS + TCP + Reality + Vision ${YELLOW}(legacy, отдельный профиль)${NC}"
   echo -e "    ${GREEN}✓${NC} Для sing-box, Hiddify, NekoBox, mihomo и старых клиентов без PQ"
@@ -4021,6 +4032,8 @@ create_profile_menu() {
 
 create_profile_all_routes() {
   local name="$1"
+  local pause_after="${2:-pause}"
+  local subscription_output="${3:-show_subscription}"
   local uuid
   uuid=$(uuidgen)
 
@@ -4042,9 +4055,9 @@ create_profile_all_routes() {
   }
 
   _append_route_json() {
-    local label="$1" transport="$2" port="$3" sni="$4" fingerprint="$5" pq_enabled="$6" grpc_service_name="$7" xhttp_path="$8"
-    jq -n \
-      --arg label "$label" \
+    local route_label="$1" transport="$2" port="$3" sni="$4" fingerprint="$5" pq_enabled="$6" grpc_service_name="$7" xhttp_path="$8"
+    if ! jq -n \
+      --arg route_label "$route_label" \
       --arg transport "$transport" \
       --argjson port "$port" \
       --arg sni "$sni" \
@@ -4053,7 +4066,7 @@ create_profile_all_routes() {
       --arg grpc_service_name "$grpc_service_name" \
       --arg xhttp_path "$xhttp_path" \
       '{
-        "label": $label,
+        "label": $route_label,
         transport: $transport,
         port: $port,
         sni: $sni,
@@ -4061,38 +4074,41 @@ create_profile_all_routes() {
       }
       + (if $pq_enabled then {pq_enabled: true, schema_version: 2} else {} end)
       + (if $grpc_service_name != "" then {grpc_service_name: $grpc_service_name} else {} end)
-      + (if $xhttp_path != "" then {xhttp_path: $xhttp_path} else {} end)' >> "$routes_tmp"
+      + (if $xhttp_path != "" then {xhttp_path: $xhttp_path} else {} end)' >> "$routes_tmp"; then
+      echo -e "${RED}✗ Не удалось собрать JSON маршрута ${route_label}${NC}"
+      return 1
+    fi
   }
 
   local defaults port grpc_service_name xhttp_path
 
   defaults=$(build_transport_defaults "xhttp") || { rm -f "$routes_tmp"; return 1; }
   IFS='|' read -r port _ xhttp_path <<< "$defaults"
-  _append_route_json "xhttp-legacy" "xhttp" "$port" "$default_sni" "chrome" false "" "$xhttp_path"
+  _append_route_json "xhttp-legacy" "xhttp" "$port" "$default_sni" "chrome" false "" "$xhttp_path" || { rm -f "$routes_tmp"; return 1; }
 
   defaults=$(build_transport_defaults "xhttp") || { rm -f "$routes_tmp"; return 1; }
   IFS='|' read -r port _ xhttp_path <<< "$defaults"
-  _append_route_json "xhttp-pq" "xhttp" "$port" "$default_sni" "chrome" true "" "$xhttp_path"
+  _append_route_json "xhttp-pq" "xhttp" "$port" "$default_sni" "chrome" true "" "$xhttp_path" || { rm -f "$routes_tmp"; return 1; }
 
   defaults=$(build_transport_defaults "tcp-mux") || { rm -f "$routes_tmp"; return 1; }
   IFS='|' read -r port _ _ <<< "$defaults"
-  _append_route_json "tcp-mux" "tcp-mux" "$port" "$default_sni" "chrome" false "" ""
+  _append_route_json "tcp-mux" "tcp-mux" "$port" "$default_sni" "chrome" false "" "" || { rm -f "$routes_tmp"; return 1; }
 
   defaults=$(build_transport_defaults "grpc") || { rm -f "$routes_tmp"; return 1; }
   IFS='|' read -r port grpc_service_name _ <<< "$defaults"
-  _append_route_json "grpc" "grpc" "$port" "www.cloudflare.com" "chrome" false "$grpc_service_name" ""
+  _append_route_json "grpc" "grpc" "$port" "www.cloudflare.com" "chrome" false "$grpc_service_name" "" || { rm -f "$routes_tmp"; return 1; }
 
   defaults=$(build_transport_defaults "tcp") || { rm -f "$routes_tmp"; return 1; }
   IFS='|' read -r port _ _ <<< "$defaults"
-  _append_route_json "tcp-vision" "tcp" "$port" "$default_sni" "chrome" false "" ""
+  _append_route_json "tcp-vision" "tcp" "$port" "$default_sni" "chrome" false "" "" || { rm -f "$routes_tmp"; return 1; }
 
   defaults=$(build_transport_defaults "tcp-utls") || { rm -f "$routes_tmp"; return 1; }
   IFS='|' read -r port _ _ <<< "$defaults"
-  _append_route_json "tcp-utls-firefox" "tcp-utls" "$port" "$default_sni" "firefox" false "" ""
+  _append_route_json "tcp-utls-firefox" "tcp-utls" "$port" "$default_sni" "firefox" false "" "" || { rm -f "$routes_tmp"; return 1; }
 
   defaults=$(build_transport_defaults "tcp-xudp") || { rm -f "$routes_tmp"; return 1; }
   IFS='|' read -r port _ _ <<< "$defaults"
-  _append_route_json "tcp-xudp" "tcp-xudp" "$port" "api-maps.yandex.ru" "chrome" false "" ""
+  _append_route_json "tcp-xudp" "tcp-xudp" "$port" "api-maps.yandex.ru" "chrome" false "" "" || { rm -f "$routes_tmp"; return 1; }
 
   local routes_json
   routes_json=$(jq -s '.' "$routes_tmp") || {
@@ -4101,6 +4117,16 @@ create_profile_all_routes() {
     return 1
   }
   rm -f "$routes_tmp"
+
+  local route_count
+  route_count=$(jq 'length' <<< "$routes_json") || {
+    echo -e "${RED}✗ Не удалось проверить количество маршрутов${NC}"
+    return 1
+  }
+  if [[ "$route_count" != "7" ]]; then
+    echo -e "${RED}✗ Multi-route профиль собран некорректно: маршрутов ${route_count}, ожидалось 7${NC}"
+    return 1
+  fi
 
   if ! jq -n \
       --arg name "$name" \
@@ -4150,8 +4176,10 @@ create_profile_all_routes() {
         close_firewall_port "$p"
       done
       echo -e "${RED}✗ Не удалось создать маршрут ${label}; профиль удалён, config.json откатан${NC}"
-      echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
-      read -r _
+      if [[ "$pause_after" != "no_pause" ]]; then
+        echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
+        read -r _
+      fi
       return 1
     fi
     created_ports+=("$port")
@@ -4169,8 +4197,10 @@ create_profile_all_routes() {
     echo -e "${RED}╚═══════════════════════════════════════════════${NC}"
     echo ""
     echo -e "${RED}Xray не принял multi-route конфигурацию. Профиль удалён, config.json откатан.${NC}"
-    echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
-    read -r _
+    if [[ "$pause_after" != "no_pause" ]]; then
+      echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
+      read -r _
+    fi
     return 1
   fi
 
@@ -4184,31 +4214,35 @@ create_profile_all_routes() {
   echo -e "${BLUE}Маршрутов:${NC} $(jq 'length' <<< "$routes_json")"
   jq -r '.[] | "  - \(.label): \(.transport) :\(.port) sni=\(.sni)"' <<< "$routes_json"
 
-  if [[ -f /usr/local/etc/xray/.subscription_installed ]]; then
-    local _base _url
-    _base=$(_subscription_base_url)
-    _url="${_base}/sub/${sub_token}"
-    echo ""
-    echo -e "${GREEN}═══ HAPP SUBSCRIPTION URL ═══${NC}"
-    if _subscription_is_local_only; then
-      echo -e "${YELLOW}Local-only debug URL:${NC} ${_url}"
-      echo -e "${RED}QR не показываю: 127.0.0.1 доступен только с VPS/SSH tunnel, не с телефона.${NC}"
-      echo -e "${YELLOW}Для внешнего клиента включите: Главное меню → Подписка HAPP → Public TLS.${NC}"
+  if [[ "$subscription_output" != "hide_subscription" ]]; then
+    if [[ -f /usr/local/etc/xray/.subscription_installed ]]; then
+      local _base _url
+      _base=$(_subscription_base_url)
+      _url="${_base}/sub/${sub_token}"
+      echo ""
+      echo -e "${GREEN}═══ HAPP SUBSCRIPTION URL ═══${NC}"
+      if _subscription_is_local_only; then
+        echo -e "${YELLOW}Local-only debug URL:${NC} ${_url}"
+        echo -e "${RED}QR не показываю: 127.0.0.1 доступен только с VPS/SSH tunnel, не с телефона.${NC}"
+        echo -e "${YELLOW}Для внешнего клиента включите: Главное меню → Подписка HAPP → Public TLS.${NC}"
+      else
+        echo -e "${BLUE}URL:${NC} ${GREEN}${_url}${NC}"
+        qrencode -t ANSIUTF8 "$_url"
+      fi
     else
-      echo -e "${BLUE}URL:${NC} ${GREEN}${_url}${NC}"
-      qrencode -t ANSIUTF8 "$_url"
+      echo ""
+      echo -e "${YELLOW}ℹ HAPP-подписка ещё не установлена. Включите через 'Главное меню → Подписка HAPP'.${NC}"
     fi
-  else
-    echo ""
-    echo -e "${YELLOW}ℹ HAPP-подписка ещё не установлена. Включите через 'Главное меню → Подписка HAPP'.${NC}"
   fi
 
   echo ""
   echo -e "${CYAN}Одна подписка этого профиля отдаёт все маршруты.${NC}"
   echo ""
   fix_xray_permissions
-  echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
-  read -r _
+  if [[ "$pause_after" != "no_pause" ]]; then
+    echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
+    read -r _
+  fi
 }
 
 # Создание профиля
