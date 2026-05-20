@@ -801,6 +801,56 @@ close_firewall_port() {
   return 0
 }
 
+# Check whether a profile has route array
+profile_has_routes() {
+  local profile_file=$1
+  jq -e '(.routes // []) | length > 0' "$profile_file" >/dev/null 2>&1
+}
+
+# Select one route from a multi-route profile.
+# Sets global SELECTED_ROUTE_INDEX on success.
+select_route_for_profile() {
+  local profile_file=$1
+  local action_label=${2:-"изменения"}
+  local route_count
+  route_count=$(_profile_route_count "$profile_file")
+  SELECTED_ROUTE_INDEX=""
+
+  if [[ ! "$route_count" =~ ^[0-9]+$ ]] || [[ "$route_count" -le 0 ]]; then
+    return 1
+  fi
+
+  echo ""
+  echo -e "${YELLOW}Профиль содержит несколько маршрутов. Выберите маршрут для ${action_label}:${NC}\n"
+  jq -r '
+    to_entries[] |
+    "  \(.key + 1)) \(.value.label // .value.transport): \(.value.transport) :\(.value.port) sni=\(.value.sni // "n/a") fp=\(.value.fingerprint // "chrome")"
+  ' < <(jq '.routes // []' "$profile_file")
+  echo -e "  ${CYAN}0)${NC} Назад"
+  echo ""
+  echo -n -e "${YELLOW}Маршрут: ${NC}"
+  local route_choice
+  read -r route_choice
+  [[ "$route_choice" == "0" ]] && return 1
+  if [[ ! "$route_choice" =~ ^[0-9]+$ ]] || [[ "$route_choice" -lt 1 ]] || [[ "$route_choice" -gt "$route_count" ]]; then
+    echo -e "${RED}✗ Неверный выбор маршрута${NC}"
+    sleep 2
+    return 1
+  fi
+
+  SELECTED_ROUTE_INDEX=$((route_choice - 1))
+  return 0
+}
+
+# Check if a profile references a port either as top-level profile port or route port.
+profile_uses_port() {
+  local profile_file=$1
+  local port=$2
+  jq -e --argjson port "$port" '
+    (.port == $port) or any((.routes // [])[]; .port == $port)
+  ' "$profile_file" >/dev/null 2>&1
+}
+
 # Get list of profile names using a specific port
 # Args: $1=port
 # Returns: space-separated profile names
@@ -812,8 +862,7 @@ get_profiles_on_port() {
     [[ ! -f "$pf" ]] && continue
     [[ "$pf" == *"_test.json" ]] && continue
 
-    local pp=$(jq -r '.port' "$pf" 2>/dev/null)
-    if [[ "$pp" == "$port" ]]; then
+    if profile_uses_port "$pf" "$port"; then
       profiles+=("$(basename "$pf" .json)")
     fi
   done
@@ -829,15 +878,44 @@ update_all_profiles_on_port() {
   local value=$3
 
   local profiles=($(get_profiles_on_port "$port"))
+  local ok=true
 
   for pname in "${profiles[@]}"; do
     local pfile="$PROFILES_DIR/$pname.json"
-    if safe_jq_write --arg f "$field" --arg v "$value" '.[$f] = $v' "$pfile"; then
+    if safe_jq_write --argjson port "$port" --arg f "$field" --arg v "$value" '
+      if .port == $port then .[$f] = $v else . end |
+      (.routes // []) |= map(if .port == $port then .[$f] = $v else . end)
+    ' "$pfile"; then
       echo -e "${CYAN}  → Обновлен: ${YELLOW}$pname${NC}"
     else
       echo -e "${RED}  ✗ Ошибка обновления: ${YELLOW}$pname${NC}"
+      ok=false
     fi
   done
+  [[ "$ok" == "true" ]]
+}
+
+# Update the stored port for every profile/route that references old_port.
+update_all_profiles_port_reference() {
+  local old_port=$1
+  local new_port=$2
+
+  local profiles=($(get_profiles_on_port "$old_port"))
+  local ok=true
+  local pname
+  for pname in "${profiles[@]}"; do
+    local pfile="$PROFILES_DIR/$pname.json"
+    if safe_jq_write --argjson old_port "$old_port" --argjson new_port "$new_port" '
+      if .port == $old_port then .port = $new_port else . end |
+      (.routes // []) |= map(if .port == $old_port then .port = $new_port else . end)
+    ' "$pfile"; then
+      echo -e "${CYAN}  → Обновлен порт: ${YELLOW}$pname${NC}"
+    else
+      echo -e "${RED}  ✗ Ошибка обновления порта: ${YELLOW}$pname${NC}"
+      ok=false
+    fi
+  done
+  [[ "$ok" == "true" ]]
 }
 
 # run_migration <marker_basename> <description> <fn_name>
@@ -1762,7 +1840,7 @@ _migrate_happ_legacy_xhttp_route_2026() {
       --arg fingerprint "$base_fp" \
       --arg xhttp_path "$xhttp_path" \
       '{
-        label: $label,
+        "label": $label,
         transport: $transport,
         port: $port,
         sni: $sni,
@@ -3850,7 +3928,7 @@ create_profile_menu() {
   echo -e "${BLUE}        СОЗДАНИЕ НОВОГО ПРОФИЛЯ               ${NC}"
   echo -e "${BLUE}═══════════════════════════════════════════════${NC}\n"
   echo -n -e "${YELLOW}Введите имя профиля (или 0 для отмены): ${NC}"
-  read profile_name
+  read -r profile_name
   if [[ "$profile_name" == "0" ]]; then
     return
   fi
@@ -3869,43 +3947,44 @@ create_profile_menu() {
     sleep 2
     return
   fi
-  create_profile_all_routes "$profile_name"
-  return
 
   echo ""
   echo -e "${BLUE}╔════════════════════════════════════════════════════════════╗${NC}"
-  echo -e "${BLUE}║              ВЫБЕРИТЕ ТИП МАРШРУТА                        ║${NC}"
+  echo -e "${BLUE}║              ВЫБЕРИТЕ ТИП ПРОФИЛЯ                         ║${NC}"
   echo -e "${BLUE}╚════════════════════════════════════════════════════════════╝${NC}"
   echo ""
-  echo -e "${CYAN} 1)${NC} VLESS + XHTTP + Reality + ${MAGENTA}Post-Quantum (mlkem768x25519plus.native)${NC} ${GREEN}— РЕКОМЕНДУЕТСЯ${NC}"
+  echo -e "${CYAN} 1)${NC} Multi-route профиль ${GREEN}— РЕКОМЕНДУЕТСЯ для HAPP${NC}"
+  echo -e "    ${GREEN}✓${NC} Одна подписка, несколько маршрутов: xhttp-legacy, xhttp-pq, TCP, gRPC"
+  echo -e "    ${GREEN}✓${NC} HAPP получает legacy XHTTP первым, PQ остаётся отдельным маршрутом"
+  echo ""
+  echo -e "${CYAN} 2)${NC} VLESS + TCP + Reality + Vision ${YELLOW}(legacy, отдельный профиль)${NC}"
+  echo -e "    ${GREEN}✓${NC} Для sing-box, Hiddify, NekoBox, mihomo и старых клиентов без PQ"
+  echo -e "    ${YELLOW}⚠${NC} На мобильных сетях режется чаще, чем XHTTP/Mux"
+  echo ""
+  echo -e "${CYAN} 3)${NC} VLESS + XHTTP + Reality + ${MAGENTA}Post-Quantum (mlkem768x25519plus.native)${NC}"
   echo -e "    ${GREEN}✓${NC} ML-KEM-768 защита от harvest-now-decrypt-later атак"
   echo -e "    ${GREEN}✓${NC} Самый ровный вариант под ТСПУ-2026: мобильные сети и домашние ISP"
   echo -e "    ${GREEN}✓${NC} Path и порт генерируются случайно, host берётся из текущего SNI"
   echo -e "    ${YELLOW}⚠${NC} Клиент должен поддерживать VLESS PQ encryption:"
   echo -e "       ${GREEN}✓${NC} HAPP 2.10+, v2rayNG 1.10+, v2rayN PR#7782+, Shadowrocket (последние версии)"
-  echo -e "       ${RED}✗${NC} sing-box, NekoBox, Hiddify, mihomo — для них выберите пункт 4 (TCP+Vision legacy)"
+  echo -e "       ${RED}✗${NC} sing-box, NekoBox, Hiddify, mihomo — для них выберите пункт 2"
   echo ""
-  echo -e "${CYAN} 2)${NC} VLESS + TCP + Reality + Mux ${GREEN}(случайный высокий порт)${NC}"
+  echo -e "${CYAN} 4)${NC} VLESS + TCP + Reality + Mux ${GREEN}(случайный высокий порт)${NC}"
   echo -e "    ${GREEN}✓${NC} Хороший запасной вариант, если XHTTP-клиента нет"
   echo -e "    ${GREEN}✓${NC} Часто ведёт себя лучше Vision на мобильных сетях"
   echo -e "    ${BLUE}ℹ${NC} Mux включается на клиенте, без Vision-flow"
   echo ""
-  echo -e "${CYAN} 3)${NC} VLESS + gRPC + Reality ${YELLOW}(случайный высокий порт)${NC}"
+  echo -e "${CYAN} 5)${NC} VLESS + gRPC + Reality ${YELLOW}(случайный высокий порт)${NC}"
   echo -e "    ${YELLOW}⚠${NC} Работает только с SNI, где стабилен HTTP/2"
   echo -e "    ${YELLOW}⚠${NC} На части РУ-провайдеров и старых клиентов совместимость хуже"
   echo -e "    ${BLUE}ℹ${NC} serviceName генерируется случайно и сохраняется в профиле"
   echo ""
-  echo -e "${CYAN} 4)${NC} VLESS + TCP + Reality + Vision ${YELLOW}(случайный высокий порт)${NC}"
-  echo -e "    ${GREEN}✓${NC} Быстрый вариант для проводных / домашних ISP"
-  echo -e "    ${YELLOW}⚠${NC} На мобильных сетях режется чаще, чем XHTTP/Mux"
-  echo -e "    ${YELLOW}⚠${NC} Порт 443 для Vision теперь только вручную и с предупреждением"
-  echo ""
-  echo -e "${CYAN} 5)${NC} VLESS + TCP + Reality + Vision + uTLS ${MAGENTA}(случайный высокий порт, Firefox)${NC}"
+  echo -e "${CYAN} 6)${NC} VLESS + TCP + Reality + Vision + uTLS ${MAGENTA}(случайный высокий порт, Firefox)${NC}"
   echo -e "    ${GREEN}✓${NC} Подменяет TLS fingerprint под Firefox"
   echo -e "    ${BLUE}ℹ${NC} Имеет смысл на проводных линиях, где обычный Vision режется по fingerprint"
   echo -e "    ${YELLOW}⚠${NC} На мобильных сетях всё равно лучше сначала пробовать XHTTP"
   echo ""
-  echo -e "${CYAN} 6)${NC} VLESS + TCP + Reality + Vision + XUDP ${YELLOW}(случайный высокий порт, anti-Tele2)${NC}"
+  echo -e "${CYAN} 7)${NC} VLESS + TCP + Reality + Vision + XUDP ${YELLOW}(случайный высокий порт, anti-Tele2)${NC}"
   echo -e "    ${GREEN}✓${NC} Может помочь на самых жёстких мобильных фильтрах"
   echo -e "    ${GREEN}✓${NC} xtls-rprx-vision + xudp"
   echo -e "    ${GREEN}✓${NC} SNI: api-maps.yandex.ru по умолчанию"
@@ -3915,14 +3994,15 @@ create_profile_menu() {
   echo ""
   echo -e "${BLUE}╚════════════════════════════════════════════════════════════╝${NC}"
   echo -n -e "${YELLOW}Ваш выбор: ${NC}"
-  read route_choice
+  read -r route_choice
   case $route_choice in
-    1) create_profile "$profile_name" "xhttp" "" "chrome" ;;
-    2) create_profile "$profile_name" "tcp-mux" "" "chrome" ;;
-    3) create_profile "$profile_name" "grpc" "" "chrome" ;;
-    4) create_profile "$profile_name" "tcp" "" "chrome" ;;
-    5) create_profile "$profile_name" "tcp-utls" "" "firefox" ;;
-    6) create_profile "$profile_name" "tcp-xudp" "" "chrome" "api-maps.yandex.ru" ;;
+    1) create_profile_all_routes "$profile_name" ;;
+    2) create_profile "$profile_name" "tcp" "" "chrome" ;;
+    3) create_profile "$profile_name" "xhttp" "" "chrome" ;;
+    4) create_profile "$profile_name" "tcp-mux" "" "chrome" ;;
+    5) create_profile "$profile_name" "grpc" "" "chrome" ;;
+    6) create_profile "$profile_name" "tcp-utls" "" "firefox" ;;
+    7) create_profile "$profile_name" "tcp-xudp" "" "chrome" "api-maps.yandex.ru" ;;
     xorpub)
       # Hidden advanced opt-in (research §«Code Examples» #8 / D1 second-opinion).
       # xorpub mode = security theater в контексте Reality (codex+kimi подтвердили 2026-05-09).
@@ -3973,7 +4053,7 @@ create_profile_all_routes() {
       --arg grpc_service_name "$grpc_service_name" \
       --arg xhttp_path "$xhttp_path" \
       '{
-        label: $label,
+        "label": $label,
         transport: $transport,
         port: $port,
         sni: $sni,
@@ -5023,11 +5103,30 @@ change_sni_menu() {
   fi
 
   local selected="${profiles[$((choice-1))]}"
-  local current_sni=$(jq -r '.sni // "www.ozon.ru"' "$PROFILES_DIR/$selected.json")
-  local transport=$(jq -r '.transport // "tcp"' "$PROFILES_DIR/$selected.json")
+  local profile_file="$PROFILES_DIR/$selected.json"
+  local route_index=""
+  local route_label=""
+  local current_sni
+  local transport
+  local port
+  local target_label="$selected"
+
+  if profile_has_routes "$profile_file"; then
+    select_route_for_profile "$profile_file" "смены SNI" || return
+    route_index="$SELECTED_ROUTE_INDEX"
+    route_label=$(jq -r --argjson i "$route_index" '.routes[$i].label // .routes[$i].transport // ("route-" + ($i|tostring))' "$profile_file")
+    current_sni=$(jq -r --argjson i "$route_index" '.routes[$i].sni // .sni // "www.ozon.ru"' "$profile_file")
+    transport=$(jq -r --argjson i "$route_index" '.routes[$i].transport // .transport // "tcp"' "$profile_file")
+    port=$(jq -r --argjson i "$route_index" '.routes[$i].port // empty' "$profile_file")
+    target_label="$selected/$route_label"
+  else
+    current_sni=$(jq -r '.sni // "www.ozon.ru"' "$profile_file")
+    transport=$(jq -r '.transport // "tcp"' "$profile_file")
+    port=$(jq -r '.port' "$profile_file")
+  fi
 
   echo ""
-  echo -e "${CYAN}Текущий SNI профиля '$selected':${NC} ${GREEN}$current_sni${NC}"
+  echo -e "${CYAN}Текущий SNI '${target_label}':${NC} ${GREEN}$current_sni${NC}"
   echo -e "${CYAN}Транспорт:${NC} ${YELLOW}$transport${NC}\n"
 
   # gRPC требует HTTP/2, российские сайты не поддерживают
@@ -5063,7 +5162,6 @@ change_sni_menu() {
     fi
 
     # Переходим к обновлению SNI (пропускаем общий список)
-    local port=$(jq -r '.port' "$PROFILES_DIR/$selected.json")
     local profiles_on_port=($(get_profiles_on_port "$port"))
 
     if [[ ${#profiles_on_port[@]} -gt 1 ]]; then
@@ -5079,16 +5177,11 @@ change_sni_menu() {
     echo -n -e "${YELLOW}Применить SNI '$new_sni'? (y/N): ${NC}"
     read confirm
     if [[ "$confirm" =~ ^[yYдД]$ ]]; then
-      # Update profile JSON
-      if ! safe_jq_write --arg sni "$new_sni" '.sni = $sni' "$PROFILES_DIR/$selected.json"; then
+      # Update all profile/route JSON entries tied to this inbound port
+      if ! update_all_profiles_on_port "$port" "sni" "$new_sni"; then
         echo -e "${RED}✗ Ошибка обновления профиля${NC}"
         sleep 2
         return
-      fi
-
-      # Update all profiles on port if shared
-      if [[ ${#profiles_on_port[@]} -gt 1 ]]; then
-        update_all_profiles_on_port "$port" "sni" "$new_sni"
       fi
 
       # Update config
@@ -5100,7 +5193,7 @@ change_sni_menu() {
       safe_restart_xray
 
       echo ""
-      echo -e "${GREEN}✓ SNI профиля '$selected' изменен на: ${YELLOW}$new_sni${NC}"
+      echo -e "${GREEN}✓ SNI '${target_label}' изменен на: ${YELLOW}$new_sni${NC}"
       echo ""
       echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
       read
@@ -5187,7 +5280,6 @@ change_sni_menu() {
   fi
 
   # Check for shared inbound
-  local port=$(jq -r '.port' "$PROFILES_DIR/$selected.json")
   local profiles_on_port=($(get_profiles_on_port "$port"))
   local shared_inbound=false
 
@@ -5221,7 +5313,7 @@ change_sni_menu() {
   echo -e "${RED}║            ⚠ КРИТИЧЕСКОЕ ПРЕДУПРЕЖДЕНИЕ ⚠               ║${NC}"
   echo -e "${RED}╚═══════════════════════════════════════════════════════════╝${NC}"
   echo ""
-  echo -e "${YELLOW}Смена SNI обновит конфигурацию профиля '$selected'.${NC}"
+  echo -e "${YELLOW}Смена SNI обновит конфигурацию '${target_label}'.${NC}"
   echo ""
   echo -e "${RED}Активные подключения этого профиля будут разорваны!${NC}"
   echo ""
@@ -5240,17 +5332,11 @@ change_sni_menu() {
     return
   fi
 
-  # Update selected profile
-  if ! safe_jq_write --arg sni "$new_sni" '.sni = $sni' "$PROFILES_DIR/$selected.json"; then
+  # Update all profile/route JSON entries tied to this inbound port
+  if ! update_all_profiles_on_port "$port" "sni" "$new_sni"; then
     echo -e "${RED}✗ Ошибка обновления профиля${NC}"
     sleep 2
     return
-  fi
-
-  # If shared inbound, update ALL profiles on port
-  if [[ "$shared_inbound" == "true" ]]; then
-    echo -e "${CYAN}Обновление всех профилей на порту $port...${NC}"
-    update_all_profiles_on_port "$port" "sni" "$new_sni"
   fi
 
   # Update config (transport-aware)
@@ -5263,7 +5349,7 @@ change_sni_menu() {
   safe_restart_xray
 
   echo ""
-  echo -e "${GREEN}✓ SNI профиля '$selected' изменен на: ${YELLOW}$new_sni${NC}"
+  echo -e "${GREEN}✓ SNI '${target_label}' изменен на: ${YELLOW}$new_sni${NC}"
   echo ""
   echo -e "${MAGENTA}╔═══════════════════════════════════════════════════════════╗${NC}"
   echo -e "${MAGENTA}║     Теперь получите новую ссылку для этого профиля!     ║${NC}"
@@ -5313,10 +5399,27 @@ change_fingerprint_menu() {
   fi
 
   local selected="${profiles[$((choice-1))]}"
-  local current_fp=$(jq -r '.fingerprint // "chrome"' "$PROFILES_DIR/$selected.json")
+  local profile_file="$PROFILES_DIR/$selected.json"
+  local route_index=""
+  local route_label=""
+  local current_fp
+  local port
+  local target_label="$selected"
+
+  if profile_has_routes "$profile_file"; then
+    select_route_for_profile "$profile_file" "смены fingerprint" || return
+    route_index="$SELECTED_ROUTE_INDEX"
+    route_label=$(jq -r --argjson i "$route_index" '.routes[$i].label // .routes[$i].transport // ("route-" + ($i|tostring))' "$profile_file")
+    current_fp=$(jq -r --argjson i "$route_index" '.routes[$i].fingerprint // .fingerprint // "chrome"' "$profile_file")
+    port=$(jq -r --argjson i "$route_index" '.routes[$i].port // empty' "$profile_file")
+    target_label="$selected/$route_label"
+  else
+    current_fp=$(jq -r '.fingerprint // "chrome"' "$profile_file")
+    port=$(jq -r '.port' "$profile_file")
+  fi
 
   echo ""
-  echo -e "${CYAN}Текущий fingerprint профиля '$selected':${NC} ${GREEN}$current_fp${NC}\n"
+  echo -e "${CYAN}Текущий fingerprint '${target_label}':${NC} ${GREEN}$current_fp${NC}\n"
   echo -e "${YELLOW}Доступные fingerprint (эмуляция браузера):${NC}\n"
   echo -e "${CYAN} 1)${NC} chrome    ${BLUE}(стандартный, широкая совместимость)${NC}"
   echo -e "${CYAN} 2)${NC} firefox   ${GREEN}(рекомендуется при блокировках РКН)${NC}"
@@ -5348,7 +5451,6 @@ change_fingerprint_menu() {
   fi
 
   # Check for shared inbound
-  local port=$(jq -r '.port' "$PROFILES_DIR/$selected.json")
   local profiles_on_port=($(get_profiles_on_port "$port"))
   local shared_inbound=false
 
@@ -5383,7 +5485,7 @@ change_fingerprint_menu() {
   echo ""
   echo -e "${YELLOW}Смена fingerprint изменит TLS имитацию браузера.${NC}"
   echo ""
-  echo -e "${RED}Активные подключения профиля '$selected' будут разорваны!${NC}"
+  echo -e "${RED}Активные подключения '${target_label}' будут разорваны!${NC}"
   echo ""
   echo -e "${CYAN}После смены необходимо:${NC}"
   echo -e "  ${BLUE}1.${NC} Получить НОВУЮ ссылку для профиля '$selected'"
@@ -5400,17 +5502,11 @@ change_fingerprint_menu() {
     return
   fi
 
-  # Update selected profile
-  if ! safe_jq_write --arg fp "$new_fp" '.fingerprint = $fp' "$PROFILES_DIR/$selected.json"; then
+  # Update all profile/route JSON entries tied to this inbound port
+  if ! update_all_profiles_on_port "$port" "fingerprint" "$new_fp"; then
     echo -e "${RED}✗ Ошибка обновления профиля${NC}"
     sleep 2
     return
-  fi
-
-  # If shared inbound, update ALL profiles on port
-  if [[ "$shared_inbound" == "true" ]]; then
-    echo -e "${CYAN}Обновление всех профилей на порту $port...${NC}"
-    update_all_profiles_on_port "$port" "fingerprint" "$new_fp"
   fi
 
   # Update config
@@ -5425,7 +5521,7 @@ change_fingerprint_menu() {
   safe_restart_xray
 
   echo ""
-  echo -e "${GREEN}✓ Fingerprint профиля '$selected' изменен на: ${YELLOW}$new_fp${NC}"
+  echo -e "${GREEN}✓ Fingerprint '${target_label}' изменен на: ${YELLOW}$new_fp${NC}"
   echo ""
   echo -e "${MAGENTA}╔═══════════════════════════════════════════════════════════╗${NC}"
   echo -e "${MAGENTA}║     Теперь получите новую ссылку для этого профиля!     ║${NC}"
@@ -5470,9 +5566,21 @@ change_port_menu() {
   fi
   local profile_name="${profiles[$((choice-1))]}"
   local profile_file="$PROFILES_DIR/$profile_name.json"
-  local old_port=$(jq -r '.port' "$profile_file")
+  local route_index=""
+  local route_label=""
+  local old_port
+  local target_label="$profile_name"
+  if profile_has_routes "$profile_file"; then
+    select_route_for_profile "$profile_file" "смены порта" || return
+    route_index="$SELECTED_ROUTE_INDEX"
+    route_label=$(jq -r --argjson i "$route_index" '.routes[$i].label // .routes[$i].transport // ("route-" + ($i|tostring))' "$profile_file")
+    old_port=$(jq -r --argjson i "$route_index" '.routes[$i].port // empty' "$profile_file")
+    target_label="$profile_name/$route_label"
+  else
+    old_port=$(jq -r '.port' "$profile_file")
+  fi
   echo ""
-  echo -e "${CYAN}Текущий порт профиля '$profile_name':${NC} ${GREEN}$old_port${NC}\n"
+  echo -e "${CYAN}Текущий порт '${target_label}':${NC} ${GREEN}$old_port${NC}\n"
   echo -e "${YELLOW}Рекомендуемый сценарий для 2026:${NC}\n"
   echo -e "  ${GREEN}1)${NC} Случайный высокий порт 30000-60000 ${MAGENTA}- рекомендуется${NC}"
   echo -e "  ${CYAN}2)${NC} 443   ${YELLOW}- вручную / рискованно для Vision${NC}"
@@ -5520,16 +5628,31 @@ change_port_menu() {
     sleep 2
     return
   fi
+  if [[ -n "$route_index" ]] && jq -e --argjson i "$route_index" --argjson port "$new_port" '
+    any((.routes // []) | to_entries[]; (.key != $i) and (.value.port == $port))
+  ' "$profile_file" >/dev/null 2>&1; then
+    echo -e "${RED}✗ Этот порт уже используется другим маршрутом этого же профиля${NC}"
+    sleep 2
+    return
+  fi
 
   # Get profile transport and UUID
-  local profile_transport=$(jq -r '.transport' "$profile_file")
-  local profile_uuid=$(jq -r '.uuid' "$profile_file")
+  local profile_transport
+  local profile_uuid
   local profile_metadata=""
   local profile_grpc_service_name=""
   local profile_xhttp_path=""
 
-  profile_metadata=$(read_profile_transport_metadata "$profile_file")
-  IFS='|' read -r profile_grpc_service_name profile_xhttp_path <<< "$profile_metadata"
+  profile_uuid=$(jq -r '.uuid' "$profile_file")
+  if [[ -n "$route_index" ]]; then
+    profile_transport=$(jq -r --argjson i "$route_index" '.routes[$i].transport // empty' "$profile_file")
+    profile_grpc_service_name=$(jq -r --argjson i "$route_index" '.routes[$i].grpc_service_name // ""' "$profile_file")
+    profile_xhttp_path=$(jq -r --argjson i "$route_index" '.routes[$i].xhttp_path // ""' "$profile_file")
+  else
+    profile_transport=$(jq -r '.transport' "$profile_file")
+    profile_metadata=$(read_profile_transport_metadata "$profile_file")
+    IFS='|' read -r profile_grpc_service_name profile_xhttp_path <<< "$profile_metadata"
+  fi
 
   if [[ "$new_port" == "443" ]] && [[ "$profile_transport" == "tcp" || "$profile_transport" == "tcp-utls" || "$profile_transport" == "tcp-xudp" ]]; then
     if ! confirm_vision_443_risk; then
@@ -5598,7 +5721,7 @@ change_port_menu() {
   echo ""
   echo -e "${YELLOW}Смена порта изменит настройки подключения.${NC}"
   echo ""
-  echo -e "${RED}ВСЕ активные подключения профиля '$profile_name' будут разорваны!${NC}"
+  echo -e "${RED}ВСЕ активные подключения '${target_label}' будут разорваны!${NC}"
   echo ""
   echo -e "${CYAN}После смены необходимо:${NC}"
   echo -e "  ${BLUE}1.${NC} Получить НОВУЮ ссылку/QR-код для этого профиля"
@@ -5656,11 +5779,31 @@ change_port_menu() {
       close_firewall_port "$old_port"
     fi
 
-    # Шаг 4: Обновить файл профиля (port + sni + fingerprint целевого inbound)
+    # Шаг 4: Обновить файл профиля/маршрута (port + sni + fingerprint целевого inbound)
     [[ -z "$target_inbound_fp" ]] && target_inbound_fp="chrome"
-    safe_jq_write --argjson port "$new_port" --arg sni "$target_inbound_sni" --arg fp "$target_inbound_fp" \
-      '.port = $port | .sni = $sni | .fingerprint = $fp' "$profile_file"
-    write_profile_transport_metadata "$profile_file" "$target_inbound_grpc_service_name" "$target_inbound_xhttp_path"
+    if [[ -n "$route_index" ]]; then
+      safe_jq_write --argjson i "$route_index" --argjson port "$new_port" --arg sni "$target_inbound_sni" --arg fp "$target_inbound_fp" '
+        .routes[$i].port = $port |
+        .routes[$i].sni = $sni |
+        .routes[$i].fingerprint = $fp |
+        if $i == 0 then .port = $port | .sni = $sni | .fingerprint = $fp else . end
+      ' "$profile_file"
+      safe_jq_write --argjson i "$route_index" --arg grpc_service_name "$target_inbound_grpc_service_name" --arg xhttp_path "$target_inbound_xhttp_path" '
+        if .routes[$i].transport == "grpc" then
+          .routes[$i].grpc_service_name = $grpc_service_name |
+          if $i == 0 then .grpc_service_name = $grpc_service_name else . end
+        elif .routes[$i].transport == "xhttp" then
+          .routes[$i].xhttp_path = $xhttp_path |
+          if $i == 0 then .xhttp_path = $xhttp_path else . end
+        else
+          .
+        end
+      ' "$profile_file"
+    else
+      safe_jq_write --argjson port "$new_port" --arg sni "$target_inbound_sni" --arg fp "$target_inbound_fp" \
+        '.port = $port | .sni = $sni | .fingerprint = $fp' "$profile_file"
+      write_profile_transport_metadata "$profile_file" "$target_inbound_grpc_service_name" "$target_inbound_xhttp_path"
+    fi
 
   else
     # Move entire inbound to new port (original logic)
@@ -5673,13 +5816,8 @@ change_port_menu() {
       return
     fi
 
-    # Обновить ВСЕ профили на старом порту (inbound перенесён целиком)
-    local moved_profiles=($(get_profiles_on_port "$old_port"))
-    for mp in "${moved_profiles[@]}"; do
-      safe_jq_write --argjson port "$new_port" '.port = $port' "$PROFILES_DIR/$mp.json"
-    done
-    # На случай если выбранный профиль не попал в список (уже обновлён)
-    safe_jq_write --argjson port "$new_port" '.port = $port' "$profile_file"
+    # Обновить ВСЕ профили/маршруты на старом порту (inbound перенесён целиком)
+    update_all_profiles_port_reference "$old_port" "$new_port"
 
     # Update firewall
     open_firewall_port "$new_port"
@@ -5689,7 +5827,7 @@ change_port_menu() {
   fix_xray_permissions
   safe_restart_xray
   echo ""
-  echo -e "${GREEN}✓ Порт профиля '$profile_name' изменен: ${YELLOW}$old_port → $new_port${NC}"
+  echo -e "${GREEN}✓ Порт '${target_label}' изменен: ${YELLOW}$old_port → $new_port${NC}"
   echo ""
   echo -e "${MAGENTA}╔═══════════════════════════════════════════════════════════╗${NC}"
   echo -e "${MAGENTA}║        Теперь ОБЯЗАТЕЛЬНО получите новую ссылку!        ║${NC}"
@@ -6116,9 +6254,21 @@ upgrade_profile_to_pq_menu() {
   local i=1
   local upgradeable=()
   for profile in "${profiles[@]}"; do
-    local pq=$(jq -r '.pq_enabled // false' "$PROFILES_DIR/$profile.json" 2>/dev/null)
-    local transport=$(jq -r '.transport // "tcp"' "$PROFILES_DIR/$profile.json" 2>/dev/null)
-    local port=$(jq -r '.port' "$PROFILES_DIR/$profile.json" 2>/dev/null)
+    local pfile="$PROFILES_DIR/$profile.json"
+    local transport=$(jq -r '.transport // "tcp"' "$pfile" 2>/dev/null)
+    local port=$(jq -r '.port // "-"' "$pfile" 2>/dev/null)
+    if profile_has_routes "$pfile"; then
+      local route_count
+      route_count=$(_profile_route_count "$pfile")
+      if _profile_has_pq_route "$pfile"; then
+        echo -e "${CYAN} —)${NC} $profile ${BLUE}[multi-route: ${route_count} routes]${NC} ${GREEN}[PQ route уже есть]${NC}"
+      else
+        echo -e "${CYAN} —)${NC} $profile ${BLUE}[multi-route: ${route_count} routes]${NC} ${YELLOW}[апгрейд делается по маршрутам вручную]${NC}"
+      fi
+      continue
+    fi
+
+    local pq=$(jq -r '.pq_enabled // false' "$pfile" 2>/dev/null)
     if [[ "$pq" == "true" ]]; then
       echo -e "${CYAN} —)${NC} $profile ${BLUE}[порт:$port,$transport]${NC} ${GREEN}[уже PQ]${NC}"
     else
@@ -6130,7 +6280,8 @@ upgrade_profile_to_pq_menu() {
   echo -e "${CYAN} 0)${NC} Назад\n"
 
   if [[ ${#upgradeable[@]} -eq 0 ]]; then
-    echo -e "${GREEN}✓ Все профили уже используют post-quantum encryption.${NC}"
+    echo -e "${GREEN}✓ Нет single-route legacy профилей для in-place PQ upgrade.${NC}"
+    echo -e "${CYAN}Multi-route профили уже содержат отдельные legacy/PQ маршруты.${NC}"
     echo -n -e "${YELLOW}Нажмите Enter для возврата...${NC}"; read
     return
   fi
@@ -6144,6 +6295,12 @@ upgrade_profile_to_pq_menu() {
 
   local selected="${upgradeable[$((choice-1))]}"
   local pfile="$PROFILES_DIR/$selected.json"
+  if profile_has_routes "$pfile"; then
+    echo -e "${RED}✗ Multi-route профиль не переводится целиком через это меню.${NC}"
+    echo -e "${YELLOW}  В нем уже есть отдельные legacy/PQ маршруты. Используйте raw route или создайте отдельный legacy/PQ профиль.${NC}"
+    sleep 3
+    return
+  fi
   local port=$(jq -r '.port' "$pfile")
   local uuid=$(jq -r '.uuid' "$pfile")
   local sni=$(jq -r '.sni // "www.ozon.ru"' "$pfile")
