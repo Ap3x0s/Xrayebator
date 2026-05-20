@@ -50,7 +50,7 @@ sleep 2
 # [1/10] Установка зависимостей
 echo -e "${BLUE}[1/10]${NC} ${YELLOW}Установка необходимых пакетов...${NC}"
 apt update > /dev/null 2>&1
-apt install -y curl wget jq qrencode uuid-runtime ufw unzip > /dev/null 2>&1
+apt install -y ca-certificates curl wget jq qrencode uuid-runtime ufw unzip openssl socat > /dev/null 2>&1
 if [[ $? -eq 0 ]]; then
   echo -e "${GREEN}✓ Зависимости установлены${NC}\n"
 else
@@ -718,7 +718,7 @@ if [[ $? -eq 0 ]] && [[ -s "${DATA_DIR}/sni_list.txt" ]]; then
 else
   echo -e "${YELLOW}⚠ Не удалось загрузить список SNI, создаю базовый...${NC}"
   cat > "${DATA_DIR}/sni_list.txt" << 'EOF'
-ozone.ru|ru_whitelist|1
+www.ozon.ru|ru_whitelist|1
 wildberries.ru|ru_whitelist|1
 sberbank.ru|ru_whitelist|1
 nspk.ru|ru_whitelist|1
@@ -740,20 +740,43 @@ fi
 
 # [10/10] Установка приложения
 echo -e "${BLUE}[10/10]${NC} ${YELLOW}Установка управляющего приложения...${NC}"
-curl -fsSL "${RAW_BASE_URL}/xrayebator" -o /usr/local/bin/xrayebator
-if [[ $? -eq 0 ]] && [[ -s /usr/local/bin/xrayebator ]]; then
-  chmod +x /usr/local/bin/xrayebator
+XRAYEBATOR_TMP=$(mktemp /tmp/xrayebator_install_XXXXXX)
+if curl -fsSL --connect-timeout 10 --max-time 60 "${RAW_BASE_URL}/xrayebator" -o "$XRAYEBATOR_TMP" \
+   && [[ -s "$XRAYEBATOR_TMP" ]] \
+   && head -n 1 "$XRAYEBATOR_TMP" | grep -q "^#!/bin/bash" \
+   && bash -n "$XRAYEBATOR_TMP"; then
+  chmod +x "$XRAYEBATOR_TMP"
+  mv "$XRAYEBATOR_TMP" /usr/local/bin/xrayebator
   echo -e "${GREEN}✓ Приложение xrayebator установлено${NC}"
 else
   echo -e "${RED}✗ Ошибка загрузки xrayebator${NC}"
+  rm -f "$XRAYEBATOR_TMP"
   exit 1
 fi
 
 # Скрипты управления
-curl -fsSL "${RAW_BASE_URL}/update.sh" -o "${SCRIPTS_DIR}/update.sh" 2>/dev/null
-chmod +x "${SCRIPTS_DIR}/update.sh" 2>/dev/null
-curl -fsSL "${RAW_BASE_URL}/uninstall.sh" -o "${SCRIPTS_DIR}/uninstall.sh" 2>/dev/null
-chmod +x "${SCRIPTS_DIR}/uninstall.sh" 2>/dev/null
+UPDATE_TMP=$(mktemp /tmp/xrayebator_update_install_XXXXXX.sh)
+if curl -fsSL --connect-timeout 10 --max-time 30 "${RAW_BASE_URL}/update.sh" -o "$UPDATE_TMP" 2>/dev/null \
+   && [[ -s "$UPDATE_TMP" ]] \
+   && head -n 1 "$UPDATE_TMP" | grep -q "^#!/bin/bash" \
+   && bash -n "$UPDATE_TMP"; then
+  chmod +x "$UPDATE_TMP"
+  mv "$UPDATE_TMP" "${SCRIPTS_DIR}/update.sh"
+else
+  echo -e "${YELLOW}⚠ update.sh не загружен или невалиден${NC}"
+  rm -f "$UPDATE_TMP"
+fi
+UNINSTALL_TMP=$(mktemp /tmp/xrayebator_uninstall_install_XXXXXX.sh)
+if curl -fsSL --connect-timeout 10 --max-time 30 "${RAW_BASE_URL}/uninstall.sh" -o "$UNINSTALL_TMP" 2>/dev/null \
+   && [[ -s "$UNINSTALL_TMP" ]] \
+   && head -n 1 "$UNINSTALL_TMP" | grep -q "^#!/bin/bash" \
+   && bash -n "$UNINSTALL_TMP"; then
+  chmod +x "$UNINSTALL_TMP"
+  mv "$UNINSTALL_TMP" "${SCRIPTS_DIR}/uninstall.sh"
+else
+  echo -e "${YELLOW}⚠ uninstall.sh не загружен или невалиден${NC}"
+  rm -f "$UNINSTALL_TMP"
+fi
 ln -sf "${SCRIPTS_DIR}/update.sh" /usr/local/bin/xrayebator-update 2>/dev/null
 ln -sf "${SCRIPTS_DIR}/uninstall.sh" /usr/local/bin/xrayebator-uninstall 2>/dev/null
 echo "$GITHUB_BRANCH" > /usr/local/etc/xray/.current_branch

@@ -2585,17 +2585,35 @@ install_subscription_server() {
 # socat fork-ит этот скрипт на каждый TCP-connect: stdin = HTTP request, stdout = HTTP response.
 # REQ-C05 (strict regex), REQ-C06 (constant-time 404), REQ-C07 (HAPP metadata symmetry headers↔body).
 
-set -u
+set +u
+
+emit_500() {
+  local msg="${1:-Subscription handler error}"
+  local body="Xrayebator subscription handler error: ${msg}
+"
+  printf 'HTTP/1.1 500 Internal Server Error\r\n'
+  printf 'content-type: text/plain; charset=utf-8\r\n'
+  printf 'content-length: %s\r\n' "${#body}"
+  printf 'connection: close\r\n'
+  printf 'cache-control: no-store\r\n'
+  printf '\r\n'
+  printf '%s' "$body"
+  exit 0
+}
 
 # Source xrayebator для доступа к _generate_vless_url_pure() + констант (CONFIG_FILE,
 # PROFILES_DIR, PUBLIC_KEY_FILE, VLESS_ENCRYPTION_FILE). Source-safety guard (Plan 7.1
 # REQ-C10) гарантирует, что main_menu НЕ запустится при source.
-source /usr/local/bin/xrayebator
+if [[ ! -r /usr/local/bin/xrayebator ]] || ! source /usr/local/bin/xrayebator; then
+  emit_500 "cannot source /usr/local/bin/xrayebator"
+fi
 
 # Source HAPP defaults — на КАЖДЫЙ request (REQ-C13 prerequisite: Plan 7.3 TUI редактирование
 # применяется без рестарта сервиса).
 HAPP_DEFAULTS=/usr/local/etc/xray/.happ_defaults.env
-[[ -f "$HAPP_DEFAULTS" ]] && source "$HAPP_DEFAULTS"
+if [[ -f "$HAPP_DEFAULTS" ]] && ! source "$HAPP_DEFAULTS"; then
+  emit_500 "invalid HAPP defaults file"
+fi
 
 # Fallback-defaults если .happ_defaults.env отсутствует или не задаёт переменную.
 HAPP_PROFILE_UPDATE_INTERVAL="${HAPP_PROFILE_UPDATE_INTERVAL:-24}"
@@ -2798,6 +2816,10 @@ SUBHTTP_EOF
 
   chmod 755 /usr/local/bin/subhttp.sh
   chown root:root /usr/local/bin/subhttp.sh
+  if ! bash -n /usr/local/bin/subhttp.sh; then
+    echo -e "${RED}✗ Сгенерированный /usr/local/bin/subhttp.sh не проходит bash -n${NC}"
+    return 1
+  fi
   echo -e "${GREEN}  ✓ /usr/local/bin/subhttp.sh создан${NC}"
 
   # ── (2) .happ_defaults.env (idempotent — не перетирать кастомизации оператора) ──
@@ -2969,8 +2991,19 @@ _subscription_ensure_handler_running() {
     return 0
   fi
 
+  _subscription_restart_service
+}
+
+_subscription_restart_service() {
+  ensure_xray_runtime_user >/dev/null 2>&1 || return 1
+  [[ -f /etc/systemd/system/xrayebator-sub.service ]] || return 1
+
   systemctl daemon-reload 2>/dev/null || true
-  systemctl enable --now xrayebator-sub.service >/dev/null 2>&1
+  systemctl reset-failed xrayebator-sub.service 2>/dev/null || true
+  systemctl enable xrayebator-sub.service >/dev/null 2>&1 || return 1
+  systemctl restart xrayebator-sub.service >/dev/null 2>&1 || return 1
+  sleep 1
+  systemctl is-active --quiet xrayebator-sub.service
 }
 
 _subscription_repair_handler() {
@@ -2979,12 +3012,7 @@ _subscription_repair_handler() {
     return 1
   fi
 
-  systemctl daemon-reload 2>/dev/null || true
-  if systemctl is-active --quiet xrayebator-sub.service; then
-    systemctl restart xrayebator-sub.service >/dev/null 2>&1
-  else
-    systemctl enable --now xrayebator-sub.service >/dev/null 2>&1
-  fi
+  _subscription_restart_service
 }
 
 _subscription_local_self_test() {
@@ -2993,18 +3021,44 @@ _subscription_local_self_test() {
 
   _subscription_ensure_handler_running || return 1
 
-  local body_tmp
-  body_tmp=$(mktemp /tmp/xrayebator-subtest.XXXXXX) || return 1
+  SUBSCRIPTION_SELFTEST_HTTP_STATUS=""
+  SUBSCRIPTION_SELFTEST_ERROR=""
+  SUBSCRIPTION_SELFTEST_BODY=""
 
-  if curl -fsS --connect-timeout 2 --max-time 30 \
-      "http://127.0.0.1:8080/sub/${token}" -o "$body_tmp" 2>/dev/null && \
-      grep -q 'vless://' "$body_tmp"; then
+  local body_tmp err_tmp
+  body_tmp=$(mktemp /tmp/xrayebator-subtest.XXXXXX) || return 1
+  err_tmp=$(mktemp /tmp/xrayebator-subtest.err.XXXXXX) || {
     rm -f "$body_tmp"
+    return 1
+  }
+
+  local http_status curl_rc=0
+  http_status=$(curl -sS --connect-timeout 2 --max-time 30 \
+      "http://127.0.0.1:8080/sub/${token}" \
+      -o "$body_tmp" -w '%{http_code}' 2>"$err_tmp") || curl_rc=$?
+  SUBSCRIPTION_SELFTEST_HTTP_STATUS="$http_status"
+  SUBSCRIPTION_SELFTEST_ERROR=$(head -c 240 "$err_tmp" 2>/dev/null | tr '\n\r' '  ')
+  SUBSCRIPTION_SELFTEST_BODY=$(head -c 240 "$body_tmp" 2>/dev/null | tr '\n\r' '  ')
+
+  if [[ "$curl_rc" -eq 0 && "$http_status" == "200" ]] && grep -q 'vless://' "$body_tmp"; then
+    rm -f "$body_tmp" "$err_tmp"
     return 0
   fi
 
-  rm -f "$body_tmp"
+  rm -f "$body_tmp" "$err_tmp"
   return 1
+}
+
+_subscription_print_selftest_failure() {
+  if [[ -n "${SUBSCRIPTION_SELFTEST_HTTP_STATUS:-}" ]]; then
+    echo -e "${YELLOW}  Локальный HTTP status: ${SUBSCRIPTION_SELFTEST_HTTP_STATUS}${NC}"
+  fi
+  if [[ -n "${SUBSCRIPTION_SELFTEST_ERROR:-}" ]]; then
+    echo -e "${YELLOW}  curl: ${SUBSCRIPTION_SELFTEST_ERROR}${NC}"
+  fi
+  if [[ -n "${SUBSCRIPTION_SELFTEST_BODY:-}" ]]; then
+    echo -e "${YELLOW}  Ответ handler: ${SUBSCRIPTION_SELFTEST_BODY}${NC}"
+  fi
 }
 
 _subscription_ensure_profile_ready() {
@@ -3036,6 +3090,7 @@ _happ_print_subscription_url_for_profile() {
   if ! _subscription_ensure_profile_ready "$token"; then
     echo -e "${RED}✗ HAPP subscription handler не отдаёт локальную подписку.${NC}"
     echo -e "${YELLOW}  Внешний клиент получит 502 Bad Gateway, пока 127.0.0.1:8080 не оживёт.${NC}"
+    _subscription_print_selftest_failure
     echo -e "${YELLOW}  Диагностика: systemctl status xrayebator-sub --no-pager -l${NC}"
     echo -e "${YELLOW}  Логи: journalctl -u xrayebator-sub -n 80 --no-pager${NC}"
     echo ""
@@ -3063,10 +3118,8 @@ install_subscription_ip_tls() {
   echo -e "${YELLOW}Сертификаты на IP у Let's Encrypt short-lived (~6 дней), нужен рабочий renew.${NC}"
   echo ""
 
-  if [[ ! -f /usr/local/etc/xray/.subscription_installed ]]; then
-    echo -e "${CYAN}  → subhttp.sh ещё не установлен — устанавливаем...${NC}"
-    install_subscription_server || return 1
-  fi
+  echo -e "${CYAN}  → Проверяю HAPP subscription handler...${NC}"
+  install_subscription_server || return 1
 
   local server_ip
   server_ip=$(get_server_ip)
@@ -3237,9 +3290,7 @@ NGINX_TLS_EOF
   echo "ip_tls" > /usr/local/etc/xray/.subscription_mode
   chown xray:xray /usr/local/etc/xray/.subscription_port /usr/local/etc/xray/.subscription_domain /usr/local/etc/xray/.subscription_server_addr /usr/local/etc/xray/.subscription_mode 2>/dev/null || true
 
-  systemctl daemon-reload
-  systemctl enable --now xrayebator-sub.service
-  if ! systemctl is-active --quiet xrayebator-sub.service; then
+  if ! _subscription_restart_service; then
     echo -e "${RED}✗ xrayebator-sub.service не запустился — проверьте journalctl -u xrayebator-sub${NC}"
     return 1
   fi
@@ -3278,11 +3329,9 @@ install_subscription_public_tls() {
   echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
   echo ""
 
-  # Pre-flight: subhttp.sh должен быть установлен (Plan 7.2 marker).
-  if [[ ! -f /usr/local/etc/xray/.subscription_installed ]]; then
-    echo -e "${CYAN}  → subhttp.sh ещё не установлен — устанавливаем...${NC}"
-    install_subscription_server || return 1
-  fi
+  # Pre-flight: всегда регенерируем handler/unit — это чинит старые partial updates.
+  echo -e "${CYAN}  → Проверяю HAPP subscription handler...${NC}"
+  install_subscription_server || return 1
 
   # Domain prompt (M6: read -r — без -r теряются backslashes).
   local domain
@@ -3471,9 +3520,7 @@ NGINX_TLS_EOF
   chown xray:xray /usr/local/etc/xray/.subscription_port /usr/local/etc/xray/.subscription_domain /usr/local/etc/xray/.subscription_server_addr /usr/local/etc/xray/.subscription_mode 2>/dev/null || true
 
   # Активация unit.
-  systemctl daemon-reload
-  systemctl enable --now xrayebator-sub.service
-  if ! systemctl is-active --quiet xrayebator-sub.service; then
+  if ! _subscription_restart_service; then
     echo -e "${RED}✗ xrayebator-sub.service не запустился — проверьте journalctl -u xrayebator-sub${NC}"
     return 1
   fi
@@ -3513,9 +3560,7 @@ install_subscription_local_only() {
   echo -e "${YELLOW}  Доступ — через ssh-tunnel: ssh -L 8080:127.0.0.1:8080 user@vps${NC}"
   echo ""
 
-  if [[ ! -f /usr/local/etc/xray/.subscription_installed ]]; then
-    install_subscription_server || return 1
-  fi
+  install_subscription_server || return 1
 
   echo "8080" > /usr/local/etc/xray/.subscription_port
   echo "127.0.0.1" > /usr/local/etc/xray/.subscription_domain
@@ -3523,9 +3568,7 @@ install_subscription_local_only() {
   echo "local_only" > /usr/local/etc/xray/.subscription_mode
   chown xray:xray /usr/local/etc/xray/.subscription_port /usr/local/etc/xray/.subscription_domain /usr/local/etc/xray/.subscription_server_addr /usr/local/etc/xray/.subscription_mode 2>/dev/null || true
 
-  systemctl daemon-reload
-  systemctl enable --now xrayebator-sub.service
-  if ! systemctl is-active --quiet xrayebator-sub.service; then
+  if ! _subscription_restart_service; then
     echo -e "${RED}✗ xrayebator-sub.service не запустился${NC}"
     return 1
   fi
@@ -3681,6 +3724,7 @@ manage_subscription_menu() {
           else
             echo -e "${RED}✗ HAPP subscription handler не отвечает локально.${NC}"
             echo -e "${YELLOW}  Внешний клиент сейчас получит 502 Bad Gateway.${NC}"
+            _subscription_print_selftest_failure
             echo -e "${YELLOW}  Проверьте: systemctl status xrayebator-sub --no-pager -l${NC}"
             echo -e "${YELLOW}  Логи: journalctl -u xrayebator-sub -n 80 --no-pager${NC}"
             echo ""

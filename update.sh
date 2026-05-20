@@ -116,6 +116,34 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
+ensure_xray_runtime_user() {
+  if getent passwd xray >/dev/null 2>&1; then
+    return 0
+  fi
+
+  local nologin="/usr/sbin/nologin"
+  [[ -x "$nologin" ]] || nologin="/sbin/nologin"
+  [[ -x "$nologin" ]] || nologin="/bin/false"
+
+  echo -e "${YELLOW}Пользователь xray отсутствует — создаю runtime user...${NC}"
+  if ! getent group xray >/dev/null 2>&1; then
+    groupadd -r xray 2>/dev/null || true
+  fi
+  if getent group xray >/dev/null 2>&1; then
+    useradd -r -g xray -s "$nologin" -M -d /nonexistent xray
+  else
+    useradd -r -s "$nologin" -M -d /nonexistent xray
+  fi
+  if ! getent passwd xray >/dev/null 2>&1; then
+    echo -e "${RED}✗ Не удалось создать пользователя xray${NC}"
+    return 1
+  fi
+  echo -e "${GREEN}✓ Пользователь xray создан${NC}"
+  return 0
+}
+
+ensure_xray_runtime_user || exit 1
+
 # ═══════════════════════════════════════════════════════════
 # ОБРАБОТКА АРГУМЕНТОВ И ВОССТАНОВЛЕНИЕ СЕССИИ
 # ═══════════════════════════════════════════════════════════
@@ -401,15 +429,17 @@ echo -e "${GREEN}✓ Версия: ${VERSION_INFO}${NC}\n"
 if [[ -f /usr/local/etc/xray/.subscription_installed ]]; then
   echo -e "${YELLOW}Обновление HAPP subscription handler...${NC}"
   if source /usr/local/bin/xrayebator && install_subscription_server >/dev/null 2>&1; then
-    if systemctl is-active --quiet xrayebator-sub.service; then
-      if systemctl restart xrayebator-sub.service; then
-        echo -e "${GREEN}✓ xrayebator-sub.service перезапущен${NC}"
+    if declare -F _subscription_restart_service >/dev/null 2>&1; then
+      if _subscription_restart_service; then
+        echo -e "${GREEN}✓ subhttp.sh обновлён, xrayebator-sub.service запущен${NC}"
       else
-        echo -e "${YELLOW}⚠ subhttp.sh обновлён, но xrayebator-sub.service не перезапустился${NC}"
+        echo -e "${YELLOW}⚠ subhttp.sh обновлён, но xrayebator-sub.service не запустился${NC}"
+        echo -e "${YELLOW}  Проверьте: systemctl status xrayebator-sub --no-pager -l${NC}"
       fi
     else
       systemctl reset-failed xrayebator-sub.service 2>/dev/null || true
-      if systemctl enable --now xrayebator-sub.service; then
+      systemctl enable xrayebator-sub.service >/dev/null 2>&1 || true
+      if systemctl restart xrayebator-sub.service; then
         echo -e "${GREEN}✓ subhttp.sh обновлён, xrayebator-sub.service запущен${NC}"
       else
         echo -e "${YELLOW}⚠ subhttp.sh обновлён, но xrayebator-sub.service не запустился${NC}"
