@@ -46,8 +46,13 @@ grep -q 'chmod 755 /usr/local/bin/xrayebator' update.sh || fail "update.sh must 
 grep -q 'chmod 755 /usr/local/bin/xrayebator' xrayebator || fail "install_subscription_server must repair xrayebator permissions for xray user"
 echo "  ✓ install dependencies/download validation ok"
 
-grep -q 'type=xhttp&mode=auto&path=' xrayebator || fail "raw XHTTP VLESS URLs must include mode=auto"
-grep -q 'type=grpc&mode=gun&serviceName=' xrayebator || fail "raw gRPC VLESS URLs must include mode=gun"
+grep -q 'type=xhttp&path=.*&host=.*&mode=auto' xrayebator || fail "raw XHTTP VLESS URLs must include mode=auto"
+grep -q 'type=grpc&serviceName=.*&mode=gun' xrayebator || fail "raw gRPC VLESS URLs must include mode=gun"
+grep -q 'tcp_vision=()' "$SUBHTTP_TMP" || fail "HAPP subscription must bucket routes for stable ordering"
+grep -q 'xhttp_legacy=()' "$SUBHTTP_TMP" || fail "HAPP subscription must keep XHTTP legacy as fallback route"
+grep -q 'xhttp_xmux_throughput_2026' xrayebator || fail "missing XHTTP throughput migration for existing inbounds"
+grep -q '"maxConcurrency": "16-32"' xrayebator || fail "new XHTTP inbounds must use throughput-friendly XMUX concurrency"
+! grep -q '"maxConcurrency": "1-1"' xrayebator || fail "XHTTP XMUX maxConcurrency=1-1 must not be the shipped default"
 echo "  ✓ transport URL compatibility ok"
 
 echo "✓ HAPP subscription static checks passed"

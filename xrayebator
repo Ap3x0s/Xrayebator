@@ -331,7 +331,7 @@ _generate_vless_url_pure() {
         "$uuid" "$server_ip" "$port" "$sni" "$fingerprint" "$clean_public_key" "$short_id" "$profile_name"
       ;;
     grpc)
-      printf 'vless://%s@%s:%s?encryption=none&security=reality&sni=%s&fp=%s&pbk=%s&sid=%s&type=grpc&mode=gun&serviceName=%s#%s' \
+      printf 'vless://%s@%s:%s?encryption=none&security=reality&sni=%s&fp=%s&pbk=%s&sid=%s&type=grpc&serviceName=%s&mode=gun#%s' \
         "$uuid" "$server_ip" "$port" "$sni" "$fingerprint" "$clean_public_key" "$short_id" "$grpc_service_name" "$profile_name"
       ;;
     xhttp)
@@ -346,10 +346,10 @@ _generate_vless_url_pure() {
         local raw_encryption encoded_encryption
         raw_encryption=$(cat "$VLESS_ENCRYPTION_FILE")
         encoded_encryption=$(jq -nr --arg enc "$raw_encryption" '$enc|@uri')
-        printf 'vless://%s@%s:%s?encryption=%s&security=reality&sni=%s&fp=%s&pbk=%s&sid=%s&type=xhttp&mode=auto&path=%s&host=%s#%s' \
+        printf 'vless://%s@%s:%s?encryption=%s&security=reality&sni=%s&fp=%s&pbk=%s&sid=%s&type=xhttp&path=%s&host=%s&mode=auto#%s' \
           "$uuid" "$server_ip" "$port" "$encoded_encryption" "$sni" "$fingerprint" "$clean_public_key" "$short_id" "$encoded_xhttp_path" "$sni" "$profile_name"
       else
-        printf 'vless://%s@%s:%s?encryption=none&security=reality&sni=%s&fp=%s&pbk=%s&sid=%s&type=xhttp&mode=auto&path=%s&host=%s#%s' \
+        printf 'vless://%s@%s:%s?encryption=none&security=reality&sni=%s&fp=%s&pbk=%s&sid=%s&type=xhttp&path=%s&host=%s&mode=auto#%s' \
           "$uuid" "$server_ip" "$port" "$sni" "$fingerprint" "$clean_public_key" "$short_id" "$encoded_xhttp_path" "$sni" "$profile_name"
       fi
       ;;
@@ -1411,7 +1411,7 @@ migrate_config_optimization() {
 
 # Migration: explicit xmux block для всех XHTTP inbounds (Phase 5, REQ-B04)
 # Marker: /usr/local/etc/xray/.xmux_explicit_2026
-# Защищает от Сибирского behavioral DPI: maxConcurrency=1-1 + hMax* полей.
+# Даёт throughput-friendly XMUX: maxConcurrency=16-32 + hMax* полей.
 # Skip-rule (CONTEXT.md decision 5): inbound с already-existing xmux пропускается
 # (preserves пользовательские твики, в т.ч. Phase 4 значения 16-32).
 # Three-valued return contract:
@@ -1469,16 +1469,16 @@ migrate_xmux_explicit_2026() {
     # |= update-в-place на subtree extra.
     # (. // {}) — promote null/missing extra в {} для дальнейшего .xmux assignment.
     # del(.max_connections) — idempotent: no-op если поля нет.
-    # .xmux = { ... } — explicit block с research-validated значениями.
+    # .xmux = { ... } — explicit throughput-friendly block.
     if safe_jq_write --argjson port "$port" '
       (.inbounds[] | select(.port == $port) | .streamSettings.xhttpSettings.extra) |= (
         (. // {})
         | del(.max_connections)
         | .xmux = {
-            "maxConcurrency":   "1-1",
+            "maxConcurrency":   "16-32",
             "hMaxRequestTimes": "600-900",
             "hMaxReusableSecs": "1800-3000",
-            "hKeepAlivePeriod": 30
+            "hKeepAlivePeriod": 0
           }
       )
     ' "$CONFIG_FILE"; then
@@ -1502,6 +1502,42 @@ migrate_xmux_explicit_2026() {
     echo -e "${GREEN}✓ xmux explicit миграция не требуется (все $skipped XHTTP уже корректны)${NC}"
     return 1  # no-op → marker создается, restart НЕ нужен
   fi
+}
+
+_migrate_xhttp_xmux_throughput_2026() {
+  echo -e "${CYAN}Проверка XHTTP XMUX throughput-профиля...${NC}"
+
+  local affected
+  affected=$(jq -r '
+    .inbounds[]
+    | select(.streamSettings.network == "xhttp")
+    | select(
+        (.streamSettings.xhttpSettings.extra.xmux.maxConcurrency // "") == "1-1"
+        or (.streamSettings.xhttpSettings.extra.xmux.hKeepAlivePeriod // null) == 30
+      )
+    | .port
+  ' "$CONFIG_FILE" 2>/dev/null)
+
+  if [[ -z "$affected" ]]; then
+    echo -e "${GREEN}✓ XHTTP XMUX throughput-профиль уже нормальный${NC}"
+    return 1
+  fi
+
+  echo -e "${YELLOW}  → Обновляю XHTTP XMUX на портах: ${affected//$'\n'/, }${NC}"
+  if safe_jq_write '
+    (.inbounds[] | select(.streamSettings.network == "xhttp") | .streamSettings.xhttpSettings.extra.xmux) |= (
+      (. // {})
+      | if (.maxConcurrency // "") == "1-1" then .maxConcurrency = "16-32" else . end
+      | if (.hKeepAlivePeriod // null) == 30 then .hKeepAlivePeriod = 0 else . end
+    )
+  ' "$CONFIG_FILE"; then
+    fix_xray_permissions
+    echo -e "${GREEN}✓ XHTTP XMUX: maxConcurrency 16-32, hKeepAlivePeriod 0${NC}"
+    return 0
+  fi
+
+  echo -e "${RED}✗ Не удалось обновить XHTTP XMUX throughput-профиль${NC}"
+  return 2
 }
 
 # Phase 6 REQ-A02: догенерация PQ ключей VLESS Encryption на v1.0-апгрейде.
@@ -2710,7 +2746,8 @@ if [[ "$query_lc" == *"format=v2ray"* || "$query_lc" == *"format=base64"* || "$q
 fi
 
 prepare_happ_vless_urls() {
-  local input line before after has_legacy_xhttp=false
+  local input line has_legacy_xhttp=false
+  local -a tcp_vision=() tcp_xudp=() tcp_utls=() grpc_routes=() tcp_mux=() xhttp_legacy=() other=()
   input=$(cat)
 
   while IFS= read -r line || [[ -n "$line" ]]; do
@@ -2720,21 +2757,46 @@ prepare_happ_vless_urls() {
     fi
   done <<< "$input"
 
+  append_mode_param() {
+    local uri="$1" param="$2"
+    if [[ "$uri" == *"#"* ]]; then
+      printf '%s&%s#%s' "${uri%%#*}" "$param" "${uri#*#}"
+    else
+      printf '%s&%s' "$uri" "$param"
+    fi
+  }
+
   while IFS= read -r line || [[ -n "$line" ]]; do
     if [[ "$line" == vless://* && "$line" == *"&type=xhttp&"* && "$has_legacy_xhttp" == "true" && "$line" != *"encryption=none"* ]]; then
       continue
     fi
     if [[ "$line" == vless://* && "$line" == *"&type=xhttp&"* && "$line" != *"&mode="* ]]; then
-      before="${line%%&type=xhttp&*}"
-      after="${line#*&type=xhttp&}"
-      line="${before}&type=xhttp&mode=auto&${after}"
+      line=$(append_mode_param "$line" "mode=auto")
     elif [[ "$line" == vless://* && "$line" == *"&type=grpc&"* && "$line" != *"&mode="* ]]; then
-      before="${line%%&type=grpc&*}"
-      after="${line#*&type=grpc&}"
-      line="${before}&type=grpc&mode=gun&${after}"
+      line=$(append_mode_param "$line" "mode=gun")
     fi
-    printf '%s\n' "$line"
+
+    case "$line" in
+      *#*-tcp-vision) tcp_vision+=("$line") ;;
+      *#*-tcp-xudp) tcp_xudp+=("$line") ;;
+      *#*-tcp-utls-firefox) tcp_utls+=("$line") ;;
+      *#*-grpc) grpc_routes+=("$line") ;;
+      *#*-tcp-mux) tcp_mux+=("$line") ;;
+      *#*-xhttp-legacy) xhttp_legacy+=("$line") ;;
+      *) other+=("$line") ;;
+    esac
   done <<< "$input"
+
+  for line in \
+    "${tcp_vision[@]}" \
+    "${tcp_xudp[@]}" \
+    "${tcp_utls[@]}" \
+    "${grpc_routes[@]}" \
+    "${tcp_mux[@]}" \
+    "${xhttp_legacy[@]}" \
+    "${other[@]}"; do
+    printf '%s\n' "$line"
+  done
 }
 
 # HAPP metadata: profile-title и announce — base64 UTF-8 без переносов (-w0).
@@ -4035,6 +4097,7 @@ main_menu() {
   run_migration "transport_profile_metadata_migrated"  "Transport profile metadata"        migrate_transport_profile_metadata || ((migration_failures++))
   run_migration "config_optimized"                     "Config optimization (DNS/log)"     migrate_config_optimization        || ((migration_failures++))
   run_migration "xmux_explicit_2026"                   "Explicit xmux block для XHTTP"     migrate_xmux_explicit_2026         || ((migration_failures++))
+  run_migration "xhttp_xmux_throughput_2026"           "XHTTP XMUX throughput profile"      _migrate_xhttp_xmux_throughput_2026 || ((migration_failures++))
   run_migration "mlkem_keys_generated"                 "PQ ключи VLESS Encryption (mlkem768x25519plus)" _migrate_mlkem_keys || ((migration_failures++))
   run_migration "xhttp_default_2026"                   "XHTTP+PQ как дефолтный пресет создания профиля" _migrate_xhttp_default_2026 || ((migration_failures++))
   run_migration "subscription_tokens_2026"             "Subscription tokens (Phase 7) для существующих профилей" _migrate_subscription_tokens_2026 || ((migration_failures++))
@@ -4857,10 +4920,10 @@ GRPCEOF
       "extra": {
         "xPaddingBytes": "100-1000",
         "xmux": {
-          "maxConcurrency": "1-1",
+          "maxConcurrency": "16-32",
           "hMaxRequestTimes": "600-900",
           "hMaxReusableSecs": "1800-3000",
-          "hKeepAlivePeriod": 30
+          "hKeepAlivePeriod": 0
         },
         "noSSEHeader": true,
         "scMaxEachPostBytes": "1000000-2000000",
@@ -6616,10 +6679,10 @@ upgrade_profile_to_pq_menu() {
       "extra": {
         "xPaddingBytes": "100-1000",
         "xmux": {
-          "maxConcurrency": "1-1",
+          "maxConcurrency": "16-32",
           "hMaxRequestTimes": "600-900",
           "hMaxReusableSecs": "1800-3000",
-          "hKeepAlivePeriod": 30
+          "hKeepAlivePeriod": 0
         },
         "noSSEHeader": true,
         "scMaxEachPostBytes": "1000000-2000000",
