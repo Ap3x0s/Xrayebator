@@ -20,10 +20,16 @@ NC='\033[0m'
 CONFIG_FILE="/usr/local/etc/xray/config.json"
 PROFILES_DIR="/usr/local/etc/xray/profiles"
 DATA_DIR="/usr/local/etc/xray/data"
+UPSTREAMS_DIR="/usr/local/etc/xray/upstreams"
 PRIVATE_KEY_FILE="/usr/local/etc/xray/.private_key"
 PUBLIC_KEY_FILE="/usr/local/etc/xray/.public_key"
 VLESS_DECRYPTION_FILE="/usr/local/etc/xray/.vless_decryption"
 VLESS_ENCRYPTION_FILE="/usr/local/etc/xray/.vless_encryption"
+CASCADE_ACTIVE_FILE="/usr/local/etc/xray/.cascade_active"
+SELFSTEAL_DOMAIN_FILE="/usr/local/etc/xray/.selfsteal_domain"
+SELFSTEAL_TEMPLATE_FILE="/usr/local/etc/xray/.selfsteal_template"
+SELFSTEAL_DEST_FILE="/usr/local/etc/xray/.selfsteal_dest"
+SELFSTEAL_DEST="127.0.0.1:9444"
 SNI_LIST="$DATA_DIR/sni_list.txt"
 ASCII_ART="$DATA_DIR/ascii_art.txt"
 
@@ -111,6 +117,8 @@ update_transport_settings_for_sni() {
   local port=$1
   local new_sni=$2
   local config_file=$3
+  local reality_dest
+  reality_dest=$(_reality_dest_for_sni "$new_sni")
 
   # Convert port to number for jq
   local port_num=$((port))
@@ -123,8 +131,8 @@ update_transport_settings_for_sni() {
   echo -e "${CYAN}  → Обновление SNI на порту $port (транспорт: $transport)...${NC}"
 
   # Base updates (ALL transports) - search by port number, not tag
-  if ! safe_jq_write --argjson port "$port_num" --arg sni "$new_sni" '
-    (.inbounds[] | select(.port == $port) | .streamSettings.realitySettings.dest) |= ($sni + ":443") |
+  if ! safe_jq_write --argjson port "$port_num" --arg sni "$new_sni" --arg dest "$reality_dest" '
+    (.inbounds[] | select(.port == $port) | .streamSettings.realitySettings.dest) |= $dest |
     (.inbounds[] | select(.port == $port) | .streamSettings.realitySettings.serverNames) |= [$sni]
   ' "$config_file"; then
     echo -e "${RED}  ✗ Ошибка обновления SNI${NC}"
@@ -295,7 +303,6 @@ _generate_vless_url_pure() {
   local server_ip clean_public_key
   server_ip=$(_connection_server_address)
   [[ -n "$server_ip" ]] || return 1
-  clean_public_key=$(cat "$PUBLIC_KEY_FILE" 2>/dev/null) || return 1
 
   # Transport metadata (grpc service name / xhttp path) и url-encoded path
   local transport_metadata grpc_service_name xhttp_path encoded_xhttp_path
@@ -314,6 +321,8 @@ _generate_vless_url_pure() {
     return 1
   fi
 
+  clean_public_key=$(_inbound_public_key_for_port "$port") || return 1
+
   # short_id — читаем из config.json по порту (зеркало логики generate_connection)
   local short_id
   short_id=$(jq -r --argjson p "$port" \
@@ -322,8 +331,12 @@ _generate_vless_url_pure() {
   [[ -z "$short_id" || "$short_id" == "null" ]] && short_id=""
 
   case "$transport" in
-    tcp|tcp-utls|tcp-xudp)
+    tcp|tcp-utls)
       printf 'vless://%s@%s:%s?encryption=none&flow=xtls-rprx-vision&security=reality&sni=%s&fp=%s&pbk=%s&sid=%s&type=tcp&headerType=none#%s' \
+        "$uuid" "$server_ip" "$port" "$sni" "$fingerprint" "$clean_public_key" "$short_id" "$profile_name"
+      ;;
+    tcp-xudp)
+      printf 'vless://%s@%s:%s?encryption=none&flow=xtls-rprx-vision&security=reality&sni=%s&fp=%s&pbk=%s&sid=%s&type=tcp&headerType=none&packetEncoding=xudp#%s' \
         "$uuid" "$server_ip" "$port" "$sni" "$fingerprint" "$clean_public_key" "$short_id" "$profile_name"
       ;;
     tcp-mux)
@@ -491,26 +504,71 @@ _connection_server_address() {
     return 0
   fi
 
-  if [[ -n "${SERVER_IP:-}" ]]; then
-    echo "$SERVER_IP"
+  local selfsteal_domain mode domain saved_addr
+  selfsteal_domain=$(_selfsteal_domain_value 2>/dev/null || true)
+  if [[ -n "$selfsteal_domain" && "$selfsteal_domain" != "127.0.0.1" && "$selfsteal_domain" != "localhost" ]]; then
+    echo "$selfsteal_domain"
     return 0
   fi
 
-  local saved_addr mode domain
+  mode=$(cat /usr/local/etc/xray/.subscription_mode 2>/dev/null || true)
+  domain=$(cat /usr/local/etc/xray/.subscription_domain 2>/dev/null || true)
+  if [[ "$mode" == "domain_tls" && -n "$domain" && "$domain" != "127.0.0.1" && "$domain" != "localhost" ]]; then
+    echo "$domain"
+    return 0
+  fi
+
   saved_addr=$(cat /usr/local/etc/xray/.subscription_server_addr 2>/dev/null || true)
   if [[ -n "$saved_addr" && "$saved_addr" != "127.0.0.1" && "$saved_addr" != "localhost" ]]; then
     echo "$saved_addr"
     return 0
   fi
 
-  mode=$(cat /usr/local/etc/xray/.subscription_mode 2>/dev/null || true)
-  domain=$(cat /usr/local/etc/xray/.subscription_domain 2>/dev/null || true)
   if [[ "$mode" == "ip_tls" && "$domain" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     echo "$domain"
     return 0
   fi
 
+  if [[ -n "${SERVER_IP:-}" ]]; then
+    echo "$SERVER_IP"
+    return 0
+  fi
+
   get_server_ip
+}
+
+_inbound_public_key_for_port() {
+  local port="$1"
+  [[ "$port" =~ ^[0-9]+$ ]] || return 1
+
+  local inbound_private global_private global_public derived
+  inbound_private=$(jq -r --argjson p "$port" \
+    '.inbounds[]? | select(.port == $p) | .streamSettings.realitySettings.privateKey // empty' \
+    "$CONFIG_FILE" 2>/dev/null) || return 1
+  [[ -n "$inbound_private" && "$inbound_private" != "null" ]] || return 1
+
+  global_private=$(cat "$PRIVATE_KEY_FILE" 2>/dev/null || true)
+  global_public=$(cat "$PUBLIC_KEY_FILE" 2>/dev/null || true)
+  if [[ -n "$global_private" && "$inbound_private" == "$global_private" && -n "$global_public" ]]; then
+    echo "$global_public"
+    return 0
+  fi
+
+  local xray_bin x25519_output
+  if [[ -x /usr/local/bin/xray ]]; then
+    xray_bin="/usr/local/bin/xray"
+  else
+    xray_bin=$(command -v xray 2>/dev/null || true)
+  fi
+  [[ -n "$xray_bin" ]] || return 1
+
+  x25519_output=$("$xray_bin" x25519 -i "$inbound_private" 2>/dev/null) || return 1
+  derived=$(echo "$x25519_output" | awk -F': ' '/^Public [Kk]ey:/ || /^Password/ {print $2; exit}')
+  if [[ -z "$derived" ]]; then
+    derived=$(echo "$x25519_output" | grep -oE '[A-Za-z0-9_+/=-]{43,44}' | tail -1)
+  fi
+  [[ -n "$derived" ]] || return 1
+  echo "$derived"
 }
 
 _certbot_supports_ip_address() {
@@ -2066,6 +2124,720 @@ _bypass_reset_all() {
   return 2
 }
 
+_cascade_ensure_dir() {
+  mkdir -p "$UPSTREAMS_DIR"
+  chmod 700 "$UPSTREAMS_DIR" 2>/dev/null
+  chown xray:xray "$UPSTREAMS_DIR" 2>/dev/null || true
+}
+
+_cascade_config_file() {
+  echo "$UPSTREAMS_DIR/cascade.json"
+}
+
+_cascade_enabled() {
+  [[ -f "$CASCADE_ACTIVE_FILE" ]] && jq -e '.outbounds[]? | select(.tag == "cascade-upstream")' "$CONFIG_FILE" >/dev/null 2>&1
+}
+
+_cascade_print_status() {
+  local upstream_file
+  upstream_file=$(_cascade_config_file)
+  if _cascade_enabled; then
+    echo -e "${GREEN}Каскад: включен${NC}"
+  else
+    echo -e "${YELLOW}Каскад: выключен${NC}"
+  fi
+  if [[ -f "$upstream_file" ]]; then
+    echo -e "${CYAN}Upstream:${NC} $(jq -r '.address' "$upstream_file"):$(jq -r '.port' "$upstream_file") sni=$(jq -r '.sni' "$upstream_file")"
+  else
+    echo -e "${YELLOW}Upstream не настроен${NC}"
+  fi
+}
+
+_cascade_build_outbound_json() {
+  local upstream_file=$1
+  local address port uuid sni fingerprint public_key short_id flow packet_encoding
+  address=$(jq -r '.address' "$upstream_file")
+  port=$(jq -r '.port' "$upstream_file")
+  uuid=$(jq -r '.uuid' "$upstream_file")
+  sni=$(jq -r '.sni' "$upstream_file")
+  fingerprint=$(jq -r '.fingerprint // "chrome"' "$upstream_file")
+  public_key=$(jq -r '.public_key' "$upstream_file")
+  short_id=$(jq -r '.short_id' "$upstream_file")
+  flow=$(jq -r '.flow // "xtls-rprx-vision"' "$upstream_file")
+  packet_encoding=$(jq -r '.packet_encoding // empty' "$upstream_file")
+
+  jq -cn \
+    --arg address "$address" \
+    --argjson port "$port" \
+    --arg uuid "$uuid" \
+    --arg sni "$sni" \
+    --arg fp "$fingerprint" \
+    --arg public_key "$public_key" \
+    --arg short_id "$short_id" \
+    --arg flow "$flow" \
+    --arg packet_encoding "$packet_encoding" '
+    {
+      tag: "cascade-upstream",
+      protocol: "vless",
+      settings: {
+        vnext: [{
+          address: $address,
+          port: $port,
+          users: [{
+            id: $uuid,
+            encryption: "none",
+            flow: $flow
+          } + (if $packet_encoding == "" then {} else {packetEncoding: $packet_encoding} end)]
+        }]
+      },
+      streamSettings: {
+        network: "tcp",
+        security: "reality",
+        sockopt: {
+          dialerProxy: "cascade-fragment",
+          tcpFastOpen: true,
+          tcpNoDelay: true
+        },
+        realitySettings: {
+          serverName: $sni,
+          fingerprint: $fp,
+          publicKey: $public_key,
+          shortId: $short_id,
+          spiderX: "/"
+        }
+      }
+    }'
+}
+
+_cascade_build_fragment_outbound_json() {
+  jq -cn '{
+    tag: "cascade-fragment",
+    protocol: "freedom",
+    settings: {
+      fragment: {
+        packets: "tlshello",
+        length: "100-200",
+        interval: "10-20"
+      }
+    }
+  }'
+}
+
+_cascade_validate_upstream_fields() {
+  local address=$1 port=$2 uuid=$3 public_key=$4 short_id=$5 sni=$6 fingerprint=${7:-chrome} packet_encoding=${8:-}
+  if [[ -z "$address" || "$address" =~ ^(localhost$|0\.0\.0\.0$|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2[0-9]|3[0-1])\.) ]]; then
+    echo -e "${RED}✗ Upstream address не должен быть локальным/private${NC}"
+    return 1
+  fi
+  if [[ ! "$port" =~ ^[0-9]+$ ]] || [[ $port -lt 1 ]] || [[ $port -gt 65535 ]]; then
+    echo -e "${RED}✗ Некорректный порт${NC}"
+    return 1
+  fi
+  if [[ ! "$uuid" =~ ^[0-9a-fA-F-]{36}$ ]]; then
+    echo -e "${RED}✗ Некорректный UUID${NC}"
+    return 1
+  fi
+  if [[ ! "$public_key" =~ ^[A-Za-z0-9_-]{40,}$ ]]; then
+    echo -e "${RED}✗ Некорректный Reality publicKey${NC}"
+    return 1
+  fi
+  if [[ ! "$short_id" =~ ^[0-9a-fA-F]{0,16}$ ]]; then
+    echo -e "${RED}✗ Некорректный shortId${NC}"
+    return 1
+  fi
+  if [[ -z "$sni" || ! "$sni" =~ ^[a-zA-Z0-9.-]+$ ]]; then
+    echo -e "${RED}✗ Некорректный SNI${NC}"
+    return 1
+  fi
+  if [[ ! "$fingerprint" =~ ^(chrome|firefox|safari|ios|android|edge|qq|random|randomized)$ ]]; then
+    echo -e "${RED}✗ Некорректный fingerprint${NC}"
+    return 1
+  fi
+  if [[ -n "$packet_encoding" && "$packet_encoding" != "xudp" ]]; then
+    echo -e "${RED}✗ packetEncoding поддерживает только xudp или пустое значение${NC}"
+    return 1
+  fi
+}
+
+configure_cascade_upstream() {
+  show_ascii
+  echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
+  echo -e "${BLUE}    НАСТРОЙКА ЗАРУБЕЖНОЙ UPSTREAM-НОДЫ        ${NC}"
+  echo -e "${BLUE}═══════════════════════════════════════════════${NC}\n"
+
+  _cascade_ensure_dir
+
+  local address port uuid public_key short_id sni fingerprint packet_encoding
+  echo -n -e "${YELLOW}Host/IP зарубежной ноды: ${NC}"
+  read -r address
+  echo -n -e "${YELLOW}Port [443]: ${NC}"
+  read -r port
+  port=${port:-443}
+  echo -n -e "${YELLOW}UUID клиента на зарубежной ноде: ${NC}"
+  read -r uuid
+  echo -n -e "${YELLOW}Reality publicKey зарубежной ноды: ${NC}"
+  read -r public_key
+  echo -n -e "${YELLOW}Reality shortId зарубежной ноды: ${NC}"
+  read -r short_id
+  echo -n -e "${YELLOW}SNI зарубежной ноды: ${NC}"
+  read -r sni
+  echo -n -e "${YELLOW}Fingerprint [chrome]: ${NC}"
+  read -r fingerprint
+  fingerprint=${fingerprint:-chrome}
+  echo -n -e "${YELLOW}packetEncoding [пусто для обычного tcp]: ${NC}"
+  read -r packet_encoding
+
+  _cascade_validate_upstream_fields "$address" "$port" "$uuid" "$public_key" "$short_id" "$sni" "$fingerprint" "$packet_encoding" || {
+    sleep 2
+    return 1
+  }
+
+  local upstream_file tmp
+  upstream_file=$(_cascade_config_file)
+  tmp=$(mktemp)
+  if ! jq -n \
+      --arg address "$address" \
+      --argjson port "$port" \
+      --arg uuid "$uuid" \
+      --arg public_key "$public_key" \
+      --arg short_id "$short_id" \
+      --arg sni "$sni" \
+      --arg fingerprint "$fingerprint" \
+      --arg packet_encoding "$packet_encoding" \
+      '{version:1,tag:"cascade-upstream",address:$address,port:$port,uuid:$uuid,transport:"tcp",sni:$sni,fingerprint:$fingerprint,public_key:$public_key,short_id:$short_id,flow:"xtls-rprx-vision"} + (if $packet_encoding == "" then {} else {packet_encoding:$packet_encoding} end)' \
+      > "$tmp"; then
+    rm -f "$tmp"
+    echo -e "${RED}✗ Не удалось собрать upstream JSON${NC}"
+    return 1
+  fi
+  mv "$tmp" "$upstream_file"
+  chmod 600 "$upstream_file" 2>/dev/null
+  chown xray:xray "$upstream_file" 2>/dev/null || true
+
+  echo -e "${GREEN}✓ Upstream сохранен: $upstream_file${NC}"
+  echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
+  read -r _
+}
+
+enable_cascade_mode() {
+  local upstream_file outbound_json fragment_json address
+  upstream_file=$(_cascade_config_file)
+  if [[ ! -f "$upstream_file" ]]; then
+    echo -e "${RED}✗ Сначала настройте upstream-ноду${NC}"
+    sleep 2
+    return 1
+  fi
+  outbound_json=$(_cascade_build_outbound_json "$upstream_file") || return 1
+  fragment_json=$(_cascade_build_fragment_outbound_json) || return 1
+  address=$(jq -r '.address' "$upstream_file")
+
+  echo -e "${YELLOW}Включить каскад: весь default tcp/udp трафик пойдет через cascade-upstream? (y/N): ${NC}"
+  local confirm
+  read -r confirm
+  [[ "$confirm" =~ ^[yYдД]$ ]] || return 1
+
+  backup_config "cascade_enable" || return 1
+  if ! safe_jq_write --argjson outbound "$outbound_json" --argjson fragment "$fragment_json" --arg address "$address" '
+      def upstream_direct_rule:
+        if ($address | test("^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$")) then
+          {"type":"field","ip":[$address],"outboundTag":"direct"}
+        else
+          {"type":"field","domain":["domain:" + $address],"outboundTag":"direct"}
+        end;
+      def quic_block_rule:
+        {"type":"field","network":"udp","port":443,"outboundTag":"block"};
+      def upstream_direct_match:
+        (.outboundTag == "direct" and (
+          (((.domain // []) | index("domain:" + $address)) != null) or
+          (((.ip // []) | index($address)) != null)
+        ));
+      def quic_block_match:
+        (.type == "field" and (.network // "") == "udp" and ((.port | tostring) == "443") and .outboundTag == "block");
+      def catch_all:
+        (.type == "field" and (.network // "") == "tcp,udp"
+         and (.domain // null) == null and (.ip // null) == null and (.port // null) == null);
+      .outbounds = ((.outbounds // []) | map(select(.tag != "cascade-upstream" and .tag != "cascade-fragment"))) |
+      .outbounds += [$fragment, $outbound] |
+      .routing.rules = [
+        .routing.rules[]?
+        | select((upstream_direct_match or quic_block_match or catch_all) | not)
+      ] |
+      .routing.rules = [upstream_direct_rule, quic_block_rule] + .routing.rules + [{"type":"field","network":"tcp,udp","outboundTag":"cascade-upstream"}]
+    ' "$CONFIG_FILE"; then
+    echo -e "${RED}✗ Не удалось применить cascade config${NC}"
+    return 1
+  fi
+  fix_xray_permissions
+  if safe_restart_xray; then
+    touch "$CASCADE_ACTIVE_FILE"
+    chown xray:xray "$CASCADE_ACTIVE_FILE" 2>/dev/null || true
+    echo -e "${GREEN}✓ Каскад включен${NC}"
+  else
+    rm -f "$CASCADE_ACTIVE_FILE"
+    return 1
+  fi
+  echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
+  read -r _
+}
+
+disable_cascade_mode() {
+  echo -e "${YELLOW}Отключить каскад и вернуть default route в direct? (y/N): ${NC}"
+  local confirm
+  read -r confirm
+  [[ "$confirm" =~ ^[yYдД]$ ]] || return 1
+
+  backup_config "cascade_disable" || return 1
+  if ! safe_jq_write '
+      def quic_block_match:
+        (.type == "field" and (.network // "") == "udp" and ((.port | tostring) == "443") and .outboundTag == "block");
+      def catch_all:
+        (.type == "field" and (.network // "") == "tcp,udp"
+         and (.domain // null) == null and (.ip // null) == null and (.port // null) == null);
+      .outbounds = ((.outbounds // []) | map(select(.tag != "cascade-upstream" and .tag != "cascade-fragment"))) |
+      .routing.rules = [.routing.rules[]? | select(quic_block_match | not)] |
+      (.routing.rules[]? | select(catch_all) | .outboundTag) = "direct"
+    ' "$CONFIG_FILE"; then
+    echo -e "${RED}✗ Не удалось отключить каскад${NC}"
+    return 1
+  fi
+  fix_xray_permissions
+  if safe_restart_xray; then
+    rm -f "$CASCADE_ACTIVE_FILE"
+    echo -e "${GREEN}✓ Каскад отключен${NC}"
+  else
+    return 1
+  fi
+  echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
+  read -r _
+}
+
+cascade_mode_menu() {
+  while true; do
+    show_ascii
+    echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
+    echo -e "${BLUE}    КАСКАД / UPSTREAM-НОДЫ                    ${NC}"
+    echo -e "${BLUE}═══════════════════════════════════════════════${NC}\n"
+    _cascade_print_status
+    echo ""
+    echo -e "${CYAN} 1)${NC} Настроить зарубежную upstream-ноду"
+    echo -e "${CYAN} 2)${NC} Включить каскад"
+    echo -e "${CYAN} 3)${NC} Отключить каскад"
+    echo -e "${CYAN} 0)${NC} Назад"
+    echo ""
+    echo -n -e "${YELLOW}Выбор: ${NC}"
+    local c
+    read -r c
+    case "$c" in
+      1) configure_cascade_upstream ;;
+      2) enable_cascade_mode ;;
+      3) disable_cascade_mode ;;
+      0) return ;;
+      *) echo -e "${RED}Неверный выбор${NC}"; sleep 1 ;;
+    esac
+  done
+}
+
+_selfsteal_write_template() {
+  local template=$1
+  local domain=$2
+  local root_dir=$3
+
+  mkdir -p "$root_dir"
+  chmod 755 "$root_dir"
+
+  case "$template" in
+    simple)
+      cat > "$root_dir/index.html" <<EOF
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${domain}</title>
+  <style>
+    :root { color-scheme: light; --ink:#17211f; --muted:#66736f; --line:#d7dfdc; --paper:#f7faf8; --accent:#2f7d5b; }
+    * { box-sizing: border-box; }
+    body { margin:0; min-height:100vh; display:grid; place-items:center; background:linear-gradient(135deg,#f7faf8,#eaf1ee); color:var(--ink); font-family:Georgia,"Times New Roman",serif; }
+    main { width:min(760px,calc(100vw - 40px)); border-top:1px solid var(--line); padding:44px 0; }
+    h1 { margin:0 0 14px; font-size:clamp(34px,7vw,72px); font-weight:400; letter-spacing:0; }
+    p { margin:0; max-width:520px; color:var(--muted); font:18px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace; }
+    .mark { margin-bottom:28px; color:var(--accent); font:13px/1 ui-monospace,SFMono-Regular,Menlo,monospace; text-transform:uppercase; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="mark">service endpoint</div>
+    <h1>${domain}</h1>
+    <p>Service is available. Request accepted.</p>
+  </main>
+</body>
+</html>
+EOF
+      ;;
+    sni)
+      cat > "$root_dir/index.html" <<EOF
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${domain}</title>
+  <style>
+    :root { --bg:#101413; --panel:#dbe7df; --ink:#101413; --dim:#5b6862; --hot:#d7ff71; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100vh; background:radial-gradient(circle at 20% 10%,#26342f 0,#101413 42%); color:var(--panel); font-family:Verdana,Geneva,sans-serif; }
+    main { min-height:100vh; display:grid; align-content:center; padding:8vw; }
+    section { max-width:860px; border-left:8px solid var(--hot); padding-left:28px; }
+    h1 { margin:0; font-size:clamp(36px,8vw,88px); line-height:.95; letter-spacing:0; }
+    p { margin:24px 0 0; max-width:620px; color:#b6c3bd; font-size:18px; line-height:1.65; }
+    code { display:inline-block; margin-top:32px; padding:10px 12px; background:var(--panel); color:var(--ink); font-size:14px; }
+  </style>
+</head>
+<body>
+  <main>
+    <section>
+      <h1>${domain}</h1>
+      <p>Static TLS front. Automated edge response is active.</p>
+      <code>status: 200</code>
+    </section>
+  </main>
+</body>
+</html>
+EOF
+      ;;
+    nothing)
+      cat > "$root_dir/index.html" <<EOF
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${domain}</title></head><body>ok</body></html>
+EOF
+      ;;
+    *)
+      echo -e "${RED}✗ Неизвестный шаблон: $template${NC}"
+      return 1
+      ;;
+  esac
+
+  chmod 644 "$root_dir/index.html"
+}
+
+_selfsteal_template_menu() {
+  echo -e "${CYAN} 1)${NC} Simple web template" >&2
+  echo -e "${CYAN} 2)${NC} SNI template" >&2
+  echo -e "${CYAN} 3)${NC} Nothing SNI template" >&2
+  echo -n -e "${YELLOW}Выбор шаблона [1]: ${NC}" >&2
+  local choice
+  read -r choice
+  case "${choice:-1}" in
+    1) echo "simple" ;;
+    2) echo "sni" ;;
+    3) echo "nothing" ;;
+    *) echo "simple" ;;
+  esac
+}
+
+_selfsteal_domain_value() {
+  local d
+  d=$(cat "$SELFSTEAL_DOMAIN_FILE" 2>/dev/null || true)
+  if [[ -n "$d" && "$d" =~ ^[a-zA-Z0-9.-]+$ ]]; then
+    echo "$d"
+  fi
+}
+
+_reality_dest_for_sni() {
+  local sni="$1"
+  local selfsteal_domain selfsteal_dest
+  selfsteal_domain=$(_selfsteal_domain_value 2>/dev/null || true)
+  if [[ -n "$selfsteal_domain" && "$sni" == "$selfsteal_domain" ]]; then
+    selfsteal_dest=$(cat "$SELFSTEAL_DEST_FILE" 2>/dev/null || true)
+    [[ -z "$selfsteal_dest" ]] && selfsteal_dest="$SELFSTEAL_DEST"
+    echo "$selfsteal_dest"
+    return 0
+  fi
+  echo "$sni:443"
+}
+
+_default_sni_for_transport() {
+  local transport="$1"
+  local selfsteal_domain=""
+  selfsteal_domain=$(_selfsteal_domain_value)
+  if [[ -n "$selfsteal_domain" ]]; then
+    echo "$selfsteal_domain"
+    return 0
+  fi
+
+  case "$transport" in
+    grpc)
+      echo "www.cloudflare.com"
+      ;;
+    tcp-xudp)
+      echo "api-maps.yandex.ru"
+      ;;
+    *)
+      local from_list
+      from_list=$(grep -v '^#' "$SNI_LIST" 2>/dev/null | grep -v '^[[:space:]]*$' | head -n 1 | cut -d'|' -f1)
+      [[ -z "$from_list" ]] && from_list="www.ozon.ru"
+      echo "$from_list"
+      ;;
+  esac
+}
+
+_selfsteal_ensure_443_inbound() {
+  local domain=$1
+  if jq -e '.inbounds[]? | select(.port == 443)' "$CONFIG_FILE" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  local short_id
+  short_id=$(openssl rand -hex 4)
+  local inbound
+  inbound=$(jq -n \
+    --arg domain "$domain" \
+    --arg dest "$SELFSTEAL_DEST" \
+    --arg private_key "$PRIVATE_KEY" \
+    --arg short_id "$short_id" \
+    '{
+      listen:"0.0.0.0",
+      port:443,
+      protocol:"vless",
+      settings:{clients:[],decryption:"none"},
+      streamSettings:{
+        network:"tcp",
+        security:"reality",
+        realitySettings:{
+          show:false,
+          dest:$dest,
+          xver:0,
+          serverNames:[$domain],
+          privateKey:$private_key,
+          shortIds:[$short_id],
+          fingerprint:"chrome"
+        }
+      },
+      sniffing:{enabled:true,destOverride:["http","tls","quic"],routeOnly:true},
+      tag:"inbound-443"
+    }')
+
+  safe_jq_write --argjson inbound "$inbound" '.inbounds += [$inbound]' "$CONFIG_FILE"
+}
+
+_selfsteal_apply_to_reality_inbounds() {
+  local domain=$1
+  local reality_ports
+  reality_ports=$(jq -r '.inbounds[]? | select(.streamSettings.security == "reality") | .port' "$CONFIG_FILE" 2>/dev/null)
+  backup_config "selfsteal_$domain" || return 1
+
+  if ! _selfsteal_ensure_443_inbound "$domain"; then
+    echo -e "${RED}✗ Не удалось создать служебный inbound 443${NC}"
+    return 1
+  fi
+
+  if ! safe_jq_write --arg domain "$domain" --arg dest "$SELFSTEAL_DEST" '
+    .inbounds |= map(
+      if .streamSettings.security == "reality" then
+        .streamSettings.realitySettings.dest = $dest |
+        .streamSettings.realitySettings.serverNames = [$domain] |
+        if .streamSettings.network == "xhttp" then
+          .streamSettings.xhttpSettings.host = $domain
+        else
+          .
+        end
+      else
+        .
+      end
+    )
+  ' "$CONFIG_FILE"; then
+    echo -e "${RED}✗ Не удалось применить self-steal к Reality inbound${NC}"
+    return 1
+  fi
+
+  fix_xray_permissions
+  if ! safe_restart_xray; then
+    return 1
+  fi
+
+  local port
+  for port in $reality_ports; do
+    update_all_profiles_on_port "$port" "sni" "$domain" || {
+      echo -e "${RED}✗ Не удалось синхронизировать SNI в profile JSON для порта $port${NC}"
+      return 1
+    }
+  done
+  update_all_profiles_on_port 443 "sni" "$domain" >/dev/null 2>&1 || true
+}
+
+install_selfsteal_stub_menu() {
+  show_ascii
+  echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
+  echo -e "${BLUE}    СОБСТВЕННЫЙ ДОМЕН / SELF-STEAL ЗАГЛУШКА   ${NC}"
+  echo -e "${BLUE}═══════════════════════════════════════════════${NC}\n"
+
+  local domain
+  echo -n -e "${YELLOW}Домен для Reality SNI: ${NC}"
+  read -r domain
+  if [[ -z "$domain" || ! "$domain" =~ ^[a-zA-Z0-9.-]+$ ]]; then
+    echo -e "${RED}✗ Некорректный домен${NC}"
+    sleep 2
+    return 1
+  fi
+
+  local server_ip resolved_ip
+  server_ip=$(get_server_ip)
+  resolved_ip=$(getent hosts "$domain" 2>/dev/null | awk '{print $1}' | head -1)
+  if [[ -n "$resolved_ip" && -n "$server_ip" && "$resolved_ip" != "$server_ip" ]]; then
+    echo -e "${YELLOW}  ⚠ DNS $domain → $resolved_ip, VPS IP = $server_ip${NC}"
+    echo -n -e "${YELLOW}Продолжить? (y/N): ${NC}"
+    local cont
+    read -r cont
+    [[ "$cont" =~ ^[yYдД]$ ]] || return 1
+  fi
+
+  local template
+  template=$(_selfsteal_template_menu)
+
+  local email
+  echo -n -e "${YELLOW}Email для Let's Encrypt: ${NC}"
+  read -r email
+  if [[ -z "$email" || ! "$email" =~ ^[^@]+@[^@]+\.[^@]+$ ]]; then
+    echo -e "${RED}✗ Некорректный email${NC}"
+    sleep 2
+    return 1
+  fi
+
+  echo -e "${CYAN}  → Установка nginx + certbot...${NC}"
+  if ! apt-get install -y nginx certbot >/dev/null 2>&1; then
+    echo -e "${RED}✗ apt-get install nginx certbot не удалось${NC}"
+    return 1
+  fi
+
+  local certbot_bin
+  if [[ -x /snap/bin/certbot ]]; then
+    certbot_bin="/snap/bin/certbot"
+  else
+    certbot_bin=$(command -v certbot 2>/dev/null || true)
+  fi
+  if [[ -z "$certbot_bin" || ! -x "$certbot_bin" ]]; then
+    echo -e "${RED}✗ certbot не найден${NC}"
+    return 1
+  fi
+
+  local webroot="/var/www/xrayebator-selfsteal-acme"
+  local stub_root="/var/www/xrayebator-reality-stub"
+  mkdir -p "$webroot/.well-known/acme-challenge"
+  chmod -R 755 "$webroot"
+  _selfsteal_write_template "$template" "$domain" "$stub_root" || return 1
+
+  cat > /etc/nginx/sites-available/xrayebator-selfsteal << NGINX_SELFSTEAL_HTTP
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${domain};
+
+    location ^~ /.well-known/acme-challenge/ {
+        root ${webroot};
+        default_type text/plain;
+    }
+
+    location / {
+        return 404;
+    }
+}
+NGINX_SELFSTEAL_HTTP
+
+  ln -sf /etc/nginx/sites-available/xrayebator-selfsteal /etc/nginx/sites-enabled/xrayebator-selfsteal
+  if ! nginx -t >/tmp/nginx-xrayebator-selfsteal.log 2>&1; then
+    echo -e "${RED}✗ nginx -t failed${NC}"
+    cat /tmp/nginx-xrayebator-selfsteal.log
+    return 1
+  fi
+  systemctl enable --now nginx >/dev/null 2>&1 || return 1
+  systemctl reload nginx >/dev/null 2>&1 || return 1
+
+  if command -v ufw &>/dev/null && ufw status | grep -q "Status: active"; then
+    ufw limit 80/tcp >/dev/null 2>&1
+    ufw reload >/dev/null 2>&1
+  fi
+
+  echo -e "${CYAN}  → Выпуск сертификата для $domain...${NC}"
+  if ! "$certbot_bin" certonly \
+      --cert-name "$domain" \
+      --webroot \
+      --webroot-path "$webroot" \
+      -d "$domain" \
+      --non-interactive \
+      --agree-tos \
+      -m "$email" \
+      --deploy-hook "systemctl reload nginx" \
+      >/tmp/certbot-selfsteal.log 2>&1; then
+    echo -e "${RED}✗ certbot не смог выдать сертификат. Лог: /tmp/certbot-selfsteal.log${NC}"
+    tail -30 /tmp/certbot-selfsteal.log
+    return 1
+  fi
+
+  local cert_dir="/etc/letsencrypt/live/${domain}"
+  if [[ ! -f "$cert_dir/fullchain.pem" || ! -f "$cert_dir/privkey.pem" ]]; then
+    echo -e "${RED}✗ cert files не найдены: $cert_dir${NC}"
+    return 1
+  fi
+
+  cat > /etc/nginx/sites-available/xrayebator-selfsteal << NGINX_SELFSTEAL_TLS
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${domain};
+
+    location ^~ /.well-known/acme-challenge/ {
+        root ${webroot};
+        default_type text/plain;
+    }
+
+    location / {
+        return 404;
+    }
+}
+
+server {
+    listen ${SELFSTEAL_DEST} ssl http2;
+    server_name ${domain};
+
+    ssl_certificate ${cert_dir}/fullchain.pem;
+    ssl_certificate_key ${cert_dir}/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+
+    root ${stub_root};
+    index index.html;
+    add_header X-Robots-Tag "noindex, nofollow, nosnippet" always;
+
+    location / {
+        try_files \$uri /index.html;
+    }
+}
+NGINX_SELFSTEAL_TLS
+
+  if ! nginx -t >/tmp/nginx-xrayebator-selfsteal.log 2>&1; then
+    echo -e "${RED}✗ nginx TLS config failed${NC}"
+    cat /tmp/nginx-xrayebator-selfsteal.log
+    return 1
+  fi
+  systemctl reload nginx >/dev/null 2>&1 || return 1
+
+  echo -e "${YELLOW}Применить SNI=$domain и dest=$SELFSTEAL_DEST ко всем Reality inbound? (y/N): ${NC}"
+  local apply_now
+  read -r apply_now
+  if [[ "$apply_now" =~ ^[yYдД]$ ]]; then
+    _selfsteal_apply_to_reality_inbounds "$domain" || return 1
+  fi
+
+  echo "$domain" > "$SELFSTEAL_DOMAIN_FILE"
+  echo "$template" > "$SELFSTEAL_TEMPLATE_FILE"
+  echo "$SELFSTEAL_DEST" > "$SELFSTEAL_DEST_FILE"
+  chown xray:xray "$SELFSTEAL_DOMAIN_FILE" "$SELFSTEAL_TEMPLATE_FILE" "$SELFSTEAL_DEST_FILE" 2>/dev/null || true
+
+  echo -e "${GREEN}✓ Self-steal заглушка готова: $domain → $SELFSTEAL_DEST${NC}"
+  echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
+  read -r _
+}
+
 _bypass_bundle_groups() {
   # Апекс-домены — Xray domain:<apex> делает subdomain-match, поддомены не нужны.
   # Аудит 2026-05: расширение покрытия antifraud/auth-эндпоинтов (Яндекс Лавка/Такси,
@@ -2788,8 +3560,8 @@ prepare_happ_vless_urls() {
   done <<< "$input"
 
   for line in \
-    "${tcp_vision[@]}" \
     "${tcp_xudp[@]}" \
+    "${tcp_vision[@]}" \
     "${tcp_utls[@]}" \
     "${grpc_routes[@]}" \
     "${tcp_mux[@]}" \
@@ -4184,6 +4956,10 @@ main_menu() {
     echo -e "${MAGENTA} BYPASS ROUTING:${NC}"
     echo -e "${CYAN}11)${NC} Управление обходом VPN"
     echo ""
+    echo -e "${MAGENTA} ADVANCED ROUTING:${NC}"
+    echo -e "${CYAN}12)${NC} Каскад / upstream-ноды"
+    echo -e "${CYAN}13)${NC} Собственный домен / self-steal заглушка"
+    echo ""
     echo -e "${RED} 0)${NC} Выход"
     echo ""
     echo -e "${BLUE}╚════════════════════════════════════════╝${NC}"
@@ -4197,6 +4973,8 @@ main_menu() {
       8) upgrade_profile_to_pq_menu ;;
       9) happ_subscription_menu ;;
       11) bypass_routing_menu ;;
+      12) cascade_mode_menu ;;
+      13) install_selfsteal_stub_menu ;;
       0) exit 0 ;;
       *) echo -e "${RED}Неверный выбор${NC}"; sleep 1 ;;
     esac
@@ -4284,7 +5062,7 @@ create_profile_menu() {
     4) create_profile "$profile_name" "tcp-mux" "" "chrome" ;;
     5) create_profile "$profile_name" "grpc" "" "chrome" ;;
     6) create_profile "$profile_name" "tcp-utls" "" "firefox" ;;
-    7) create_profile "$profile_name" "tcp-xudp" "" "chrome" "api-maps.yandex.ru" ;;
+    7) create_profile "$profile_name" "tcp-xudp" "" "chrome" ;;
     xorpub)
       # Hidden advanced opt-in (research §«Code Examples» #8 / D1 second-opinion).
       # xorpub mode = security theater в контексте Reality (codex+kimi подтвердили 2026-05-09).
@@ -4315,9 +5093,10 @@ create_profile_all_routes() {
     return 1
   fi
 
-  local default_sni
-  default_sni=$(grep -v '^#' "$SNI_LIST" 2>/dev/null | grep -v '^[[:space:]]*$' | head -n 1 | cut -d'|' -f1)
-  [[ -z "$default_sni" ]] && default_sni="www.ozon.ru"
+  local default_sni grpc_sni xudp_sni
+  default_sni=$(_default_sni_for_transport "tcp")
+  grpc_sni=$(_default_sni_for_transport "grpc")
+  xudp_sni=$(_default_sni_for_transport "tcp-xudp")
 
   local routes_tmp
   routes_tmp=$(mktemp /tmp/xrayebator-routes.XXXXXX) || {
@@ -4367,7 +5146,7 @@ create_profile_all_routes() {
 
   defaults=$(build_transport_defaults "grpc") || { rm -f "$routes_tmp"; return 1; }
   IFS='|' read -r port grpc_service_name _ <<< "$defaults"
-  _append_route_json "grpc" "grpc" "$port" "www.cloudflare.com" "chrome" false "$grpc_service_name" "" || { rm -f "$routes_tmp"; return 1; }
+  _append_route_json "grpc" "grpc" "$port" "$grpc_sni" "chrome" false "$grpc_service_name" "" || { rm -f "$routes_tmp"; return 1; }
 
   defaults=$(build_transport_defaults "tcp") || { rm -f "$routes_tmp"; return 1; }
   IFS='|' read -r port _ _ <<< "$defaults"
@@ -4379,7 +5158,7 @@ create_profile_all_routes() {
 
   defaults=$(build_transport_defaults "tcp-xudp") || { rm -f "$routes_tmp"; return 1; }
   IFS='|' read -r port _ _ <<< "$defaults"
-  _append_route_json "tcp-xudp" "tcp-xudp" "$port" "api-maps.yandex.ru" "chrome" false "" "" || { rm -f "$routes_tmp"; return 1; }
+  _append_route_json "tcp-xudp" "tcp-xudp" "$port" "$xudp_sni" "chrome" false "" "" || { rm -f "$routes_tmp"; return 1; }
 
   local routes_json
   routes_json=$(jq -s '.' "$routes_tmp") || {
@@ -4538,14 +5317,9 @@ create_profile() {
     [[ -z "$xhttp_path" ]] && xhttp_path="$generated_xhttp_path"
   fi
 
-  # gRPC требует SNI с поддержкой HTTP/2 (только зарубежные!)
-  if [[ "$transport" == "grpc" ]]; then
-    default_sni="www.cloudflare.com"
+  default_sni=$(_default_sni_for_transport "$transport")
+  if [[ "$transport" == "grpc" ]] && [[ -z "$(_selfsteal_domain_value)" ]]; then
     echo -e "${YELLOW}⚠ gRPC: используется SNI ${CYAN}$default_sni${YELLOW} (требуется HTTP/2)${NC}"
-  else
-    # Read first valid SNI (skip comments and empty lines)
-    default_sni=$(grep -v '^#' "$SNI_LIST" 2>/dev/null | grep -v '^[[:space:]]*$' | head -n 1 | cut -d'|' -f1)
-    [[ -z "$default_sni" ]] && default_sni="www.ozon.ru"
   fi
 
   # Используем кастомный SNI если передан
@@ -4811,6 +5585,8 @@ add_inbound() {
 
   echo -e "${CYAN} → Создание нового inbound на порту $port${NC}"
   local inbound=""
+  local reality_dest=""
+  reality_dest=$(_reality_dest_for_sni "$sni")
   case $transport in
     tcp-mux)
       inbound=$(cat << TCPMUXEOF
@@ -4827,7 +5603,7 @@ add_inbound() {
     "security": "reality",
     "realitySettings": {
       "show": false,
-      "dest": "$sni:443",
+      "dest": "$reality_dest",
       "xver": 0,
       "serverNames": ["$sni"],
       "privateKey": "$PRIVATE_KEY",
@@ -4856,7 +5632,7 @@ TCPMUXEOF
     "security": "reality",
     "realitySettings": {
       "show": false,
-      "dest": "$sni:443",
+      "dest": "$reality_dest",
       "xver": 0,
       "serverNames": ["$sni"],
       "privateKey": "$PRIVATE_KEY",
@@ -4886,7 +5662,7 @@ TCPEOF
     "grpcSettings": {"serviceName": "$grpc_service_name"},
     "realitySettings": {
       "show": false,
-      "dest": "$sni:443",
+      "dest": "$reality_dest",
       "xver": 0,
       "serverNames": ["$sni"],
       "privateKey": "$PRIVATE_KEY",
@@ -4932,7 +5708,7 @@ GRPCEOF
     },
     "realitySettings": {
       "show": false,
-      "dest": "$sni:443",
+      "dest": "$reality_dest",
       "xver": 0,
       "serverNames": ["$sni"],
       "privateKey": "$PRIVATE_KEY",
@@ -5241,7 +6017,8 @@ generate_connection() {
   local port=$(jq -r '.port' "$profile_file")
   local fingerprint=$(jq -r '.fingerprint // "chrome"' "$profile_file")
   local current_sni=$(jq -r '.sni // "www.ozon.ru"' "$profile_file")
-  local clean_public_key=$(cat "$PUBLIC_KEY_FILE")
+  local clean_public_key
+  clean_public_key=$(_inbound_public_key_for_port "$port" 2>/dev/null || cat "$PUBLIC_KEY_FILE")
   # Phase 7 REQ-C10: pq_enabled lookup ВВЕРХ — нужен блокам печати manual-параметров
   # независимо от того, какая ветка транспорта сработала.
   local pq_enabled
@@ -5453,20 +6230,24 @@ change_sni_menu() {
     echo -n -e "${YELLOW}Применить SNI '$new_sni'? (y/N): ${NC}"
     read confirm
     if [[ "$confirm" =~ ^[yYдД]$ ]]; then
-      # Update all profile/route JSON entries tied to this inbound port
-      if ! update_all_profiles_on_port "$port" "sni" "$new_sni"; then
-        echo -e "${RED}✗ Ошибка обновления профиля${NC}"
-        sleep 2
-        return
-      fi
-
       # Update config
+      backup_config "sni_change_${port}" || return
       if ! update_transport_settings_for_sni "$port" "$new_sni" "$CONFIG_FILE"; then
         echo -e "${RED}✗ Ошибка обновления config.json${NC}"
         sleep 2
         return
       fi
-      safe_restart_xray
+      if ! safe_restart_xray; then
+        sleep 2
+        return
+      fi
+
+      # Update all profile/route JSON entries tied to this inbound port only after Xray accepted config.
+      if ! update_all_profiles_on_port "$port" "sni" "$new_sni"; then
+        echo -e "${RED}✗ Ошибка обновления профиля${NC}"
+        sleep 2
+        return
+      fi
 
       echo ""
       echo -e "${GREEN}✓ SNI '${target_label}' изменен на: ${YELLOW}$new_sni${NC}"
@@ -5608,21 +6389,25 @@ change_sni_menu() {
     return
   fi
 
-  # Update all profile/route JSON entries tied to this inbound port
-  if ! update_all_profiles_on_port "$port" "sni" "$new_sni"; then
-    echo -e "${RED}✗ Ошибка обновления профиля${NC}"
-    sleep 2
-    return
-  fi
-
   # Update config (transport-aware)
+  backup_config "sni_change_${port}" || return
   if ! update_transport_settings_for_sni "$port" "$new_sni" "$CONFIG_FILE"; then
     echo -e "${RED}✗ Ошибка обновления config.json${NC}"
     sleep 2
     return
   fi
 
-  safe_restart_xray
+  if ! safe_restart_xray; then
+    sleep 2
+    return
+  fi
+
+  # Update all profile/route JSON entries tied to this inbound port only after Xray accepted config.
+  if ! update_all_profiles_on_port "$port" "sni" "$new_sni"; then
+    echo -e "${RED}✗ Ошибка обновления профиля${NC}"
+    sleep 2
+    return
+  fi
 
   echo ""
   echo -e "${GREEN}✓ SNI '${target_label}' изменен на: ${YELLOW}$new_sni${NC}"
@@ -5778,14 +6563,8 @@ change_fingerprint_menu() {
     return
   fi
 
-  # Update all profile/route JSON entries tied to this inbound port
-  if ! update_all_profiles_on_port "$port" "fingerprint" "$new_fp"; then
-    echo -e "${RED}✗ Ошибка обновления профиля${NC}"
-    sleep 2
-    return
-  fi
-
   # Update config
+  backup_config "fingerprint_change_${port}" || return
   if ! safe_jq_write --argjson port "$port" --arg fp "$new_fp" '
     (.inbounds[] | select(.port == $port) | .streamSettings.realitySettings.fingerprint) |= $fp
   ' "$CONFIG_FILE"; then
@@ -5794,7 +6573,17 @@ change_fingerprint_menu() {
     return
   fi
 
-  safe_restart_xray
+  if ! safe_restart_xray; then
+    sleep 2
+    return
+  fi
+
+  # Update all profile/route JSON entries tied to this inbound port only after Xray accepted config.
+  if ! update_all_profiles_on_port "$port" "fingerprint" "$new_fp"; then
+    echo -e "${RED}✗ Ошибка обновления профиля${NC}"
+    sleep 2
+    return
+  fi
 
   echo ""
   echo -e "${GREEN}✓ Fingerprint '${target_label}' изменен на: ${YELLOW}$new_fp${NC}"
@@ -6659,7 +7448,8 @@ upgrade_profile_to_pq_menu() {
 
   # Шаг D: REPLACE inbound с port=$port на новый XHTTP+pq shape (с СОХРАНЁННЫМ uuid)
   # Стратегия: del-by-port + append (НЕ object merge — иначе clobber freedom outbound и т.п.)
-  local new_inbound
+  local new_inbound reality_dest
+  reality_dest=$(_reality_dest_for_sni "$sni")
   new_inbound=$(cat << UPGEOF
 {
   "listen": "0.0.0.0",
@@ -6691,7 +7481,7 @@ upgrade_profile_to_pq_menu() {
     },
     "realitySettings": {
       "show": false,
-      "dest": "$sni:443",
+      "dest": "$reality_dest",
       "xver": 0,
       "serverNames": ["$sni"],
       "privateKey": "$PRIVATE_KEY",

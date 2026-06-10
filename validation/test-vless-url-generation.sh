@@ -20,11 +20,13 @@ source "$REPO_ROOT/xrayebator"
 CONFIG_FILE="$WORKDIR/config.json"
 PROFILES_DIR="$WORKDIR/profiles"
 PUBLIC_KEY_FILE="$WORKDIR/.public_key"
+PRIVATE_KEY_FILE="$WORKDIR/.private_key"
 VLESS_ENCRYPTION_FILE="$WORKDIR/.vless_encryption"
 SERVER_IP="203.0.113.10"
 
 mkdir -p "$PROFILES_DIR"
 printf '%s' 'test-public-key' > "$PUBLIC_KEY_FILE"
+printf '%s' 'test-private-key' > "$PRIVATE_KEY_FILE"
 printf '%s' 'mlkem768x25519plus.native.test-encryption' > "$VLESS_ENCRYPTION_FILE"
 
 cat > "$CONFIG_FILE" <<'JSON'
@@ -34,21 +36,21 @@ cat > "$CONFIG_FILE" <<'JSON'
       "port": 12345,
       "streamSettings": {
         "network": "xhttp",
-        "realitySettings": {"shortIds": ["abcd1234"]}
+        "realitySettings": {"privateKey": "test-private-key", "shortIds": ["abcd1234"]}
       }
     },
     {
       "port": 12346,
       "streamSettings": {
         "network": "xhttp",
-        "realitySettings": {"shortIds": ["beef5678"]}
+        "realitySettings": {"privateKey": "test-private-key", "shortIds": ["beef5678"]}
       }
     },
     {
       "port": 23456,
       "streamSettings": {
         "network": "grpc",
-        "realitySettings": {"shortIds": ["feed9876"]}
+        "realitySettings": {"privateKey": "test-private-key", "shortIds": ["feed9876"]}
       }
     }
   ]
