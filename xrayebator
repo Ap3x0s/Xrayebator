@@ -2437,6 +2437,116 @@ cascade_mode_menu() {
   done
 }
 
+setup_outbound_server_menu() {
+  show_ascii
+  echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
+  echo -e "${BLUE}    ПОДНЯТЬ OUTBOUND-СЕРВЕР (ЗАРУБЕЖНАЯ НОДА) ${NC}"
+  echo -e "${BLUE}═══════════════════════════════════════════════${NC}\n"
+
+  # Запускается НА зарубежном VPS. Делает текущий сервер выходом каскада:
+  # поднимает TCP Reality Vision inbound, параметры которого вставляются на
+  # РФ-сервере (пункт 12 → Настроить upstream). Российский cascade-аутбаунд —
+  # тоже TCP Reality Vision (encryption=none), поэтому транспорт здесь tcp.
+  echo -e "${CYAN}Запускайте этот пункт на ЗАРУБЕЖНОМ VPS.${NC}"
+  echo -e "${CYAN}Он поднимает TCP Reality Vision inbound — выход каскада.${NC}"
+  echo -e "${CYAN}Параметры вставьте на РФ-сервере: пункт 12 → Настроить upstream.${NC}\n"
+
+  # Префлайт: ключи Reality и config обязаны существовать на этой ноде.
+  if [[ -z "${PRIVATE_KEY:-}" ]] || [[ ! -f "$CONFIG_FILE" ]]; then
+    echo -e "${RED}✗ Reality-ключи или config не найдены. Установите xrayebator на этой ноде.${NC}"
+    sleep 2
+    return 1
+  fi
+
+  local default_sni port sni fingerprint
+  default_sni=$(_default_sni_for_transport "tcp")
+
+  echo -n -e "${YELLOW}Порт inbound [443]: ${NC}"
+  read -r port
+  port=${port:-443}
+  if [[ ! "$port" =~ ^[0-9]+$ ]] || [[ $port -lt 1 ]] || [[ $port -gt 65535 ]]; then
+    echo -e "${RED}✗ Некорректный порт${NC}"
+    sleep 2
+    return 1
+  fi
+
+  echo -n -e "${YELLOW}SNI (маскировочный TLS-домен) [${default_sni}]: ${NC}"
+  read -r sni
+  sni=${sni:-$default_sni}
+  if [[ -z "$sni" ]] || [[ ! "$sni" =~ ^[a-zA-Z0-9.-]+$ ]]; then
+    echo -e "${RED}✗ Некорректный SNI${NC}"
+    sleep 2
+    return 1
+  fi
+
+  echo -n -e "${YELLOW}Fingerprint [chrome]: ${NC}"
+  read -r fingerprint
+  fingerprint=${fingerprint:-chrome}
+  if [[ ! "$fingerprint" =~ ^(chrome|firefox|safari|ios|android|edge|qq|random|randomized)$ ]]; then
+    echo -e "${RED}✗ Некорректный fingerprint${NC}"
+    sleep 2
+    return 1
+  fi
+
+  # UUID, под которым РФ-сервер будет VLESS-клиентом этой ноды.
+  local uuid
+  uuid=$(uuidgen)
+
+  echo ""
+  echo -n -e "${YELLOW}Поднять TCP Reality Vision inbound на порту $port (SNI $sni)? (y/N): ${NC}"
+  local confirm
+  read -r confirm
+  [[ "$confirm" =~ ^[yYдД]$ ]] || return 1
+
+  backup_config "outbound_server" || return 1
+
+  # Переиспользуем add_inbound (TCP Reality Vision) — логику inbound не дублируем.
+  if ! add_inbound "$uuid" "tcp" "$port" "$sni" "$fingerprint" "" ""; then
+    echo -e "${RED}✗ Не удалось создать inbound зарубежной ноды${NC}"
+    return 1
+  fi
+
+  fix_xray_permissions
+  if ! safe_restart_xray; then
+    echo -e "${RED}✗ Xray не принял конфиг — выполнен авто-откат. Inbound не поднят.${NC}"
+    return 1
+  fi
+
+  # Считываем фактические параметры из config: add_inbound мог переопределить
+  # SNI/fingerprint, если порт уже был занят Reality-инбаундом.
+  local actual_sni actual_short_id actual_fp public_key address
+  actual_sni=$(jq -r --argjson p "$port" '.inbounds[]? | select(.port == $p) | .streamSettings.realitySettings.serverNames[0] // empty' "$CONFIG_FILE" 2>/dev/null)
+  actual_short_id=$(jq -r --argjson p "$port" '.inbounds[]? | select(.port == $p) | .streamSettings.realitySettings.shortIds[0] // empty' "$CONFIG_FILE" 2>/dev/null)
+  actual_fp=$(jq -r --argjson p "$port" '.inbounds[]? | select(.port == $p) | .streamSettings.realitySettings.fingerprint // "chrome"' "$CONFIG_FILE" 2>/dev/null)
+  [[ -z "$actual_sni" ]] && actual_sni="$sni"
+  [[ -z "$actual_fp" ]] && actual_fp="$fingerprint"
+  public_key=$(_inbound_public_key_for_port "$port" 2>/dev/null || cat "$PUBLIC_KEY_FILE" 2>/dev/null)
+  address=$(get_server_ip)
+
+  echo ""
+  echo -e "${GREEN}✓ Зарубежный outbound-сервер поднят (inbound-$port, TCP Reality Vision).${NC}"
+  echo ""
+  echo -e "${MAGENTA}═══════════════════════════════════════════════${NC}"
+  echo -e "${MAGENTA} ПАРАМЕТРЫ ДЛЯ РФ-СЕРВЕРА (пункт 12 → Настроить upstream)${NC}"
+  echo -e "${MAGENTA}═══════════════════════════════════════════════${NC}"
+  echo -e "${CYAN}Host/IP:       ${NC}${address:-<впишите IP этой ноды вручную>}"
+  echo -e "${CYAN}Port:          ${NC}$port"
+  echo -e "${CYAN}UUID:          ${NC}$uuid"
+  echo -e "${CYAN}publicKey:     ${NC}${public_key:-<ключ не определён>}"
+  echo -e "${CYAN}shortId:       ${NC}$actual_short_id"
+  echo -e "${CYAN}SNI:           ${NC}$actual_sni"
+  echo -e "${CYAN}Fingerprint:   ${NC}$actual_fp"
+  echo -e "${CYAN}flow:          ${NC}xtls-rprx-vision"
+  echo -e "${CYAN}packetEncoding:${NC} (оставьте пустым)"
+  echo -e "${MAGENTA}═══════════════════════════════════════════════${NC}"
+  if [[ -z "$address" ]]; then
+    echo -e "${YELLOW}⚠ Внешний IP не определён автоматически — впишите Host/IP вручную.${NC}"
+  fi
+  echo ""
+  echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
+  read -r _
+}
+
 _selfsteal_write_template() {
   local template=$1
   local domain=$2
@@ -4959,6 +5069,7 @@ main_menu() {
     echo -e "${MAGENTA} ADVANCED ROUTING:${NC}"
     echo -e "${CYAN}12)${NC} Каскад / upstream-ноды"
     echo -e "${CYAN}13)${NC} Собственный домен / self-steal заглушка"
+    echo -e "${CYAN}14)${NC} Поднять outbound-сервер (зарубежная нода)"
     echo ""
     echo -e "${RED} 0)${NC} Выход"
     echo ""
@@ -4975,6 +5086,7 @@ main_menu() {
       11) bypass_routing_menu ;;
       12) cascade_mode_menu ;;
       13) install_selfsteal_stub_menu ;;
+      14) setup_outbound_server_menu ;;
       0) exit 0 ;;
       *) echo -e "${RED}Неверный выбор${NC}"; sleep 1 ;;
     esac
