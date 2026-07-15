@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - fix/cascade-import-and-installer-hardening
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
@@ -48,5 +51,3 @@ jobs:
           git add -A
           git commit -m "fix: harden cascade upstream import and installation"
           git push origin HEAD:fix/cascade-import-and-installer-hardening
-
-# Second push intentionally triggers this workflow after creation.
