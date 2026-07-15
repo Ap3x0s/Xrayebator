@@ -33,7 +33,16 @@ jobs:
               raise SystemExit('replace_once implementation not found')
           p.write_text(text.replace(old, new, 1))
           PY
-          python3 .github/scripts/apply_cascade_fixes.py
+          if ! python3 .github/scripts/apply_cascade_fixes.py > /tmp/patch-generator.log 2>&1; then
+            cat /tmp/patch-generator.log
+            cp /tmp/patch-generator.log PATCH_GENERATOR_ERROR.txt
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add PATCH_GENERATOR_ERROR.txt
+            git commit -m "chore: persist patch generator error"
+            git push origin HEAD:fix/cascade-import-and-installer-hardening
+            exit 1
+          fi
 
       - name: Validate shell syntax
         run: |
@@ -57,6 +66,7 @@ jobs:
         run: |
           rm -f .github/workflows/apply-cascade-fixes.yml
           rm -f .github/scripts/apply_cascade_fixes.py
+          rm -f PATCH_GENERATOR_ERROR.txt
           git config user.name "ShalomGH"
           git config user.email "58379599+ShalomGH@users.noreply.github.com"
           git add -A
