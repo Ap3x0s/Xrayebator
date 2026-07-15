@@ -3816,6 +3816,7 @@ fi
 
 # Fallback-defaults если .happ_defaults.env отсутствует или не задаёт переменную.
 HAPP_PROFILE_UPDATE_INTERVAL="${HAPP_PROFILE_UPDATE_INTERVAL:-24}"
+HAPP_SERVER_NAME="${HAPP_SERVER_NAME:-}"
 HAPP_SUPPORT_URL="${HAPP_SUPPORT_URL:-https://github.com/howdeploy/Xrayebator}"
 HAPP_WEB_URL="${HAPP_WEB_URL:-https://github.com/howdeploy/Xrayebator}"
 HAPP_ANNOUNCE_FILE="${HAPP_ANNOUNCE_FILE:-/usr/local/etc/xray/announce.txt}"
@@ -3961,8 +3962,15 @@ prepare_happ_vless_urls() {
   done
 }
 
-# HAPP metadata: profile-title и announce — base64 UTF-8 без переносов (-w0).
-profile_title_b64=$(printf '%s' "$profile_name" | base64 -w0)
+# HAPP metadata: имя подписки задаётся оператором независимо от имени профиля.
+# Пустое HAPP_SERVER_NAME сохраняет обратную совместимость и использует profile_name.
+subscription_title="${HAPP_SERVER_NAME:-}"
+subscription_title="${subscription_title//$'\r'/}"
+subscription_title="${subscription_title//$'\n'/}"
+if [[ -z "${subscription_title//[[:space:]]/}" ]]; then
+  subscription_title="$profile_name"
+fi
+profile_title_b64=$(printf '%s' "$subscription_title" | base64 -w0)
 ANNOUNCE_FILE="$HAPP_ANNOUNCE_FILE"
 ANNOUNCE_HEADER=""
 ANNOUNCE_COMMENT=""
@@ -4054,6 +4062,10 @@ SUBHTTP_EOF
 # Этот файл source-ится subhttp.sh на КАЖДЫЙ request — менять можно без рестарта сервиса.
 # Plan 7.3 menu позволит редактировать через TUI; править руками тоже допустимо
 # (синтаксис shell, любые BASH-совместимые конструкции).
+
+# Имя сервера / название подписки в HAPP.
+# Пустое значение означает fallback на имя конкретного профиля.
+HAPP_SERVER_NAME=""
 
 # URL поддержки (HAPP импортирует, кликабельно у юзера в клиенте):
 HAPP_SUPPORT_URL="https://github.com/howdeploy/Xrayebator"
@@ -5033,7 +5045,7 @@ happ_settings_menu() {
   while true; do
     show_ascii
     # Локальный source — читаем текущие значения.
-    local HAPP_SUPPORT_URL HAPP_WEB_URL HAPP_PROFILE_UPDATE_INTERVAL HAPP_ANNOUNCE_FILE HAPP_ROUTING_JSON_FILE
+    local HAPP_SERVER_NAME HAPP_SUPPORT_URL HAPP_WEB_URL HAPP_PROFILE_UPDATE_INTERVAL HAPP_ANNOUNCE_FILE HAPP_ROUTING_JSON_FILE
     # shellcheck disable=SC1090
     source "$env_file"
 
@@ -5041,23 +5053,25 @@ happ_settings_menu() {
     echo -e "${BLUE}    НАСТРОЙКИ HAPP METADATA                   ${NC}"
     echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
     echo ""
-    echo -e "${CYAN} 1)${NC} HAPP_SUPPORT_URL = ${YELLOW}${HAPP_SUPPORT_URL:-(не задано)}${NC}"
-    echo -e "${CYAN} 2)${NC} HAPP_WEB_URL = ${YELLOW}${HAPP_WEB_URL:-(не задано)}${NC}"
-    echo -e "${CYAN} 3)${NC} HAPP_PROFILE_UPDATE_INTERVAL = ${YELLOW}${HAPP_PROFILE_UPDATE_INTERVAL:-24}${NC} часов"
-    echo -e "${CYAN} 4)${NC} HAPP_ANNOUNCE_FILE = ${YELLOW}${HAPP_ANNOUNCE_FILE:-(не задано)}${NC}"
-    echo -e "${CYAN} 5)${NC} HAPP_ROUTING_JSON_FILE = ${YELLOW}${HAPP_ROUTING_JSON_FILE:-(не задано)}${NC}"
+    echo -e "${CYAN} 1)${NC} HAPP_SERVER_NAME = ${YELLOW}${HAPP_SERVER_NAME:-(имя профиля)}${NC}"
+    echo -e "${CYAN} 2)${NC} HAPP_SUPPORT_URL = ${YELLOW}${HAPP_SUPPORT_URL:-(не задано)}${NC}"
+    echo -e "${CYAN} 3)${NC} HAPP_WEB_URL = ${YELLOW}${HAPP_WEB_URL:-(не задано)}${NC}"
+    echo -e "${CYAN} 4)${NC} HAPP_PROFILE_UPDATE_INTERVAL = ${YELLOW}${HAPP_PROFILE_UPDATE_INTERVAL:-24}${NC} часов"
+    echo -e "${CYAN} 5)${NC} HAPP_ANNOUNCE_FILE = ${YELLOW}${HAPP_ANNOUNCE_FILE:-(не задано)}${NC}"
+    echo -e "${CYAN} 6)${NC} HAPP_ROUTING_JSON_FILE = ${YELLOW}${HAPP_ROUTING_JSON_FILE:-(не задано)}${NC}"
     echo -e "${CYAN} 0)${NC} Назад"
     echo ""
-    echo -n -e "${YELLOW}Изменить (1-5, 0=назад): ${NC}"
+    echo -n -e "${YELLOW}Изменить (1-6, 0=назад): ${NC}"
     local choice
     read -r choice
     case "$choice" in
       0) return ;;
-      1) _happ_edit_field "$env_file" "HAPP_SUPPORT_URL" "$HAPP_SUPPORT_URL" ;;
-      2) _happ_edit_field "$env_file" "HAPP_WEB_URL" "$HAPP_WEB_URL" ;;
-      3) _happ_edit_field "$env_file" "HAPP_PROFILE_UPDATE_INTERVAL" "$HAPP_PROFILE_UPDATE_INTERVAL" ;;
-      4) _happ_edit_field "$env_file" "HAPP_ANNOUNCE_FILE" "$HAPP_ANNOUNCE_FILE" ;;
-      5) _happ_edit_field "$env_file" "HAPP_ROUTING_JSON_FILE" "$HAPP_ROUTING_JSON_FILE" ;;
+      1) _happ_edit_field "$env_file" "HAPP_SERVER_NAME" "$HAPP_SERVER_NAME" ;;
+      2) _happ_edit_field "$env_file" "HAPP_SUPPORT_URL" "$HAPP_SUPPORT_URL" ;;
+      3) _happ_edit_field "$env_file" "HAPP_WEB_URL" "$HAPP_WEB_URL" ;;
+      4) _happ_edit_field "$env_file" "HAPP_PROFILE_UPDATE_INTERVAL" "$HAPP_PROFILE_UPDATE_INTERVAL" ;;
+      5) _happ_edit_field "$env_file" "HAPP_ANNOUNCE_FILE" "$HAPP_ANNOUNCE_FILE" ;;
+      6) _happ_edit_field "$env_file" "HAPP_ROUTING_JSON_FILE" "$HAPP_ROUTING_JSON_FILE" ;;
       *) echo -e "${RED}✗ Некорректный выбор${NC}"; sleep 1 ;;
     esac
   done
@@ -5095,7 +5109,16 @@ _happ_edit_field() {
   mv "$tmp" "$env_file"
   chmod 644 "$env_file"
   chown xray:xray "$env_file" 2>/dev/null || true
-  echo -e "${GREEN}✓ ${key} обновлено (рестарт subhttp не требуется — source на каждый request)${NC}"
+  if [[ -f /usr/local/etc/xray/.subscription_installed ]]; then
+    if install_subscription_server >/dev/null 2>&1; then
+      echo -e "${GREEN}✓ ${key} обновлено; subscription handler регенерирован${NC}"
+    else
+      echo -e "${YELLOW}⚠ ${key} сохранено, но subhttp.sh не удалось регенерировать${NC}"
+      echo -e "${YELLOW}  Переустановите подписку через меню HAPP.${NC}"
+    fi
+  else
+    echo -e "${GREEN}✓ ${key} обновлено${NC}"
+  fi
   sleep 1
 }
 
