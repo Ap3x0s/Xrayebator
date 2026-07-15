@@ -157,16 +157,30 @@ update_xray_core() {
   DGST_PATH="${ZIP_PATH}.dgst"
 
   echo -e "${CYAN}Скачивание $TARGET_TAG...${NC}"
-  if ! curl -fL --progress-bar --connect-timeout 30 --max-time 300 \
-       -o "$ZIP_PATH" "$ZIP_URL"; then
-    echo -e "${RED}✗ Не удалось скачать $ZIP_URL${NC}"
-    return 2
-  fi
+  if [[ -n "${XRAY_LOCAL_ZIP:-}" || -n "${XRAY_LOCAL_DGST:-}" ]]; then
+    if [[ ! -f "${XRAY_LOCAL_ZIP:-}" || ! -f "${XRAY_LOCAL_DGST:-}" ]]; then
+      echo -e "${RED}✗ XRAY_LOCAL_ZIP и XRAY_LOCAL_DGST должны указывать на существующие файлы${NC}"
+      return 2
+    fi
+    cp "$XRAY_LOCAL_ZIP" "$ZIP_PATH"
+    cp "$XRAY_LOCAL_DGST" "$DGST_PATH"
+    echo -e "${GREEN}  ✓ Использованы локальные release-файлы${NC}"
+  else
+    local curl_args=(-fL --retry 5 --retry-delay 2 --retry-all-errors --connect-timeout 30 --max-time 600 --http1.1)
+    [[ "${XRAY_FORCE_IPV4:-0}" == "1" ]] && curl_args+=(-4)
+    [[ -n "${XRAY_DOWNLOAD_PROXY:-}" ]] && curl_args+=(--proxy "$XRAY_DOWNLOAD_PROXY")
 
-  if ! curl -fsSL --connect-timeout 10 --max-time 30 \
-       -o "$DGST_PATH" "$DGST_URL"; then
-    echo -e "${RED}✗ Не удалось скачать .dgst (SHA-256 manifest обязателен)${NC}"
-    return 2
+    if ! curl "${curl_args[@]}" --progress-bar -o "$ZIP_PATH" "$ZIP_URL"; then
+      echo -e "${RED}✗ Не удалось скачать $ZIP_URL${NC}"
+      echo -e "${YELLOW}  Можно указать SOCKS/HTTP proxy через XRAY_DOWNLOAD_PROXY или локальные XRAY_LOCAL_ZIP/XRAY_LOCAL_DGST.${NC}"
+      return 2
+    fi
+
+    if ! curl "${curl_args[@]}" -sS -o "$DGST_PATH" "$DGST_URL"; then
+      echo -e "${RED}✗ Не удалось скачать .dgst (SHA-256 manifest обязателен)${NC}"
+      echo -e "${YELLOW}  Проверка SHA не отключается; загрузите ZIP и .dgst через другой канал и передайте локальные пути.${NC}"
+      return 2
+    fi
   fi
 
   # ── Step 7: SHA-256 verify (mandatory) ─────────────────────────
@@ -677,11 +691,42 @@ ufw reload > /dev/null 2>&1
 echo -e "${GREEN}✓ Firewall настроен${NC}"
 echo -e "${CYAN}  Открытые порты: 443, 2053, 2096, 8080, 8443, 8880, 9443${NC}\n"
 
-# [8/10] Оптимизация TCP (BBR)
-echo -e "${BLUE}[8/10]${NC} ${YELLOW}Настройка BBR TCP Congestion Control...${NC}"
-if ! grep -q "net.core.default_qdisc=fq" /etc/sysctl.conf; then
-  cat >> /etc/sysctl.conf << 'EOF'
-# BBR TCP Congestion Control Optimization
+# [8/10] Опциональная настройка TCP
+  echo -e "${BLUE}[8/10]${NC} ${YELLOW}Настройка TCP congestion control...${NC}"
+  TCP_TUNING_MODE="${XRAY_TCP_TUNING:-ask}"
+  if [[ "$TCP_TUNING_MODE" == "ask" ]]; then
+    if [[ -t 0 ]]; then
+      echo -e "${CYAN} 1)${NC} Не менять системные TCP-настройки ${GREEN}(рекомендуется)${NC}"
+      echo -e "${CYAN} 2)${NC} Включить только BBR + fq"
+      echo -e "${CYAN} 3)${NC} Применить расширенный TCP-тюнинг"
+      echo -n -e "${YELLOW}Выбор [1]: ${NC}"
+      read -r tcp_choice
+      case "${tcp_choice:-1}" in
+        2) TCP_TUNING_MODE="bbr" ;;
+        3) TCP_TUNING_MODE="extended" ;;
+        *) TCP_TUNING_MODE="none" ;;
+      esac
+    else
+      TCP_TUNING_MODE="none"
+    fi
+  fi
+
+  case "$TCP_TUNING_MODE" in
+    none|skip)
+      echo -e "${CYAN}✓ Системные TCP-настройки оставлены без изменений${NC}\n"
+      ;;
+    bbr|minimal)
+      cat > /etc/sysctl.d/99-xrayebator-tcp.conf <<'EOF'
+# Xrayebator minimal TCP tuning
+net.core.default_qdisc=fq
+net.ipv4.tcp_congestion_control=bbr
+EOF
+      sysctl --system > /dev/null 2>&1 || true
+      echo -e "${GREEN}✓ Включены BBR + fq${NC}\n"
+      ;;
+    extended)
+      cat > /etc/sysctl.d/99-xrayebator-tcp.conf <<'EOF'
+# Xrayebator extended TCP tuning
 net.core.default_qdisc=fq
 net.ipv4.tcp_congestion_control=bbr
 net.ipv4.tcp_fastopen=3
@@ -704,13 +749,15 @@ net.ipv4.tcp_syncookies=1
 net.core.netdev_max_backlog=16384
 net.ipv4.tcp_max_syn_backlog=8192
 EOF
-  sysctl -p > /dev/null 2>&1
-  echo -e "${GREEN}✓ BBR включен и настроен${NC}\n"
-else
-  echo -e "${CYAN}✓ BBR уже настроен${NC}\n"
-fi
+      sysctl --system > /dev/null 2>&1 || true
+      echo -e "${GREEN}✓ Применён расширенный TCP-тюнинг${NC}\n"
+      ;;
+    *)
+      echo -e "${YELLOW}⚠ Неизвестный XRAY_TCP_TUNING=$TCP_TUNING_MODE; настройки пропущены${NC}\n"
+      ;;
+  esac
 
-# [9/10] Загрузка данных
+  # [9/10] Загрузка данных
 echo -e "${BLUE}[9/10]${NC} ${YELLOW}Загрузка данных приложения...${NC}"
 curl -fsSL "${RAW_BASE_URL}/sni_list.txt" -o "${DATA_DIR}/sni_list.txt"
 if [[ $? -eq 0 ]] && [[ -s "${DATA_DIR}/sni_list.txt" ]]; then

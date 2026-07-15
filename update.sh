@@ -592,16 +592,30 @@ update_xray_core() {
   DGST_PATH="${ZIP_PATH}.dgst"
 
   echo -e "${CYAN}Скачивание $TARGET_TAG...${NC}"
-  if ! curl -fL --progress-bar --connect-timeout 30 --max-time 300 \
-       -o "$ZIP_PATH" "$ZIP_URL"; then
-    echo -e "${RED}✗ Не удалось скачать $ZIP_URL${NC}"
-    return 2
-  fi
+  if [[ -n "${XRAY_LOCAL_ZIP:-}" || -n "${XRAY_LOCAL_DGST:-}" ]]; then
+    if [[ ! -f "${XRAY_LOCAL_ZIP:-}" || ! -f "${XRAY_LOCAL_DGST:-}" ]]; then
+      echo -e "${RED}✗ XRAY_LOCAL_ZIP и XRAY_LOCAL_DGST должны указывать на существующие файлы${NC}"
+      return 2
+    fi
+    cp "$XRAY_LOCAL_ZIP" "$ZIP_PATH"
+    cp "$XRAY_LOCAL_DGST" "$DGST_PATH"
+    echo -e "${GREEN}  ✓ Использованы локальные release-файлы${NC}"
+  else
+    local curl_args=(-fL --retry 5 --retry-delay 2 --retry-all-errors --connect-timeout 30 --max-time 600 --http1.1)
+    [[ "${XRAY_FORCE_IPV4:-0}" == "1" ]] && curl_args+=(-4)
+    [[ -n "${XRAY_DOWNLOAD_PROXY:-}" ]] && curl_args+=(--proxy "$XRAY_DOWNLOAD_PROXY")
 
-  if ! curl -fsSL --connect-timeout 10 --max-time 30 \
-       -o "$DGST_PATH" "$DGST_URL"; then
-    echo -e "${RED}✗ Не удалось скачать .dgst (SHA-256 manifest обязателен)${NC}"
-    return 2
+    if ! curl "${curl_args[@]}" --progress-bar -o "$ZIP_PATH" "$ZIP_URL"; then
+      echo -e "${RED}✗ Не удалось скачать $ZIP_URL${NC}"
+      echo -e "${YELLOW}  Можно указать SOCKS/HTTP proxy через XRAY_DOWNLOAD_PROXY или локальные XRAY_LOCAL_ZIP/XRAY_LOCAL_DGST.${NC}"
+      return 2
+    fi
+
+    if ! curl "${curl_args[@]}" -sS -o "$DGST_PATH" "$DGST_URL"; then
+      echo -e "${RED}✗ Не удалось скачать .dgst (SHA-256 manifest обязателен)${NC}"
+      echo -e "${YELLOW}  Проверка SHA не отключается; загрузите ZIP и .dgst через другой канал и передайте локальные пути.${NC}"
+      return 2
+    fi
   fi
 
   # ── Step 7: SHA-256 verify (mandatory) ─────────────────────────
