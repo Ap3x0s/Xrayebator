@@ -27,11 +27,17 @@ jobs:
           from pathlib import Path
           p = Path('.github/scripts/apply_cascade_fixes.py')
           text = p.read_text()
-          old = 'updated, count = re.subn(pattern, replacement, text, count=1, flags=flags)'
-          new = 'updated, count = re.subn(pattern, lambda _match: replacement, text, count=1, flags=flags)'
-          if old not in text:
-              raise SystemExit('replace_once implementation not found')
-          p.write_text(text.replace(old, new, 1))
+          replacements = {
+              'updated, count = re.subn(pattern, replacement, text, count=1, flags=flags)':
+                  'updated, count = re.subn(pattern, lambda _match: replacement, text, count=1, flags=flags)',
+              "r'# \\[8/10\\] Настройка BBR TCP Congestion Control.*?# \\[9/10\\] Загрузка данных'":
+                  "r'# \\[8/10\\] Оптимизация TCP \\(BBR\\).*?# \\[9/10\\] Загрузка данных'",
+          }
+          for old, new in replacements.items():
+              if old not in text:
+                  raise SystemExit(f'patch generator anchor not found: {old}')
+              text = text.replace(old, new, 1)
+          p.write_text(text)
           PY
           if ! python3 .github/scripts/apply_cascade_fixes.py > /tmp/patch-generator.log 2>&1; then
             cat /tmp/patch-generator.log
