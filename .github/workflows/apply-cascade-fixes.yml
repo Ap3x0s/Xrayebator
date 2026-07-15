@@ -1,0 +1,50 @@
+name: Apply cascade fixes
+
+on:
+  push:
+    branches:
+      - fix/cascade-import-and-installer-hardening
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/cascade-import-and-installer-hardening
+          fetch-depth: 0
+
+      - name: Apply source changes
+        run: python3 .github/scripts/apply_cascade_fixes.py
+
+      - name: Validate shell syntax
+        run: |
+          chmod +x validation/test-cascade-upstream-import.sh validation/test-installer-network-fallbacks.sh
+          bash -n xrayebator install.sh update.sh uninstall.sh \
+            validation/test-cascade-upstream-import.sh \
+            validation/test-installer-network-fallbacks.sh \
+            validation/test-cascade-routing.sh \
+            validation/test-update-xray-core-sync.sh
+
+      - name: Run regression tests
+        run: |
+          bash validation/test-cascade-upstream-import.sh
+          bash validation/test-installer-network-fallbacks.sh
+          bash validation/test-cascade-routing.sh
+          bash validation/test-update-xray-core-sync.sh
+          bash validation/test-vless-url-generation.sh
+          bash validation/test-happ-subscription-static.sh
+
+      - name: Commit generated changes
+        run: |
+          rm -f .github/workflows/apply-cascade-fixes.yml
+          rm -f .github/scripts/apply_cascade_fixes.py
+          git config user.name "ShalomGH"
+          git config user.email "58379599+ShalomGH@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: harden cascade upstream import and installation"
+          git push origin HEAD:fix/cascade-import-and-installer-hardening
