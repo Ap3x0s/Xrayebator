@@ -405,6 +405,22 @@ ln -sf /usr/local/etc/xray/scripts/update.sh /usr/local/bin/xrayebator-update 2>
 ln -sf /usr/local/etc/xray/scripts/uninstall.sh /usr/local/bin/xrayebator-uninstall 2>/dev/null || true
 echo -e "${GREEN}✓ Команды xrayebator-update / xrayebator-uninstall проверены${NC}\n"
 
+# Load the freshly installed runtime once. Besides exposing subscription helpers,
+# this applies state-only migrations to existing installations immediately.
+XRAYEBATOR_RUNTIME_LOADED=false
+if source /usr/local/bin/xrayebator; then
+  XRAYEBATOR_RUNTIME_LOADED=true
+  echo -e "${YELLOW}Проверка client-side fingerprint state...${NC}"
+  if migrate_client_fingerprint_state_2026; then
+    echo -e "${GREEN}✓ Fingerprint state актуален; restart Xray не требовался${NC}\n"
+  else
+    echo -e "${YELLOW}⚠ Не удалось завершить fingerprint migration${NC}"
+    echo -e "${YELLOW}  Повтор: sudo xrayebator${NC}\n"
+  fi
+else
+  echo -e "${YELLOW}⚠ Не удалось загрузить обновлённый xrayebator для runtime migrations${NC}\n"
+fi
+
 # Обновление списка SNI
 echo -e "${YELLOW}Обновление списка SNI...${NC}"
 mkdir -p /usr/local/etc/xray/data
@@ -429,7 +445,7 @@ echo -e "${GREEN}✓ Версия: ${VERSION_INFO}${NC}\n"
 # активная подписка останется на старой логике до ручного запуска меню.
 if [[ -f /usr/local/etc/xray/.subscription_installed ]]; then
   echo -e "${YELLOW}Обновление HAPP subscription handler...${NC}"
-  if source /usr/local/bin/xrayebator && install_subscription_server >/dev/null 2>&1; then
+  if [[ "$XRAYEBATOR_RUNTIME_LOADED" == "true" ]] && install_subscription_server >/dev/null 2>&1; then
     if declare -F _subscription_restart_service >/dev/null 2>&1; then
       if _subscription_restart_service; then
         echo -e "${GREEN}✓ subhttp.sh обновлён, xrayebator-sub.service запущен${NC}"
