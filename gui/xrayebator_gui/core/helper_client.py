@@ -15,6 +15,7 @@ from .helper_protocol import (
     decode_response,
     encode_request,
 )
+from .routing import RoutingProfile
 from .subscription import VlessLink
 
 DEFAULT_SOCKET = Path("/run/xrayebator-gui/helper.sock")
@@ -45,10 +46,11 @@ class HelperClient:
         self,
         action: str,
         route: Optional[VlessLink] = None,
+        routing_profile: Optional[RoutingProfile] = None,
     ) -> dict:
         if platform.system() != "Linux":
             raise HelperError("Privileged TUN helper пока реализован только для Linux")
-        wire = encode_request(action, route)
+        wire = encode_request(action, route, routing_profile)
         request_id = json.loads(wire)["id"]
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
@@ -91,23 +93,38 @@ class HelperTunBackend:
     def __init__(self, client: Optional[HelperClient] = None):
         self.client = client or HelperClient()
 
-    def prepare(self, route: VlessLink, mode: ConnectionMode) -> None:
+    def prepare(
+        self,
+        route: VlessLink,
+        mode: ConnectionMode,
+        routing_profile: RoutingProfile,
+    ) -> None:
         if mode != ConnectionMode.TUN:
             raise HelperError("HelperTunBackend поддерживает только TUN")
         self.client.request("status")
 
-    def start(self, route: VlessLink, mode: ConnectionMode) -> None:
+    def start(
+        self,
+        route: VlessLink,
+        mode: ConnectionMode,
+        routing_profile: RoutingProfile,
+    ) -> None:
         if mode != ConnectionMode.TUN:
             raise HelperError("HelperTunBackend поддерживает только TUN")
-        self.client.request("connect", route)
+        self.client.request("connect", route, routing_profile)
 
     def verify(self) -> Optional[str]:
         return self.client.request("verify").get("external_ip")
 
-    def replace(self, route: VlessLink, mode: ConnectionMode) -> None:
+    def replace(
+        self,
+        route: VlessLink,
+        mode: ConnectionMode,
+        routing_profile: RoutingProfile,
+    ) -> None:
         if mode != ConnectionMode.TUN:
             raise HelperError("HelperTunBackend поддерживает только TUN")
-        self.client.request("switch", route)
+        self.client.request("switch", route, routing_profile)
 
     def stop(self) -> None:
         self.client.request("disconnect")

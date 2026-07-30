@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from xrayebator_gui.core.subscription import parse_link
+from xrayebator_gui.core.routing import RoutingProfile
 from xrayebator_gui.helper.runtime import TunRuntime, TunRuntimeError
 from xrayebator_gui.helper.state import StoredRoute
 
@@ -72,9 +73,9 @@ class FakeStateStore:
         self.saved = []
         self.remove_calls = 0
 
-    def save(self, route, address):
-        self.saved.append((route, address))
-        self.stored = StoredRoute(route, address)
+    def save(self, route, address, routing_profile):
+        self.saved.append((route, address, routing_profile))
+        self.stored = StoredRoute(route, address, routing_profile)
 
     def load(self):
         return self.stored
@@ -121,7 +122,7 @@ def test_connect_verify_disconnect_orders_guard_and_cleanup(tmp_path):
     route = parse_link(ROUTE_ONE)
     assert route is not None
 
-    runtime.connect(route)
+    runtime.connect(route, RoutingProfile.FULL)
     verified = runtime.verify()
     disconnected = runtime.disconnect()
 
@@ -146,15 +147,15 @@ def test_failed_switch_keeps_guard_for_controller_rollback(tmp_path):
     first = parse_link(ROUTE_ONE)
     second = parse_link(ROUTE_TWO)
     assert first is not None and second is not None
-    runtime.connect(first)
+    runtime.connect(first, RoutingProfile.FULL)
 
     with pytest.raises(TunRuntimeError, match="kill switch закрыт"):
-        runtime.switch(second)
+        runtime.switch(second, RoutingProfile.SMART_RU)
 
     assert runtime.status()["state"] == "guarded_error"
     assert network.guarded is True
 
-    recovered = runtime.switch(first)
+    recovered = runtime.switch(first, RoutingProfile.FULL)
     assert recovered["state"] == "connected"
     assert network.guarded is True
 
@@ -164,7 +165,7 @@ def test_dead_xray_transitions_to_closed_guard_state(tmp_path):
     runtime, processes = make_runtime(network, tmp_path)
     route = parse_link(ROUTE_ONE)
     assert route is not None
-    runtime.connect(route)
+    runtime.connect(route, RoutingProfile.FULL)
     processes[0].running = False
 
     status = runtime.status()
@@ -179,7 +180,13 @@ def test_recovery_uses_persisted_ip_without_dns_resolution(tmp_path):
     assert route is not None
     network = FakeNetwork()
     network.guarded = True
-    state_store = FakeStateStore(StoredRoute(route, "198.51.100.1"))
+    state_store = FakeStateStore(
+        StoredRoute(
+            route,
+            "198.51.100.1",
+            RoutingProfile.SMART_RU,
+        )
+    )
     processes = []
 
     def factory(binary, config_path, stderr_path):
@@ -202,3 +209,16 @@ def test_recovery_uses_persisted_ip_without_dns_resolution(tmp_path):
 
     assert result["state"] == "connected"
     assert processes[0].running is True
+
+
+def test_reconnect_same_target_adopts_existing_tun_without_restart(tmp_path):
+    network = FakeNetwork()
+    runtime, processes = make_runtime(network, tmp_path)
+    route = parse_link(ROUTE_ONE)
+    assert route is not None
+    runtime.connect(route, RoutingProfile.SMART_RU)
+
+    result = runtime.connect(route, RoutingProfile.SMART_RU)
+
+    assert result["state"] == "connected"
+    assert len(processes) == 1

@@ -10,6 +10,7 @@ from xrayebator_gui.core.connection import (
     InvalidTransition,
     RouteSwitchError,
 )
+from xrayebator_gui.core.routing import RoutingProfile
 from xrayebator_gui.core.subscription import VlessLink
 
 
@@ -36,13 +37,13 @@ class FakeBackend:
         self.fail_prepare = False
         self.fail_stop = False
 
-    def prepare(self, selected, mode):
-        self.calls.append(("prepare", selected.address, mode))
+    def prepare(self, selected, mode, routing_profile):
+        self.calls.append(("prepare", selected.address, mode, routing_profile))
         if self.fail_prepare:
             raise RuntimeError("prepare failed")
 
-    def start(self, selected, mode):
-        self.calls.append(("start", selected.address, mode))
+    def start(self, selected, mode, routing_profile):
+        self.calls.append(("start", selected.address, mode, routing_profile))
 
     def verify(self):
         self.calls.append(("verify",))
@@ -51,8 +52,8 @@ class FakeBackend:
             raise result
         return result
 
-    def replace(self, selected, mode):
-        self.calls.append(("replace", selected.address, mode))
+    def replace(self, selected, mode, routing_profile):
+        self.calls.append(("replace", selected.address, mode, routing_profile))
 
     def stop(self):
         self.calls.append(("stop",))
@@ -152,3 +153,36 @@ def test_switch_requires_active_connection():
 
     with pytest.raises(InvalidTransition):
         controller.switch_route(route("two.example"))
+
+
+def test_profile_switch_is_verified_and_keeps_route():
+    backend = FakeBackend()
+    backend.verify_results = ["203.0.113.1", "203.0.113.2"]
+    controller = ConnectionController(backend)
+    original = route("one.example")
+    controller.connect(original, ConnectionMode.TUN)
+
+    result = controller.switch_profile(RoutingProfile.SMART_RU)
+
+    assert result.state == ConnectionState.CONNECTED
+    assert result.route == original
+    assert result.routing_profile == RoutingProfile.SMART_RU
+    assert (
+        "replace",
+        "one.example",
+        ConnectionMode.TUN,
+        RoutingProfile.SMART_RU,
+    ) in backend.calls
+
+
+def test_failed_profile_switch_restores_previous_profile():
+    backend = FakeBackend()
+    backend.verify_results = ["203.0.113.1", None, "203.0.113.1"]
+    controller = ConnectionController(backend)
+    controller.connect(route("one.example"), ConnectionMode.TUN)
+
+    with pytest.raises(RouteSwitchError, match="восстановлены"):
+        controller.switch_profile(RoutingProfile.SMART_RU)
+
+    assert controller.snapshot.state == ConnectionState.CONNECTED
+    assert controller.snapshot.routing_profile == RoutingProfile.FULL

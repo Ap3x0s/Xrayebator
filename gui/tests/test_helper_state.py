@@ -5,6 +5,7 @@ import os
 import pytest
 
 from xrayebator_gui.core.subscription import parse_link
+from xrayebator_gui.core.routing import RoutingProfile
 from xrayebator_gui.helper.state import RouteStateStore, StateError
 
 
@@ -21,12 +22,13 @@ def test_state_round_trip_is_owner_only(tmp_path):
     route = parse_link(ROUTE)
     assert route is not None
 
-    store.save(route, "198.51.100.20")
+    store.save(route, "198.51.100.20", RoutingProfile.SMART_RU)
     restored = store.load()
 
     assert restored is not None
     assert restored.route.raw == route.raw
     assert restored.resolved_address == "198.51.100.20"
+    assert restored.routing_profile == RoutingProfile.SMART_RU
     assert path.stat().st_mode & 0o777 == 0o600
 
 
@@ -35,7 +37,7 @@ def test_state_rejects_group_readable_secret(tmp_path):
     store = RouteStateStore(path, expected_uid=os.getuid())
     route = parse_link(ROUTE)
     assert route is not None
-    store.save(route, "198.51.100.20")
+    store.save(route, "198.51.100.20", RoutingProfile.FULL)
     path.chmod(0o640)
 
     with pytest.raises(StateError, match="owner/mode"):

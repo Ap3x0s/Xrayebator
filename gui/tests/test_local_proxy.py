@@ -4,6 +4,7 @@ import pytest
 
 from xrayebator_gui.core import local_proxy
 from xrayebator_gui.core.connection import ConnectionMode
+from xrayebator_gui.core.routing import RoutingProfile
 from xrayebator_gui.core.subscription import VlessLink
 from xrayebator_gui.core.xray import XrayError
 
@@ -55,8 +56,16 @@ def test_backend_restores_previous_proxy_on_stop(monkeypatch, tmp_path):
         process_factory=lambda binary: process,
     )
 
-    backend.prepare(route(), ConnectionMode.SYSTEM_PROXY)
-    backend.start(route(), ConnectionMode.SYSTEM_PROXY)
+    backend.prepare(
+        route(),
+        ConnectionMode.SYSTEM_PROXY,
+        RoutingProfile.FULL,
+    )
+    backend.start(
+        route(),
+        ConnectionMode.SYSTEM_PROXY,
+        RoutingProfile.FULL,
+    )
     backend.stop()
 
     assert restored == [snapshot]
@@ -78,10 +87,18 @@ def test_backend_restores_snapshot_when_proxy_enable_fails(monkeypatch, tmp_path
         ensure_binary_fn=lambda: tmp_path / "xray",
         process_factory=lambda binary: process,
     )
-    backend.prepare(route(), ConnectionMode.SYSTEM_PROXY)
+    backend.prepare(
+        route(),
+        ConnectionMode.SYSTEM_PROXY,
+        RoutingProfile.FULL,
+    )
 
     with pytest.raises(XrayError, match="proxy"):
-        backend.start(route(), ConnectionMode.SYSTEM_PROXY)
+        backend.start(
+            route(),
+            ConnectionMode.SYSTEM_PROXY,
+            RoutingProfile.FULL,
+        )
 
     assert restored == [snapshot]
     assert process.stop_calls == 1

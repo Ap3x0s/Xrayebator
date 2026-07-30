@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from ..core.routing import RoutingProfile
 from ..core.subscription import VlessLink, parse_link
 
 DEFAULT_STATE_PATH = Path("/var/lib/xrayebator-gui/last-route.json")
@@ -24,6 +25,7 @@ class StateError(RuntimeError):
 class StoredRoute:
     route: VlessLink
     resolved_address: str
+    routing_profile: RoutingProfile = RoutingProfile.FULL
 
 
 class RouteStateStore:
@@ -36,7 +38,12 @@ class RouteStateStore:
         self.path = Path(path)
         self.expected_uid = expected_uid
 
-    def save(self, route: VlessLink, resolved_address: str) -> None:
+    def save(
+        self,
+        route: VlessLink,
+        resolved_address: str,
+        routing_profile: RoutingProfile,
+    ) -> None:
         try:
             ipaddress.ip_address(resolved_address)
         except ValueError as exc:
@@ -55,9 +62,10 @@ class RouteStateStore:
                 fd = -1
                 json.dump(
                     {
-                        "version": 1,
+                        "version": 2,
                         "route": route.raw,
                         "resolved_address": resolved_address,
+                        "routing_profile": routing_profile.value,
                     },
                     stream,
                     separators=(",", ":"),
@@ -88,9 +96,10 @@ class RouteStateStore:
             "version",
             "route",
             "resolved_address",
+            "routing_profile",
         }:
             raise StateError("Persisted state имеет неизвестную схему")
-        if payload["version"] != 1:
+        if payload["version"] != 2:
             raise StateError("Версия persisted state не поддерживается")
         if not isinstance(payload["route"], str):
             raise StateError("Persisted VLESS route должен быть строкой")
@@ -101,7 +110,15 @@ class RouteStateStore:
             address = str(ipaddress.ip_address(payload["resolved_address"]))
         except (ValueError, TypeError) as exc:
             raise StateError("Persisted resolved address некорректен") from exc
-        return StoredRoute(route=route, resolved_address=address)
+        try:
+            routing_profile = RoutingProfile(payload["routing_profile"])
+        except (TypeError, ValueError) as exc:
+            raise StateError("Persisted routing profile некорректен") from exc
+        return StoredRoute(
+            route=route,
+            resolved_address=address,
+            routing_profile=routing_profile,
+        )
 
     def remove(self) -> None:
         self.path.unlink(missing_ok=True)

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from ..core.subscription import VlessLink
+from ..core.routing import RoutingProfile
 from ..core.xray import (
     XRAY_TUN_VERSION,
     XrayProcess,
@@ -62,6 +63,8 @@ class TunRuntime:
         )
         self._external_ip: Optional[str] = None
         self._resolved_routes: dict[str, VlessLink] = {}
+        self._active_route_raw: Optional[str] = None
+        self._active_profile: Optional[RoutingProfile] = None
 
     def recover(self) -> dict:
         """Restore the last verified route while preserving a stale guard."""
@@ -79,7 +82,7 @@ class TunRuntime:
             )
             self._resolved_routes[stored.route.raw] = resolved
             self.network.enable_guard(TUN_INTERFACE, OUTBOUND_MARK)
-            self._start_process(resolved)
+            self._start_process(resolved, stored.routing_profile)
             self.network.configure_dns(TUN_INTERFACE)
         except Exception as exc:
             self._stop_process()
@@ -88,6 +91,8 @@ class TunRuntime:
             return self._result()
         self._state = "connected"
         self._error = None
+        self._active_route_raw = stored.route.raw
+        self._active_profile = stored.routing_profile
         return self._result()
 
     def status(self) -> dict:
@@ -99,9 +104,18 @@ class TunRuntime:
             self._external_ip = None
         return self._result()
 
-    def connect(self, route: VlessLink) -> dict:
+    def connect(
+        self,
+        route: VlessLink,
+        routing_profile: RoutingProfile,
+    ) -> dict:
         if self._state == "connected":
-            raise TunRuntimeError("TUN уже подключён")
+            if (
+                route.raw == self._active_route_raw
+                and routing_profile == self._active_profile
+            ):
+                return self._result()
+            return self.switch(route, routing_profile)
         if self._state not in {"disconnected", "guarded_error"}:
             raise TunRuntimeError(f"Нельзя подключиться из состояния {self._state}")
         self._state = "connecting"
@@ -112,18 +126,24 @@ class TunRuntime:
             self._binary_validator(self.core_binary)
             resolved = self._resolve(route)
             self.network.enable_guard(TUN_INTERFACE, OUTBOUND_MARK)
-            self._start_process(resolved)
+            self._start_process(resolved, routing_profile)
             self.network.configure_dns(TUN_INTERFACE)
-            self._state_store.save(route, resolved.address)
+            self._state_store.save(route, resolved.address, routing_profile)
         except Exception as exc:
             self._cleanup(remove_guard=True)
             self._state = "disconnected"
             self._error = str(exc)
             raise TunRuntimeError(str(exc)) from exc
         self._state = "connected"
+        self._active_route_raw = route.raw
+        self._active_profile = routing_profile
         return self._result()
 
-    def switch(self, route: VlessLink) -> dict:
+    def switch(
+        self,
+        route: VlessLink,
+        routing_profile: RoutingProfile,
+    ) -> dict:
         if self._state not in {"connected", "guarded_error"}:
             raise TunRuntimeError("Маршрут можно менять только при активном TUN")
         self._state = "switching"
@@ -133,9 +153,9 @@ class TunRuntime:
             resolved = self._resolve(route)
             self.network.restore_dns(TUN_INTERFACE)
             self._stop_process()
-            self._start_process(resolved)
+            self._start_process(resolved, routing_profile)
             self.network.configure_dns(TUN_INTERFACE)
-            self._state_store.save(route, resolved.address)
+            self._state_store.save(route, resolved.address, routing_profile)
         except Exception as exc:
             self._stop_process()
             self._state = "guarded_error"
@@ -144,6 +164,8 @@ class TunRuntime:
                 f"Новый маршрут не запущен; kill switch закрыт: {exc}"
             ) from exc
         self._state = "connected"
+        self._active_route_raw = route.raw
+        self._active_profile = routing_profile
         return self._result()
 
     def verify(self) -> dict:
@@ -161,6 +183,8 @@ class TunRuntime:
         errors = self._cleanup(remove_guard=True)
         self._state = "disconnected"
         self._external_ip = None
+        self._active_route_raw = None
+        self._active_profile = None
         self._error = "; ".join(errors) if errors else None
         try:
             self._state_store.remove()
@@ -183,7 +207,11 @@ class TunRuntime:
             del self._resolved_routes[oldest]
         return resolved
 
-    def _start_process(self, route: VlessLink) -> None:
+    def _start_process(
+        self,
+        route: VlessLink,
+        routing_profile: RoutingProfile,
+    ) -> None:
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
         os.chmod(self.runtime_dir, 0o750)
         process = self._process_factory(
@@ -196,6 +224,7 @@ class TunRuntime:
             system="Linux",
             interface_name=TUN_INTERFACE,
             outbound_mark=OUTBOUND_MARK,
+            routing_profile=routing_profile,
         )
         process.start(config)
         self._process = process
@@ -264,6 +293,23 @@ def validate_core_binary(path: Path) -> None:
         raise TunRuntimeError(
             f"Установлен Xray {version or '?'}, требуется {XRAY_TUN_VERSION}"
         )
+    for resource in ("geoip.dat", "geosite.dat"):
+        resource_path = path.parent / resource
+        try:
+            resource_info = resource_path.stat()
+        except OSError as exc:
+            raise TunRuntimeError(
+                f"Не установлен routing resource: {resource_path}"
+            ) from exc
+        if (
+            not stat.S_ISREG(resource_info.st_mode)
+            or resource_info.st_uid != 0
+            or resource_info.st_mode & 0o022
+        ):
+            raise TunRuntimeError(
+                "Routing resource должен принадлежать root и не быть "
+                f"доступен для записи group/other: {resource_path}"
+            )
 
 
 def resolve_server(host: str, port: int) -> str:

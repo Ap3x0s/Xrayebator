@@ -7,10 +7,15 @@ import subprocess
 import pytest
 
 from xrayebator_gui.core.subscription import parse_link
+from xrayebator_gui.core.routing import RoutingProfile
 from xrayebator_gui.core.xray import build_tun_client_config
 
 
-def test_real_xray_accepts_generated_tun_config(tmp_path):
+@pytest.mark.parametrize(
+    "profile",
+    [RoutingProfile.FULL, RoutingProfile.SMART_RU],
+)
+def test_real_xray_accepts_generated_tun_config(tmp_path, profile):
     binary = os.environ.get("XRAY_TEST_BINARY")
     if not binary:
         pytest.skip("set XRAY_TEST_BINARY to run real Xray config validation")
@@ -25,6 +30,7 @@ def test_real_xray_accepts_generated_tun_config(tmp_path):
         route,
         system="Linux",
         outbound_mark=0x5852,
+        routing_profile=profile,
     )
     config_path = tmp_path / "config.json"
     config_path.write_text(json.dumps(config), encoding="utf-8")

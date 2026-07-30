@@ -11,6 +11,7 @@ from xrayebator_gui.core.helper_protocol import (
     encode_request,
     encode_response,
 )
+from xrayebator_gui.core.routing import RoutingProfile
 from xrayebator_gui.core.subscription import parse_link
 
 
@@ -25,11 +26,12 @@ def test_protocol_round_trip_keeps_only_canonical_vless_url():
     route = parse_link(ROUTE)
     assert route is not None
 
-    request = decode_request(encode_request("connect", route))
+    request = decode_request(encode_request("connect", route, RoutingProfile.SMART_RU))
 
     assert request.action == "connect"
     assert request.route is not None
     assert request.route.raw == ROUTE
+    assert request.routing_profile == RoutingProfile.SMART_RU
 
 
 def test_protocol_rejects_unknown_fields():
@@ -50,6 +52,7 @@ def test_protocol_rejects_route_for_status():
         "id": "abc123",
         "action": "status",
         "route": ROUTE,
+        "routing_profile": "full",
     }
 
     with pytest.raises(ProtocolError, match="не принимает"):

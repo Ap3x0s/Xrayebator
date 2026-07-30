@@ -30,6 +30,7 @@ from ..core.connection import (
 from ..core.deploy import STEPS, make_deploy_thread
 from ..core.desktop_backend import DesktopBackend
 from ..core.helper_install import install_linux_helper
+from ..core.routing import RoutingProfile
 from ..core.servers import ServerStore
 from ..core.ssh import SSHClient
 from ..core import subscription
@@ -178,6 +179,17 @@ class MainWindow(QMainWindow):
         mode_row.addWidget(self.install_helper_button)
         form.addRow("Режим:", mode_row)
 
+        profile_row = QHBoxLayout()
+        self.profile_combo = QComboBox()
+        for profile in RoutingProfile:
+            self.profile_combo.addItem(profile.label, profile)
+        self.profile_combo.currentIndexChanged.connect(self._on_profile_selected)
+        profile_row.addWidget(self.profile_combo, 1)
+        self.profile_switch_button = QPushButton("Применить")
+        self.profile_switch_button.clicked.connect(self._switch_profile)
+        profile_row.addWidget(self.profile_switch_button)
+        form.addRow("Профиль:", profile_row)
+
         route_row = QHBoxLayout()
         self.route_combo = QComboBox()
         route_row.addWidget(self.route_combo, 1)
@@ -262,6 +274,12 @@ class MainWindow(QMainWindow):
         if 0 <= index < len(self._routes):
             return self._routes[index]
         return None
+
+    def _selected_profile(self) -> RoutingProfile:
+        profile = self.profile_combo.currentData()
+        return (
+            profile if isinstance(profile, RoutingProfile) else RoutingProfile(profile)
+        )
 
     @Slot()
     def _server_changed(self) -> None:
@@ -449,7 +467,10 @@ class MainWindow(QMainWindow):
         mode = self.mode_combo.currentData()
         if not isinstance(mode, ConnectionMode):
             mode = ConnectionMode(mode)
-        self._start_connection_operation(lambda: self._controller.connect(route, mode))
+        profile = self._selected_profile()
+        self._start_connection_operation(
+            lambda: self._controller.connect(route, mode, profile)
+        )
 
     @Slot()
     def _switch_route(self) -> None:
@@ -467,6 +488,20 @@ class MainWindow(QMainWindow):
             lambda: self._controller.switch_route(route),
             switch=True,
         )
+
+    @Slot()
+    def _switch_profile(self) -> None:
+        if self._controller.snapshot.state != ConnectionState.CONNECTED:
+            return
+        profile = self._selected_profile()
+        self._start_connection_operation(
+            lambda: self._controller.switch_profile(profile),
+            switch=True,
+        )
+
+    @Slot()
+    def _on_profile_selected(self) -> None:
+        self._on_snapshot(self._controller.snapshot)
 
     def _start_connection_operation(
         self, operation: Callable[[], object], *, switch: bool = False
@@ -518,6 +553,7 @@ class MainWindow(QMainWindow):
         self.add_server_button.setEnabled(not busy)
         self.server_combo.setEnabled(not busy)
         self.mode_combo.setEnabled(not busy)
+        self.profile_combo.setEnabled(not busy)
         self.refresh_button.setEnabled(not busy and self._selected_server() is not None)
         self.install_helper_button.setEnabled(not busy)
 
@@ -530,12 +566,24 @@ class MainWindow(QMainWindow):
         )
         connected = snapshot.state == ConnectionState.CONNECTED
         busy = snapshot.state in _BUSY_STATES
+        if snapshot.routing_profile is not None and (busy or snapshot.error):
+            for index in range(self.profile_combo.count()):
+                if self.profile_combo.itemData(index) == snapshot.routing_profile:
+                    self.profile_combo.blockSignals(True)
+                    self.profile_combo.setCurrentIndex(index)
+                    self.profile_combo.blockSignals(False)
+                    break
         self.connect_button.setText("Отключить" if connected else "Подключить")
         self.connect_button.setEnabled(
             not busy and (connected or self._selected_route() is not None)
         )
         self.switch_button.setEnabled(
             connected and self._selected_route() is not None and not busy
+        )
+        self.profile_switch_button.setEnabled(
+            connected
+            and not busy
+            and self._selected_profile() != snapshot.routing_profile
         )
         self.tray_toggle_action.setText("Отключить" if connected else "Подключить")
         self.tray_toggle_action.setEnabled(not busy)

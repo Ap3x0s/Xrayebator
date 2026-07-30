@@ -7,6 +7,7 @@ from typing import Callable, Optional
 
 from . import proxy
 from .connection import ConnectionMode
+from .routing import RoutingProfile
 from .subscription import VlessLink
 from .xray import HTTP_PORT, XrayError, XrayProcess, build_client_config, ensure_binary
 
@@ -31,7 +32,12 @@ class LocalProxyBackend:
         self._pending_config: Optional[dict] = None
         self._proxy_snapshot: Optional[proxy.ProxySnapshot] = None
 
-    def prepare(self, route: VlessLink, mode: ConnectionMode) -> None:
+    def prepare(
+        self,
+        route: VlessLink,
+        mode: ConnectionMode,
+        routing_profile: RoutingProfile,
+    ) -> None:
         if mode != ConnectionMode.SYSTEM_PROXY:
             raise XrayError(
                 "TUN ещё не активирован: требуется privileged network service"
@@ -39,9 +45,17 @@ class LocalProxyBackend:
         binary = self._ensure_binary()
         if self._process is None:
             self._process = self._process_factory(binary)
-        self._pending_config = build_client_config(route)
+        self._pending_config = build_client_config(
+            route,
+            routing_profile=routing_profile,
+        )
 
-    def start(self, route: VlessLink, mode: ConnectionMode) -> None:
+    def start(
+        self,
+        route: VlessLink,
+        mode: ConnectionMode,
+        routing_profile: RoutingProfile,
+    ) -> None:
         if mode != ConnectionMode.SYSTEM_PROXY:
             raise XrayError("LocalProxyBackend поддерживает только system proxy")
         if self._process is None or self._pending_config is None:
@@ -69,14 +83,22 @@ class LocalProxyBackend:
             return None
         return self._process.health_check()
 
-    def replace(self, route: VlessLink, mode: ConnectionMode) -> None:
+    def replace(
+        self,
+        route: VlessLink,
+        mode: ConnectionMode,
+        routing_profile: RoutingProfile,
+    ) -> None:
         """Replace Xray config while keeping the system proxy guard enabled."""
         if mode != ConnectionMode.SYSTEM_PROXY:
             raise XrayError("LocalProxyBackend поддерживает только system proxy")
         binary = self._ensure_binary()
         if self._process is None:
             self._process = self._process_factory(binary)
-        self._pending_config = build_client_config(route)
+        self._pending_config = build_client_config(
+            route,
+            routing_profile=routing_profile,
+        )
         self._process.start(self._pending_config)
 
     def stop(self) -> None:

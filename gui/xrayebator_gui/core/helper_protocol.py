@@ -7,6 +7,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from .routing import RoutingProfile
 from .subscription import VlessLink, parse_link
 
 PROTOCOL_VERSION = 1
@@ -23,13 +24,20 @@ class HelperRequest:
     request_id: str
     action: str
     route: Optional[VlessLink] = None
+    routing_profile: Optional[RoutingProfile] = None
 
 
-def encode_request(action: str, route: Optional[VlessLink] = None) -> bytes:
+def encode_request(
+    action: str,
+    route: Optional[VlessLink] = None,
+    routing_profile: Optional[RoutingProfile] = None,
+) -> bytes:
     if action not in COMMANDS:
         raise ProtocolError(f"Неизвестная команда helper: {action}")
     if action in {"connect", "switch"} and route is None:
         raise ProtocolError(f"Команда {action} требует маршрут")
+    if action in {"connect", "switch"} and routing_profile is None:
+        raise ProtocolError(f"Команда {action} требует routing profile")
     payload: dict[str, Any] = {
         "version": PROTOCOL_VERSION,
         "id": uuid.uuid4().hex,
@@ -37,6 +45,8 @@ def encode_request(action: str, route: Optional[VlessLink] = None) -> bytes:
     }
     if route is not None:
         payload["route"] = route.raw
+    if routing_profile is not None:
+        payload["routing_profile"] = routing_profile.value
     return _encode(payload)
 
 
@@ -45,7 +55,7 @@ def decode_request(data: bytes) -> HelperRequest:
     _require_exact_keys(
         payload,
         required={"version", "id", "action"},
-        optional={"route"},
+        optional={"route", "routing_profile"},
     )
     if payload["version"] != PROTOCOL_VERSION:
         raise ProtocolError(
@@ -58,17 +68,32 @@ def decode_request(data: bytes) -> HelperRequest:
     if not isinstance(action, str) or action not in COMMANDS:
         raise ProtocolError("Некорректная команда helper")
     route = None
+    routing_profile = None
     if "route" in payload:
         if not isinstance(payload["route"], str):
             raise ProtocolError("Маршрут должен быть строкой vless://")
         route = parse_link(payload["route"])
         if route is None:
             raise ProtocolError("Некорректный VLESS-маршрут")
+    if "routing_profile" in payload:
+        try:
+            routing_profile = RoutingProfile(payload["routing_profile"])
+        except (ValueError, TypeError) as exc:
+            raise ProtocolError("Некорректный routing profile") from exc
     if action in {"connect", "switch"} and route is None:
         raise ProtocolError(f"Команда {action} требует маршрут")
-    if action not in {"connect", "switch"} and route is not None:
-        raise ProtocolError(f"Команда {action} не принимает маршрут")
-    return HelperRequest(request_id=request_id, action=action, route=route)
+    if action in {"connect", "switch"} and routing_profile is None:
+        raise ProtocolError(f"Команда {action} требует routing profile")
+    if action not in {"connect", "switch"} and (
+        route is not None or routing_profile is not None
+    ):
+        raise ProtocolError(f"Команда {action} не принимает маршрут/профиль")
+    return HelperRequest(
+        request_id=request_id,
+        action=action,
+        route=route,
+        routing_profile=routing_profile,
+    )
 
 
 def encode_response(

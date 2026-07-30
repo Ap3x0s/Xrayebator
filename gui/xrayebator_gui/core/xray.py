@@ -18,6 +18,7 @@ from typing import Optional
 from urllib.error import URLError
 from urllib.request import ProxyHandler, build_opener
 
+from .routing import RoutingProfile, build_routing_config
 from .subscription import VlessLink
 
 APP_NAME = "xrayebator-gui"
@@ -121,7 +122,7 @@ def _extract_member(
 
 
 def _install_from_zip(zip_path: Path, dest: Path) -> None:
-    """Atomically install Xray and the Windows TUN runtime from an archive."""
+    """Atomically install Xray, routing data and the Windows TUN runtime."""
     wanted = xray_binary_name()
     with zipfile.ZipFile(zip_path) as zf:
         member = next(
@@ -136,6 +137,14 @@ def _install_from_zip(zip_path: Path, dest: Path) -> None:
             dest,
             executable=platform.system() != "Windows",
         )
+        for resource in ("geoip.dat", "geosite.dat"):
+            resource_member = next(
+                (n for n in zf.namelist() if n.lower().endswith(resource)),
+                None,
+            )
+            if resource_member is None:
+                raise XrayError(f"В архиве {zip_path.name} не найден {resource}")
+            _extract_member(zf, resource_member, dest.parent / resource)
 
         if platform.system() == "Windows":
             wintun_member = next(
@@ -161,6 +170,13 @@ def _installed_version(binary: Path) -> Optional[str]:
     return f"v{match.group(1)}" if match else None
 
 
+def _routing_data_installed(binary: Path) -> bool:
+    return all(
+        (binary.parent / resource).is_file()
+        for resource in ("geoip.dat", "geosite.dat")
+    )
+
+
 def ensure_binary(version: Optional[str] = None) -> Path:
     """Убедиться, что бинарник xray есть; вернуть путь к нему.
 
@@ -169,7 +185,11 @@ def ensure_binary(version: Optional[str] = None) -> Path:
     """
     tag = version or XRAY_TUN_VERSION
     dest = xray_binary_path()
-    if dest.exists() and _installed_version(dest) == tag:
+    if (
+        dest.exists()
+        and _installed_version(dest) == tag
+        and _routing_data_installed(dest)
+    ):
         return dest
 
     asset = _platform_asset()
@@ -303,14 +323,21 @@ def _local_proxy_inbounds(
 
 
 def build_client_config(
-    link: VlessLink, socks_port: int = SOCKS_PORT, http_port: int = HTTP_PORT
+    link: VlessLink,
+    socks_port: int = SOCKS_PORT,
+    http_port: int = HTTP_PORT,
+    routing_profile: RoutingProfile = RoutingProfile.FULL,
 ) -> dict:
     """Build the current system-proxy client configuration."""
-    return {
+    config = {
         "log": {"loglevel": "warning"},
         "inbounds": _local_proxy_inbounds(socks_port, http_port),
         "outbounds": _build_outbounds(link),
     }
+    routing = build_routing_config(routing_profile)
+    if routing is not None:
+        config["routing"] = routing
+    return config
 
 
 def _default_tun_name(system: str) -> Optional[str]:
@@ -333,6 +360,7 @@ def build_tun_client_config(
     ipv6: bool = True,
     include_local_proxies: bool = False,
     outbound_mark: Optional[int] = None,
+    routing_profile: RoutingProfile = RoutingProfile.FULL,
 ) -> dict:
     """Build a full-device Xray-native TUN configuration.
 
@@ -383,11 +411,15 @@ def build_tun_client_config(
     if include_local_proxies:
         inbounds.extend(_local_proxy_inbounds())
 
-    return {
+    config = {
         "log": {"loglevel": "warning"},
         "inbounds": inbounds,
         "outbounds": _build_outbounds(link, outbound_mark=outbound_mark),
     }
+    routing = build_routing_config(routing_profile)
+    if routing is not None:
+        config["routing"] = routing
+    return config
 
 
 class XrayProcess:

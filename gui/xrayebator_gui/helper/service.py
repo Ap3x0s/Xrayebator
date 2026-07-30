@@ -37,10 +37,24 @@ class HelperApplication:
     def handle(self, request: HelperRequest) -> dict:
         if request.action == "status":
             return self.runtime.status()
-        if request.action == "connect" and request.route is not None:
-            return self.runtime.connect(request.route)
-        if request.action == "switch" and request.route is not None:
-            return self.runtime.switch(request.route)
+        if (
+            request.action == "connect"
+            and request.route is not None
+            and request.routing_profile is not None
+        ):
+            return self.runtime.connect(
+                request.route,
+                request.routing_profile,
+            )
+        if (
+            request.action == "switch"
+            and request.route is not None
+            and request.routing_profile is not None
+        ):
+            return self.runtime.switch(
+                request.route,
+                request.routing_profile,
+            )
         if request.action == "verify":
             return self.runtime.verify()
         if request.action == "disconnect":

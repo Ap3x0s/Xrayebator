@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from xrayebator_gui.core.routing import RoutingProfile
 from xrayebator_gui.core.subscription import VlessLink
 from xrayebator_gui.core.xray import (
     XrayError,
@@ -86,6 +87,22 @@ def test_tun_can_expose_local_proxies_for_mixed_mode():
         "socks",
         "http",
     ]
+
+
+def test_smart_ru_routing_orders_block_before_direct():
+    config = build_tun_client_config(
+        link(),
+        system="Linux",
+        routing_profile=RoutingProfile.SMART_RU,
+    )
+    rules = config["routing"]["rules"]
+
+    assert rules[0]["outboundTag"] == "block"
+    assert "geosite:category-ads-all" in rules[0]["domain"]
+    assert rules[1]["outboundTag"] == "direct"
+    assert "geoip:private" in rules[1]["ip"]
+    assert "geosite:category-ru" in rules[2]["domain"]
+    assert "geoip:ru" in rules[3]["ip"]
 
 
 def test_post_quantum_encryption_omits_incompatible_vision_flow():

@@ -75,7 +75,7 @@ curl --fail --location --silent --show-error \
 printf '%s  %s\n' "${XRAY_SHA256}" "${STAGING}/${XRAY_ASSET}" |
   sha256sum --check --status ||
   die "SHA-256 Xray не совпал"
-unzip -q "${STAGING}/${XRAY_ASSET}" xray -d "${STAGING}"
+unzip -q "${STAGING}/${XRAY_ASSET}" xray geoip.dat geosite.dat -d "${STAGING}"
 "${STAGING}/xray" version | grep -F "Xray ${XRAY_VERSION#v}" >/dev/null ||
   die "версия Xray не совпала с закреплённой"
 
@@ -97,6 +97,10 @@ while IFS= read -r -d '' source_file; do
 done < <(find "${SOURCE_PACKAGE}" -type f -name '*.py' -print0)
 
 install -m 0755 -o root -g root "${STAGING}/xray" "${INSTALL_ROOT}/xray"
+install -m 0644 -o root -g root "${STAGING}/geoip.dat" \
+  "${INSTALL_ROOT}/geoip.dat"
+install -m 0644 -o root -g root "${STAGING}/geosite.dat" \
+  "${INSTALL_ROOT}/geosite.dat"
 cat >"${STAGING}/xrayebator-gui-helper" <<'WRAPPER'
 #!/bin/sh
 export PYTHONPATH=/opt/xrayebator-gui/app

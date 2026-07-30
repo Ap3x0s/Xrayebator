@@ -6,6 +6,7 @@ from dataclasses import dataclass, replace
 from enum import Enum
 from typing import Callable, Optional, Protocol
 
+from .routing import RoutingProfile
 from .subscription import VlessLink
 
 
@@ -31,6 +32,7 @@ class ConnectionSnapshot:
     state: ConnectionState = ConnectionState.DISCONNECTED
     mode: Optional[ConnectionMode] = None
     route: Optional[VlessLink] = None
+    routing_profile: Optional[RoutingProfile] = None
     external_ip: Optional[str] = None
     error: Optional[str] = None
 
@@ -50,13 +52,28 @@ class RouteSwitchError(ConnectionError):
 class TunnelBackend(Protocol):
     """Operations implemented by system-proxy and privileged TUN backends."""
 
-    def prepare(self, route: VlessLink, mode: ConnectionMode) -> None: ...
+    def prepare(
+        self,
+        route: VlessLink,
+        mode: ConnectionMode,
+        routing_profile: RoutingProfile,
+    ) -> None: ...
 
-    def start(self, route: VlessLink, mode: ConnectionMode) -> None: ...
+    def start(
+        self,
+        route: VlessLink,
+        mode: ConnectionMode,
+        routing_profile: RoutingProfile,
+    ) -> None: ...
 
     def verify(self) -> Optional[str]: ...
 
-    def replace(self, route: VlessLink, mode: ConnectionMode) -> None: ...
+    def replace(
+        self,
+        route: VlessLink,
+        mode: ConnectionMode,
+        routing_profile: RoutingProfile,
+    ) -> None: ...
 
     def stop(self) -> None: ...
 
@@ -91,7 +108,12 @@ class ConnectionController:
         for observer in tuple(self._observers):
             observer(self._snapshot)
 
-    def connect(self, route: VlessLink, mode: ConnectionMode) -> ConnectionSnapshot:
+    def connect(
+        self,
+        route: VlessLink,
+        mode: ConnectionMode,
+        routing_profile: RoutingProfile = RoutingProfile.FULL,
+    ) -> ConnectionSnapshot:
         if self._snapshot.state not in {
             ConnectionState.DISCONNECTED,
             ConnectionState.ERROR,
@@ -104,13 +126,14 @@ class ConnectionController:
             ConnectionState.PREPARING,
             mode=mode,
             route=route,
+            routing_profile=routing_profile,
             external_ip=None,
             error=None,
         )
         try:
-            self._backend.prepare(route, mode)
+            self._backend.prepare(route, mode, routing_profile)
             self._transition(ConnectionState.CONNECTING)
-            self._backend.start(route, mode)
+            self._backend.start(route, mode, routing_profile)
             self._transition(ConnectionState.VERIFYING)
             external_ip = self._backend.verify()
             if not external_ip:
@@ -146,6 +169,7 @@ class ConnectionController:
             ConnectionState.DISCONNECTED,
             mode=None,
             route=None,
+            routing_profile=None,
             external_ip=None,
             error=None,
         )
@@ -158,19 +182,52 @@ class ConnectionController:
             )
         previous = self._snapshot.route
         mode = self._snapshot.mode
-        if previous is None or mode is None:
-            raise ConnectionError("Активное соединение не содержит маршрут или режим")
+        routing_profile = self._snapshot.routing_profile
+        if previous is None or mode is None or routing_profile is None:
+            raise ConnectionError(
+                "Активное соединение не содержит маршрут, профиль или режим"
+            )
         if route.raw == previous.raw:
             return self._snapshot
+        return self._switch_target(route, routing_profile)
+
+    def switch_profile(
+        self,
+        routing_profile: RoutingProfile,
+    ) -> ConnectionSnapshot:
+        if self._snapshot.state != ConnectionState.CONNECTED:
+            raise InvalidTransition(
+                "Routing profile можно менять только при активном соединении"
+            )
+        route = self._snapshot.route
+        if route is None:
+            raise ConnectionError("Активное соединение не содержит маршрут")
+        if routing_profile == self._snapshot.routing_profile:
+            return self._snapshot
+        return self._switch_target(route, routing_profile)
+
+    def _switch_target(
+        self,
+        route: VlessLink,
+        routing_profile: RoutingProfile,
+    ) -> ConnectionSnapshot:
+        previous = self._snapshot.route
+        previous_profile = self._snapshot.routing_profile
+        mode = self._snapshot.mode
+        if previous is None or previous_profile is None or mode is None:
+            raise ConnectionError(
+                "Активное соединение не содержит маршрут, профиль или режим"
+            )
 
         self._transition(
             ConnectionState.SWITCHING,
             route=route,
+            routing_profile=routing_profile,
             external_ip=None,
             error=None,
         )
         try:
-            self._backend.replace(route, mode)
+            self._backend.replace(route, mode, routing_profile)
             external_ip = self._backend.verify()
             if not external_ip:
                 raise ConnectionError("Новый маршрут не прошёл проверку")
@@ -178,10 +235,11 @@ class ConnectionController:
             self._transition(
                 ConnectionState.RECOVERING,
                 route=previous,
+                routing_profile=previous_profile,
                 error=str(candidate_exc),
             )
             try:
-                self._backend.replace(previous, mode)
+                self._backend.replace(previous, mode, previous_profile)
                 external_ip = self._backend.verify()
                 if not external_ip:
                     raise ConnectionError("Предыдущий маршрут не прошёл проверку")
@@ -194,18 +252,18 @@ class ConnectionController:
                 self._transition(
                     ConnectionState.ERROR,
                     route=None,
+                    routing_profile=None,
                     external_ip=None,
                     error=message,
                 )
                 raise RouteSwitchError(message) from rollback_exc
 
-            message = (
-                f"Маршрут {route.label} не прошёл проверку; "
-                f"восстановлен {previous.label}: {candidate_exc}"
-            )
+            message = "Переключение не прошло проверку; восстановлены "
+            message += f"{previous.label}, {previous_profile.label}: {candidate_exc}"
             self._transition(
                 ConnectionState.CONNECTED,
                 route=previous,
+                routing_profile=previous_profile,
                 external_ip=external_ip,
                 error=message,
             )
@@ -214,6 +272,7 @@ class ConnectionController:
         self._transition(
             ConnectionState.CONNECTED,
             route=route,
+            routing_profile=routing_profile,
             external_ip=external_ip,
             error=None,
         )
