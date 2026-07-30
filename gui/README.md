@@ -64,8 +64,8 @@ rather than cross-compiling:
 
 Every bundle contains the pinned Xray archive after checking its upstream
 SHA-256 file. A matching `.sha256` sidecar is published with every artifact.
-Manual workflow runs produce CI artifacts; pushing a `gui-v*` tag additionally
-creates a GitHub prerelease.
+GUI pull requests and manual workflow runs produce CI artifacts; pushing a
+`gui-v*` tag additionally creates a GitHub prerelease.
 
 These preview binaries are not yet signed or notarized. Windows SmartScreen
 and macOS Gatekeeper can therefore display an unverified-publisher warning.
