@@ -41,7 +41,8 @@ workspace. It requires `python3`, `curl`, `unzip`, `nft`, and `systemd`.
 2. Deploy `install.sh` and the local `xrayebator` script over SSH.
 3. Run `xrayebator quickstart --email ...` remotely.
 4. Save the returned subscription URL.
-5. Load subscription routes and connect through local Xray.
+5. Load routes, select the preferred Vision transport, and connect
+   automatically through native TUN (or the system-proxy fallback).
 
 After setup, connect/disconnect, server, transport route, and routing profile
 are available from the tray menu. Subscription bearer URLs and VLESS links are

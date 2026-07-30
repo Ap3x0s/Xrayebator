@@ -117,6 +117,7 @@ class MainWindow(QMainWindow):
         self._latencies: dict[str, Optional[int]] = {}
         self._operation: Optional[OperationThread] = None
         self._deploy_thread: Optional[QThread] = None
+        self._connect_after_route_load = False
         self._quitting = False
 
         self._build_ui()
@@ -360,6 +361,7 @@ class MainWindow(QMainWindow):
     def _routes_failed(self, message: str) -> None:
         self._routes = []
         self._latencies = {}
+        self._connect_after_route_load = False
         self.route_combo.clear()
         self.route_combo.addItem("Не удалось загрузить маршруты")
         self._append_log(f"Ошибка подписки: {message}")
@@ -450,6 +452,7 @@ class MainWindow(QMainWindow):
             profile=result.get("profile", "happ"),
         )
         self._append_log("Сервер добавлен, subscription получена и сохранена.")
+        self._connect_after_route_load = True
         self._reload_servers(select_id=server["id"])
 
     def _deployment_failed(self, message: str) -> None:
@@ -458,7 +461,7 @@ class MainWindow(QMainWindow):
 
     def _deployment_thread_finished(self) -> None:
         self._deploy_thread = None
-        self._set_operation_busy(False)
+        self._set_operation_busy(self._operation is not None)
         self._on_snapshot(self._controller.snapshot)
 
     @Slot()
@@ -637,6 +640,9 @@ class MainWindow(QMainWindow):
 
     def _operation_finished(self) -> None:
         self._operation = None
+        if self._connect_after_route_load and self._selected_route() is not None:
+            self._connect_after_route_load = False
+            self._toggle_connection()
 
     def _set_operation_busy(self, busy: bool) -> None:
         self.add_server_button.setEnabled(not busy)

@@ -16,6 +16,17 @@ The GUI must run as an ordinary desktop user. Operations that require network
 administration rights belong to a narrow local service with an authenticated,
 typed IPC API. The service must not expose arbitrary command execution.
 
+## Current implementation status
+
+- Linux desktop MVP: implemented and unit/integration tested.
+- One-click VPS deployment for root and sudo users: implemented.
+- Native Xray TUN, DNS redirection, nftables kill switch, helper recovery:
+  implemented; live helper install and check-only firewall self-test passed.
+- Full/Smart RU routing profiles, verified route/profile rollback, RTT probes,
+  and tray controls: implemented.
+- Windows/macOS TUN config fixtures: implemented; native privileged services,
+  installers, signing, and live platform tests remain.
+
 ## Invariants
 
 1. The GUI never stores SSH passwords in JSON or logs.

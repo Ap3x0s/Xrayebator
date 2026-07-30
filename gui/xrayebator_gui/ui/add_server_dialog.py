@@ -85,7 +85,7 @@ class AddServerDialog(QDialog):
 
         self.buttons = QDialogButtonBox()
         deploy_btn = self.buttons.addButton(
-            "Развернуть и добавить", QDialogButtonBox.ButtonRole.AcceptRole
+            "Развернуть и подключить", QDialogButtonBox.ButtonRole.AcceptRole
         )
         self.buttons.addButton(QDialogButtonBox.StandardButton.Cancel)
         deploy_btn.clicked.connect(self._on_accept)
