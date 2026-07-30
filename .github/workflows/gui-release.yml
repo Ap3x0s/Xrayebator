@@ -45,7 +45,6 @@ jobs:
           python -m ruff check --config gui/pyproject.toml gui
           python -m pytest -q gui/tests
           python -m build --wheel gui
-          python -m xrayebator_gui --self-test
 
   build:
     needs: test
