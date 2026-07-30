@@ -34,23 +34,62 @@ cat > "$CONFIG_FILE" <<'JSON'
   "inbounds": [
     {
       "port": 12345,
+      "protocol": "vless",
+      "settings": {
+        "clients": [{"id": "11111111-2222-3333-4444-555555555555", "flow": ""}],
+        "decryption": "none"
+      },
       "streamSettings": {
         "network": "xhttp",
-        "realitySettings": {"privateKey": "test-private-key", "shortIds": ["abcd1234"]}
+        "security": "reality",
+        "xhttpSettings": {
+          "path": "/xhttp-test",
+          "host": "www.ozon.ru"
+        },
+        "realitySettings": {
+          "privateKey": "test-private-key",
+          "shortIds": ["abcd1234"],
+          "serverNames": ["www.ozon.ru"]
+        }
       }
     },
     {
       "port": 12346,
+      "protocol": "vless",
+      "settings": {
+        "clients": [{"id": "11111111-2222-3333-4444-555555555555", "flow": ""}],
+        "decryption": "mlkem768x25519plus.native.test-decryption"
+      },
       "streamSettings": {
         "network": "xhttp",
-        "realitySettings": {"privateKey": "test-private-key", "shortIds": ["beef5678"]}
+        "security": "reality",
+        "xhttpSettings": {
+          "path": "/xhttp-pq",
+          "host": "www.ozon.ru"
+        },
+        "realitySettings": {
+          "privateKey": "test-private-key",
+          "shortIds": ["beef5678"],
+          "serverNames": ["www.ozon.ru"]
+        }
       }
     },
     {
       "port": 23456,
+      "protocol": "vless",
+      "settings": {
+        "clients": [{"id": "11111111-2222-3333-4444-555555555555", "flow": ""}],
+        "decryption": "none"
+      },
       "streamSettings": {
         "network": "grpc",
-        "realitySettings": {"privateKey": "test-private-key", "shortIds": ["feed9876"]}
+        "security": "reality",
+        "grpcSettings": {"serviceName": "svc-test"},
+        "realitySettings": {
+          "privateKey": "test-private-key",
+          "shortIds": ["feed9876"],
+          "serverNames": ["www.cloudflare.com"]
+        }
       }
     }
   ]
@@ -99,5 +138,25 @@ grep -q 'type=xhttp&path=%2Fxhttp-test&host=www.ozon.ru&mode=auto#sample-xhttp-l
 grep -q 'encryption=mlkem768x25519plus.native.test-encryption' <<< "$urls" || fail "PQ XHTTP encryption missing"
 grep -q 'type=xhttp&path=%2Fxhttp-pq&host=www.ozon.ru&mode=auto#sample-xhttp-pq' <<< "$urls" || fail "PQ XHTTP URL must include mode=auto"
 grep -q 'type=grpc&serviceName=svc-test&mode=gun#sample-grpc' <<< "$urls" || fail "gRPC URL must include mode=gun"
+
+jq '(.inbounds[] | select(.port == 12346) | .streamSettings.xhttpSettings.path) = "/wrong-path"' \
+  "$CONFIG_FILE" > "$CONFIG_FILE.tmp"
+mv "$CONFIG_FILE.tmp" "$CONFIG_FILE"
+
+if _generate_vless_url_pure "$PROFILES_DIR/sample.json" 1 >/dev/null; then
+  fail "route with mismatched XHTTP path must not be emitted"
+fi
+[[ "$(_profile_live_route_count "$PROFILES_DIR/sample.json")" == "2" ]] \
+  || fail "live route count must exclude mismatched XHTTP route"
+
+jq '(.inbounds[] | select(.port == 23456) | .settings.clients) = []' \
+  "$CONFIG_FILE" > "$CONFIG_FILE.tmp"
+mv "$CONFIG_FILE.tmp" "$CONFIG_FILE"
+
+if _generate_vless_url_pure "$PROFILES_DIR/sample.json" 2 >/dev/null; then
+  fail "route whose UUID is absent from inbound must not be emitted"
+fi
+[[ "$(_profile_live_route_count "$PROFILES_DIR/sample.json")" == "1" ]] \
+  || fail "live route count must exclude orphaned UUID route"
 
 echo "✓ VLESS URL generation checks passed"

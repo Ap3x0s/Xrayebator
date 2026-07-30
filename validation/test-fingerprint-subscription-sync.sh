@@ -38,30 +38,54 @@ jq -n '{
   inbounds: [
     {
       port: 12345,
+      protocol: "vless",
+      settings: {
+        clients: [{id: "11111111-2222-3333-4444-555555555555", flow: "xtls-rprx-vision"}],
+        decryption: "none"
+      },
       streamSettings: {
+        network: "tcp",
+        security: "reality",
         realitySettings: {
           privateKey: "private-test-key",
           shortIds: ["abcd1234"],
+          serverNames: ["www.ozon.ru"],
           fingerprint: "chrome"
         }
       }
     },
     {
       port: 12346,
+      protocol: "vless",
+      settings: {
+        clients: [{id: "11111111-2222-3333-4444-555555555555", flow: ""}],
+        decryption: "none"
+      },
       streamSettings: {
+        network: "tcp",
+        security: "reality",
         realitySettings: {
           privateKey: "private-test-key",
           shortIds: ["beef5678"],
+          serverNames: ["www.ozon.ru"],
           fingerprint: "chrome"
         }
       }
     },
     {
       port: 12347,
+      protocol: "vless",
+      settings: {
+        clients: [{id: "66666666-7777-8888-9999-000000000000", flow: "xtls-rprx-vision"}],
+        decryption: "none"
+      },
       streamSettings: {
+        network: "tcp",
+        security: "reality",
         realitySettings: {
           privateKey: "private-test-key",
-          shortIds: ["cafe9876"]
+          shortIds: ["cafe9876"],
+          serverNames: ["www.ozon.ru"]
         }
       }
     }
