@@ -2,10 +2,12 @@
 
 # Xrayebator
 
-<h3>
-在自己的 VPS 上运行 Xray VLESS Reality：<strong>入站</strong> · <strong>配置档</strong> ·
-<strong>HAPP 订阅</strong> · <strong>分流</strong> · <strong>级联</strong>
-</h3>
+<h3>在自己的 VPS 上运行 Xray VLESS Reality</h3>
+
+<p>
+<strong>入站</strong> · <strong>配置档</strong> · <strong>订阅</strong> ·
+<strong>分流</strong> · <strong>级联</strong>
+</p>
 
 <p>
 <strong>其他语言版本</strong><br>

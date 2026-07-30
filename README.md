@@ -2,10 +2,12 @@
 
 # Xrayebator
 
-<h3>
-Xray VLESS Reality on your own VPS: <strong>inbounds</strong> · <strong>profiles</strong> ·
-<strong>HAPP subscription</strong> · <strong>bypass</strong> · <strong>cascade</strong>
-</h3>
+<h3>Xray VLESS Reality on your own VPS</h3>
+
+<p>
+<strong>inbounds</strong> · <strong>profiles</strong> · <strong>subscription</strong> ·
+<strong>bypass</strong> · <strong>cascade</strong>
+</p>
 
 <p>
 <strong>Read this in other languages</strong><br>
