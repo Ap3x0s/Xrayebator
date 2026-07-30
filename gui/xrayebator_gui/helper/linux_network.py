@@ -49,6 +49,11 @@ class LinuxNetwork:
         script = build_nft_rules(interface, mark)
         self._run(["nft", "-f", "-"], input_text=script)
 
+    def validate_guard(self, interface: str, mark: int) -> None:
+        """Ask nftables to parse/check the transaction without applying it."""
+        script = build_nft_rules(interface, mark)
+        self._run(["nft", "--check", "-f", "-"], input_text=script)
+
     def disable_guard(self) -> None:
         if not self.guard_exists():
             return

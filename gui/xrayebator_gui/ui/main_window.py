@@ -30,6 +30,7 @@ from ..core.connection import (
 from ..core.deploy import STEPS, make_deploy_thread
 from ..core.desktop_backend import DesktopBackend
 from ..core.helper_install import install_linux_helper
+from ..core.latency import probe_routes
 from ..core.routing import RoutingProfile
 from ..core.servers import ServerStore
 from ..core.ssh import SSHClient
@@ -113,6 +114,7 @@ class MainWindow(QMainWindow):
         self._bridge.snapshot_changed.connect(self._on_snapshot)
 
         self._routes: list[VlessLink] = []
+        self._latencies: dict[str, Optional[int]] = {}
         self._operation: Optional[OperationThread] = None
         self._deploy_thread: Optional[QThread] = None
         self._quitting = False
@@ -289,6 +291,7 @@ class MainWindow(QMainWindow):
     @Slot()
     def _server_changed(self) -> None:
         self._routes = []
+        self._latencies = {}
         self.route_combo.clear()
         server = self._selected_server()
         enabled = server is not None
@@ -315,23 +318,37 @@ class MainWindow(QMainWindow):
         self.route_combo.addItem("Загрузка подписки…")
         self._set_operation_busy(True)
 
-        def load() -> list[VlessLink]:
+        should_probe = self._controller.snapshot.state != ConnectionState.CONNECTED
+
+        def load() -> tuple[list[VlessLink], dict[str, Optional[int]]]:
             routes = subscription.parse(subscription.fetch(url))
             if not routes:
                 raise RuntimeError(
                     "Подписка не содержит поддерживаемых VLESS-маршрутов"
                 )
-            return routes
+            latencies = probe_routes(routes) if should_probe else {}
+            return routes, latencies
 
         self._start_operation(load, self._routes_loaded, self._routes_failed)
 
     def _routes_loaded(self, result: object) -> None:
-        routes = list(result) if isinstance(result, list) else []
+        if not isinstance(result, tuple) or len(result) != 2:
+            routes, latencies = [], {}
+        else:
+            routes = list(result[0])
+            latencies = dict(result[1])
         self._routes = routes
+        self._latencies = latencies
         self.route_combo.clear()
         for route in routes:
             label = route.remark or route.label
-            self.route_combo.addItem(f"{label} — {route.label}")
+            latency_ms = latencies.get(route.raw)
+            latency_label = (
+                f" · {latency_ms} ms"
+                if latency_ms is not None
+                else (" · timeout" if route.raw in latencies else "")
+            )
+            self.route_combo.addItem(f"{label} — {route.label}{latency_label}")
         default = subscription.pick_default(routes)
         if default is not None:
             self.route_combo.setCurrentIndex(routes.index(default))
@@ -342,6 +359,7 @@ class MainWindow(QMainWindow):
 
     def _routes_failed(self, message: str) -> None:
         self._routes = []
+        self._latencies = {}
         self.route_combo.clear()
         self.route_combo.addItem("Не удалось загрузить маршруты")
         self._append_log(f"Ошибка подписки: {message}")

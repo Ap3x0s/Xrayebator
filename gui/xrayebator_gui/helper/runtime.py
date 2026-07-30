@@ -104,6 +104,12 @@ class TunRuntime:
             self._external_ip = None
         return self._result()
 
+    def selftest(self) -> dict:
+        self.network.check_dependencies()
+        self._binary_validator(self.core_binary)
+        self.network.validate_guard(TUN_INTERFACE, OUTBOUND_MARK)
+        return self._result()
+
     def connect(
         self,
         route: VlessLink,

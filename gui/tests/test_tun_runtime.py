@@ -33,6 +33,9 @@ class FakeNetwork:
         self.guarded = True
         self.calls.append(("guard-on", interface, mark))
 
+    def validate_guard(self, interface, mark):
+        self.calls.append(("guard-check", interface, mark))
+
     def disable_guard(self):
         self.guarded = False
         self.calls.append(("guard-off",))
@@ -222,3 +225,20 @@ def test_reconnect_same_target_adopts_existing_tun_without_restart(tmp_path):
 
     assert result["state"] == "connected"
     assert len(processes) == 1
+
+
+def test_selftest_validates_dependencies_binary_and_nft_rules(tmp_path):
+    network = FakeNetwork()
+    validated = []
+    runtime = TunRuntime(
+        network=network,
+        runtime_dir=tmp_path,
+        binary_validator=lambda path: validated.append(path),
+        state_store=FakeStateStore(),
+    )
+
+    result = runtime.selftest()
+
+    assert result["state"] == "disconnected"
+    assert validated
+    assert ("guard-check", "xrayebator0", 22610) in network.calls

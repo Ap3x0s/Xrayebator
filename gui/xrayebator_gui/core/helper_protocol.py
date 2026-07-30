@@ -12,7 +12,14 @@ from .subscription import VlessLink, parse_link
 
 PROTOCOL_VERSION = 1
 MAX_MESSAGE_BYTES = 256 * 1024
-COMMANDS = {"status", "connect", "switch", "verify", "disconnect"}
+COMMANDS = {
+    "status",
+    "selftest",
+    "connect",
+    "switch",
+    "verify",
+    "disconnect",
+}
 
 
 class ProtocolError(ValueError):

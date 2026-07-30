@@ -37,6 +37,8 @@ class HelperApplication:
     def handle(self, request: HelperRequest) -> dict:
         if request.action == "status":
             return self.runtime.status()
+        if request.action == "selftest":
+            return self.runtime.selftest()
         if (
             request.action == "connect"
             and request.route is not None
