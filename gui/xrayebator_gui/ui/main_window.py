@@ -236,12 +236,16 @@ class MainWindow(QMainWindow):
         self.tray_toggle_action = QAction("Подключить", self)
         self.tray_toggle_action.triggered.connect(self._toggle_connection)
         menu.addAction(self.tray_toggle_action)
+        self.tray_server_menu = menu.addMenu("Сервер")
+        self.tray_route_menu = menu.addMenu("Маршрут")
+        self.tray_profile_menu = menu.addMenu("Профиль")
         menu.addSeparator()
         quit_action = QAction("Выйти", self)
         quit_action.triggered.connect(self._quit)
         menu.addAction(quit_action)
         self.tray.setContextMenu(menu)
         self.tray.show()
+        self._refresh_tray_menus()
 
     def _append_log(self, text: str) -> None:
         self.log.append(text)
@@ -263,6 +267,7 @@ class MainWindow(QMainWindow):
                 if data and data.get("id") == select_id:
                     self.server_combo.setCurrentIndex(index)
                     break
+        self._refresh_tray_menus()
         self._server_changed()
 
     def _selected_server(self) -> Optional[dict]:
@@ -293,6 +298,7 @@ class MainWindow(QMainWindow):
             self._refresh_routes()
         else:
             self.route_combo.addItem("Сначала добавьте VPS")
+        self._refresh_tray_menus()
         self._on_snapshot(self._controller.snapshot)
 
     @Slot()
@@ -330,6 +336,7 @@ class MainWindow(QMainWindow):
         if default is not None:
             self.route_combo.setCurrentIndex(routes.index(default))
         self._append_log(f"Подписка обновлена: {len(routes)} маршрутов")
+        self._refresh_tray_menus()
         self._set_operation_busy(False)
         self._on_snapshot(self._controller.snapshot)
 
@@ -338,6 +345,7 @@ class MainWindow(QMainWindow):
         self.route_combo.clear()
         self.route_combo.addItem("Не удалось загрузить маршруты")
         self._append_log(f"Ошибка подписки: {message}")
+        self._refresh_tray_menus()
         self._set_operation_busy(False)
         QMessageBox.warning(self, "Ошибка подписки", message)
         self._on_snapshot(self._controller.snapshot)
@@ -423,7 +431,7 @@ class MainWindow(QMainWindow):
             subscription_url=result["subscription_url"],
             profile=result.get("profile", "happ"),
         )
-        self._append_log(f"Сервер добавлен. Подписка: {result['subscription_url']}")
+        self._append_log("Сервер добавлен, subscription получена и сохранена.")
         self._reload_servers(select_id=server["id"])
 
     def _deployment_failed(self, message: str) -> None:
@@ -501,7 +509,70 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def _on_profile_selected(self) -> None:
+        self._refresh_tray_menus()
         self._on_snapshot(self._controller.snapshot)
+
+    def _select_server_from_tray(self, index: int) -> None:
+        if 0 <= index < self.server_combo.count():
+            self.server_combo.setCurrentIndex(index)
+
+    def _select_route_from_tray(self, index: int) -> None:
+        if not 0 <= index < len(self._routes):
+            return
+        self.route_combo.setCurrentIndex(index)
+        if self._controller.snapshot.state == ConnectionState.CONNECTED:
+            self._switch_route()
+        else:
+            self._refresh_tray_menus()
+
+    def _select_profile_from_tray(self, profile: RoutingProfile) -> None:
+        for index in range(self.profile_combo.count()):
+            if self.profile_combo.itemData(index) == profile:
+                self.profile_combo.setCurrentIndex(index)
+                break
+        if self._controller.snapshot.state == ConnectionState.CONNECTED:
+            self._switch_profile()
+        else:
+            self._refresh_tray_menus()
+
+    def _refresh_tray_menus(self) -> None:
+        if not hasattr(self, "tray_server_menu"):
+            return
+        self.tray_server_menu.clear()
+        for index in range(self.server_combo.count()):
+            action = self.tray_server_menu.addAction(self.server_combo.itemText(index))
+            action.setCheckable(True)
+            action.setChecked(index == self.server_combo.currentIndex())
+            action.triggered.connect(
+                lambda checked=False, selected=index: (
+                    self._select_server_from_tray(selected)
+                )
+            )
+        self.tray_server_menu.setEnabled(self.server_combo.count() > 0)
+
+        self.tray_route_menu.clear()
+        for index, route in enumerate(self._routes):
+            action = self.tray_route_menu.addAction(route.remark or route.label)
+            action.setCheckable(True)
+            action.setChecked(index == self.route_combo.currentIndex())
+            action.triggered.connect(
+                lambda checked=False, selected=index: (
+                    self._select_route_from_tray(selected)
+                )
+            )
+        self.tray_route_menu.setEnabled(bool(self._routes))
+
+        self.tray_profile_menu.clear()
+        selected_profile = self._selected_profile()
+        for profile in RoutingProfile:
+            action = self.tray_profile_menu.addAction(profile.label)
+            action.setCheckable(True)
+            action.setChecked(profile == selected_profile)
+            action.triggered.connect(
+                lambda checked=False, selected=profile: (
+                    self._select_profile_from_tray(selected)
+                )
+            )
 
     def _start_connection_operation(
         self, operation: Callable[[], object], *, switch: bool = False
@@ -566,6 +637,11 @@ class MainWindow(QMainWindow):
         )
         connected = snapshot.state == ConnectionState.CONNECTED
         busy = snapshot.state in _BUSY_STATES
+        if snapshot.route is not None and (busy or snapshot.error):
+            for index, route in enumerate(self._routes):
+                if route.raw == snapshot.route.raw:
+                    self.route_combo.setCurrentIndex(index)
+                    break
         if snapshot.routing_profile is not None and (busy or snapshot.error):
             for index in range(self.profile_combo.count()):
                 if self.profile_combo.itemData(index) == snapshot.routing_profile:
@@ -587,7 +663,14 @@ class MainWindow(QMainWindow):
         )
         self.tray_toggle_action.setText("Отключить" if connected else "Подключить")
         self.tray_toggle_action.setEnabled(not busy)
-        self.tray.setToolTip(f"Xrayebator — {label.lower()}")
+        target = ""
+        if snapshot.route is not None and snapshot.routing_profile is not None:
+            target = (
+                f"\n{snapshot.route.remark or snapshot.route.label}"
+                f" · {snapshot.routing_profile.label}"
+            )
+        self.tray.setToolTip(f"Xrayebator — {label.lower()}{target}")
+        self._refresh_tray_menus()
         if snapshot.error and snapshot.state == ConnectionState.ERROR:
             self.status_label.setToolTip(snapshot.error)
         else:

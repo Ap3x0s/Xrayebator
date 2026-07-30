@@ -141,7 +141,7 @@ class Deployer:
 
         def collect(line: str) -> None:
             lines.append(line)
-            self._on_log(line)
+            self._on_log(redact_log_line(line))
 
         rc = self.ssh.run_streaming(
             cmd,
@@ -152,7 +152,8 @@ class Deployer:
         if rc != 0:
             raise DeployError(
                 f"Команда завершилась с кодом {rc}: {what or cmd}\n"
-                f"Последние строки вывода:\n" + "\n".join(lines[-5:])
+                f"Последние строки вывода:\n"
+                + "\n".join(redact_log_line(line) for line in lines[-5:])
             )
         return lines
 
@@ -281,6 +282,26 @@ class Deployer:
             "quickstart не вернул JSON-результат. "
             "Возможно, на сервере старая версия xrayebator."
         )
+
+
+def redact_log_line(line: str) -> str:
+    """Remove subscription/VLESS bearer secrets before a line reaches the UI."""
+    if '"subscription_url"' in line:
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            pass
+        else:
+            if isinstance(payload, dict) and "subscription_url" in payload:
+                payload["subscription_url"] = "<redacted>"
+                return json.dumps(payload, ensure_ascii=False)
+    line = re.sub(r"vless://[^\s\"']+", "vless://<redacted>", line)
+    return re.sub(
+        r"(https?://[^\s\"']+/(?:sub|subscription)/)[^\s\"']+",
+        r"\1<redacted>",
+        line,
+        flags=re.IGNORECASE,
+    )
 
 
 # ---------------------------------------------------------------------------

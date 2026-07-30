@@ -8,6 +8,7 @@ from xrayebator_gui.core.deploy import (
     DeployError,
     Deployer,
     check_os_supported,
+    redact_log_line,
 )
 
 
@@ -132,3 +133,17 @@ def test_supported_os(text, expected):
 def test_unsupported_os_has_actionable_message():
     with pytest.raises(DeployError, match="Поддерживаются"):
         check_os_supported('ID="centos"\nVERSION_ID="9"\n')
+
+
+def test_deploy_log_redacts_subscription_and_vless_secrets():
+    json_line = json.dumps(
+        {
+            "ok": True,
+            "subscription_url": "https://vpn.example/sub/bearer-token",
+        }
+    )
+
+    assert "bearer-token" not in redact_log_line(json_line)
+    assert "uuid-secret" not in redact_log_line(
+        "route: vless://uuid-secret@vpn.example:443?security=reality"
+    )

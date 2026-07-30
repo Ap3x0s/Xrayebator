@@ -43,6 +43,11 @@ workspace. It requires `python3`, `curl`, `unzip`, `nft`, and `systemd`.
 4. Save the returned subscription URL.
 5. Load subscription routes and connect through local Xray.
 
+After setup, connect/disconnect, server, transport route, and routing profile
+are available from the tray menu. Subscription bearer URLs and VLESS links are
+redacted from UI logs; local metadata and runtime configs are written with
+owner-only permissions.
+
 Do not use the development build as a leak-proof VPN yet. The helper contains
 DNS guarding and a fail-closed nftables kill switch, but packaging and live
 integration checks are required before that claim.

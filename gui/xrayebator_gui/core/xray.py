@@ -466,7 +466,13 @@ class XrayProcess:
             Path(tmp_name).unlink(missing_ok=True)
 
         self._stderr_path.parent.mkdir(parents=True, exist_ok=True)
-        self._stderr_file = open(self._stderr_path, "w+b")
+        stderr_fd = os.open(
+            self._stderr_path,
+            os.O_RDWR | os.O_CREAT | os.O_TRUNC,
+            stat.S_IRUSR | stat.S_IWUSR,
+        )
+        os.fchmod(stderr_fd, stat.S_IRUSR | stat.S_IWUSR)
+        self._stderr_file = os.fdopen(stderr_fd, "w+b")
         self._proc = subprocess.Popen(
             [str(self._binary), "run", "-c", str(self._config_path)],
             stdout=subprocess.DEVNULL,

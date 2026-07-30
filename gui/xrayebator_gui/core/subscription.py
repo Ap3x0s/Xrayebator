@@ -53,13 +53,16 @@ def fetch(url: str, timeout: float = 20.0) -> str:
         resp = requests.get(url, timeout=timeout, verify=True)
         resp.raise_for_status()
     except requests.exceptions.SSLError as e:
-        raise SubscriptionError(f"Ошибка TLS при загрузке подписки: {e}") from e
+        raise SubscriptionError("Ошибка TLS при загрузке подписки") from e
     except requests.exceptions.Timeout as e:
         raise SubscriptionError(f"Таймаут загрузки подписки ({timeout} с)") from e
     except requests.exceptions.HTTPError as e:
-        raise SubscriptionError(f"Сервер подписки ответил ошибкой: {e}") from e
+        status = e.response.status_code if e.response is not None else "?"
+        raise SubscriptionError(f"Сервер подписки ответил HTTP {status}") from e
     except requests.exceptions.RequestException as e:
-        raise SubscriptionError(f"Не удалось загрузить подписку: {e}") from e
+        raise SubscriptionError(
+            f"Не удалось загрузить подписку ({type(e).__name__})"
+        ) from e
     return resp.text
 
 

@@ -7,6 +7,9 @@
 from __future__ import annotations
 
 import json
+import os
+import stat
+import tempfile
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -37,11 +40,22 @@ class ServerStore:
         return data if isinstance(data, list) else []
 
     def _save(self, servers: list[dict[str, Any]]) -> None:
-        tmp = self._path.with_suffix(".tmp")
-        tmp.write_text(
-            json.dumps(servers, ensure_ascii=False, indent=2), encoding="utf-8"
+        fd, tmp_name = tempfile.mkstemp(
+            prefix=f".{self._path.name}.",
+            dir=self._dir,
         )
-        tmp.replace(self._path)
+        try:
+            os.fchmod(fd, stat.S_IRUSR | stat.S_IWUSR)
+            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                fd = -1
+                json.dump(servers, stream, ensure_ascii=False, indent=2)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(tmp_name, self._path)
+        finally:
+            if fd >= 0:
+                os.close(fd)
+            Path(tmp_name).unlink(missing_ok=True)
 
     def list(self) -> list[dict[str, Any]]:
         """Все серверы."""

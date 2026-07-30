@@ -6,6 +6,7 @@ from xrayebator_gui.core.routing import RoutingProfile
 from xrayebator_gui.core.subscription import VlessLink
 from xrayebator_gui.core.xray import (
     XrayError,
+    XrayProcess,
     _parse_dgst,
     build_client_config,
     build_tun_client_config,
@@ -145,3 +146,38 @@ def test_parse_dgst_accepts_actual_xray_release_format():
     text = f"MD5= {'a' * 32}\nSHA2-256= {digest}\n"
 
     assert _parse_dgst(text, "Xray-linux-64.zip") == digest
+
+
+def test_xray_runtime_files_are_owner_only(monkeypatch, tmp_path):
+    binary = tmp_path / "xray"
+    binary.write_bytes(b"binary")
+    binary.chmod(0o755)
+
+    class FakePopen:
+        def __init__(self, *args, **kwargs):
+            self.returncode = None
+
+        def poll(self):
+            return self.returncode
+
+        def terminate(self):
+            self.returncode = 0
+
+        def wait(self, timeout):
+            return self.returncode
+
+    monkeypatch.setattr("xrayebator_gui.core.xray.subprocess.Popen", FakePopen)
+    monkeypatch.setattr("xrayebator_gui.core.xray.time.sleep", lambda _: None)
+    config_path = tmp_path / "runtime" / "config.json"
+    log_path = tmp_path / "runtime" / "xray.log"
+    process = XrayProcess(
+        binary,
+        config_path=config_path,
+        stderr_path=log_path,
+    )
+
+    process.start(build_client_config(link()))
+    process.stop()
+
+    assert config_path.stat().st_mode & 0o777 == 0o600
+    assert log_path.stat().st_mode & 0o777 == 0o600
