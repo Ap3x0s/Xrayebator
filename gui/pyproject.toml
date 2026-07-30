@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "xrayebator-gui"
+version = "0.1.0"
+description = "Desktop GUI для развёртывания Xrayebator на VPS и подключения к нему (Xray VLESS Reality)"
+readme = "README.md"
+requires-python = ">=3.10,<3.14"
+license = { text = "MIT" }
+dependencies = [
+    "PySide6>=6.7,<6.10",
+    "paramiko>=3.4,<4.0",
+    "requests>=2.31,<2.33",
+    "requests[socks]>=2.31,<2.33",
+    "qrcode[pil]>=7.4,<8.0",
+    "keyring>=24.3,<26.0",
+    "platformdirs>=4.2,<5.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0,<9.0",
+]
+
+[project.scripts]
+xrayebator-gui = "xrayebator_gui.app:main"
+
+[tool.setuptools.packages.find]
+include = ["xrayebator_gui*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
