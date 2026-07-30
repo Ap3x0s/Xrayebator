@@ -39,6 +39,11 @@ XRAY_LOCAL_DGST=/tmp/Xray-linux-64.zip.dgst \
 Xrayebator does not change the host TCP congestion-control algorithm and does not write or apply
 system-wide `sysctl` values. Host networking remains under the VPS operator's control.
 
+When upgrading an installation created by an older release, v3.0 runs a one-time migration. It
+removes only exact Xrayebator-owned legacy tuning files/blocks and immediately changes an active BBR
+algorithm to `cubic` (or `reno` when `cubic` is unavailable). Foreign sysctl files are never edited:
+the migration reports them and retries on the next launch until the operator removes the setting.
+
 The installer manages UFW itself: it installs the `ufw` package, enables it with `ufw --force enable`
 when inactive, then opens ports `22, 80, 443, 8443, 2053, 2083, 2087, 8080, 2096, 8880, 9443/tcp`
 and reloads the rules.

@@ -15,8 +15,10 @@ done
 
 if grep -Eiq \
   'BBR|XRAY_TCP_TUNING|tcp_congestion_control|default_qdisc|/etc/sysctl|(^|[;&|[:space:]])sysctl([[:space:]]|$)' \
-  "$REPO_ROOT/install.sh" "$REPO_ROOT/update.sh" "$REPO_ROOT/uninstall.sh" "$REPO_ROOT/xrayebator"; then
-  fail "project scripts must not configure or remove host-wide TCP/sysctl tuning"
+  "$REPO_ROOT/install.sh" "$REPO_ROOT/uninstall.sh"; then
+  fail "install/uninstall must not configure or remove host-wide TCP/sysctl tuning"
 fi
+grep -q 'migrate_remove_legacy_tcp_tuning_v3' "$REPO_ROOT/update.sh" \
+  || fail "updater must invoke the one-time legacy TCP tuning migration"
 
 echo "PASS: installer network fallbacks and host-network isolation"

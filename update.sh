@@ -443,6 +443,13 @@ echo -e "${GREEN}✓ Команды xrayebator-update / xrayebator-uninstall п�
 XRAYEBATOR_RUNTIME_LOADED=false
 if source /usr/local/bin/xrayebator; then
   XRAYEBATOR_RUNTIME_LOADED=true
+  echo -e "${YELLOW}Удаление legacy BBR/TCP tuning...${NC}"
+  if migrate_remove_legacy_tcp_tuning_v3; then
+    echo -e "${GREEN}✓ Legacy BBR/TCP tuning отключён${NC}\n"
+  else
+    echo -e "${YELLOW}⚠ Не удалось завершить BBR migration${NC}"
+    echo -e "${YELLOW}  Повтор: sudo xrayebator${NC}\n"
+  fi
   echo -e "${YELLOW}Проверка client-side fingerprint state...${NC}"
   if migrate_client_fingerprint_state_2026; then
     echo -e "${GREEN}✓ Fingerprint state актуален; restart Xray не требовался${NC}\n"

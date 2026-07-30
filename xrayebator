@@ -35,6 +35,12 @@ SELFSTEAL_DEST="127.0.0.1:9444"
 DEFAULT_CLIENT_FINGERPRINT="firefox"
 SNI_LIST="$DATA_DIR/sni_list.txt"
 ASCII_ART="$DATA_DIR/ascii_art.txt"
+LEGACY_TCP_TUNING_FILE="/etc/sysctl.d/99-xrayebator-tcp.conf"
+SYSTEM_SYSCTL_CONF="/etc/sysctl.conf"
+TCP_CC_ACTIVE_FILE="/proc/sys/net/ipv4/tcp_congestion_control"
+TCP_CC_AVAILABLE_FILE="/proc/sys/net/ipv4/tcp_available_congestion_control"
+HOST_TUNING_MIGRATION_MARKER="/usr/local/etc/xray/.host_tcp_tuning_removed_v3"
+SYSCTL_SCAN_PATHS="/etc/sysctl.conf:/etc/sysctl.d:/usr/lib/sysctl.d:/lib/sysctl.d"
 
 # Хардкод-список SNI shipped в v1.0 sni_list.txt. Используется миграциями
 # SNI v2.0+ — все, что НЕ в этом set, считается user-custom и не трогается.
@@ -1233,6 +1239,244 @@ update_all_profiles_port_reference() {
     fi
   done
   [[ "$ok" == "true" ]]
+}
+
+# Проверяет отдельный sysctl.d-файл по одному из двух точных шаблонов,
+# которые выпускал Xrayebator. Изменённый оператором файл удалять нельзя.
+_is_known_legacy_tcp_tuning_file() {
+  local path="$1"
+  [[ -f "$path" && ! -L "$path" ]] || return 1
+
+  local content minimal extended
+  content=$(<"$path") || return 1
+  minimal=$'# Xrayebator minimal TCP tuning\nnet.core.default_qdisc=fq\nnet.ipv4.tcp_congestion_control=bbr'
+  extended=$'# Xrayebator extended TCP tuning\nnet.core.default_qdisc=fq\nnet.ipv4.tcp_congestion_control=bbr\nnet.ipv4.tcp_fastopen=3\nnet.ipv4.tcp_slow_start_after_idle=0\nnet.ipv4.tcp_notsent_lowat=16384\nnet.ipv4.tcp_rmem=4096 87380 16777216\nnet.ipv4.tcp_wmem=4096 65536 16777216\nnet.core.rmem_max=16777216\nnet.core.wmem_max=16777216\nnet.core.rmem_default=1048576\nnet.core.wmem_default=1048576\nnet.ipv4.ip_local_port_range=1024 65535\nnet.ipv4.tcp_max_tw_buckets=2000000\nnet.ipv4.tcp_fin_timeout=10\nnet.ipv4.tcp_keepalive_time=600\nnet.ipv4.tcp_keepalive_intvl=30\nnet.ipv4.tcp_keepalive_probes=3\nnet.ipv4.tcp_mtu_probing=1\nnet.ipv4.tcp_syncookies=1\nnet.core.netdev_max_backlog=16384\nnet.ipv4.tcp_max_syn_backlog=8192'
+
+  [[ "$content" == "$minimal" || "$content" == "$extended" ]]
+}
+
+# Удаляет только исторический блок, который старые версии добавляли в
+# /etc/sysctl.conf после собственного marker-комментария.
+# Returns: 0=block removed, 1=no block, 2=unexpected/unsafe block.
+_strip_legacy_tcp_tuning_block() {
+  local source_file="$1"
+  local target_file="$2"
+
+  awk '
+    function is_known_key(line) {
+      return line ~ /^net\.(core\.(default_qdisc|rmem_max|wmem_max|rmem_default|wmem_default|netdev_max_backlog)|ipv4\.(tcp_congestion_control|tcp_fastopen|tcp_slow_start_after_idle|tcp_notsent_lowat|tcp_rmem|tcp_wmem|ip_local_port_range|tcp_max_tw_buckets|tcp_fin_timeout|tcp_keepalive_time|tcp_keepalive_intvl|tcp_keepalive_probes|tcp_mtu_probing|tcp_syncookies|tcp_max_syn_backlog))=/
+    }
+    $0 == "# BBR TCP Congestion Control Optimization" {
+      if (inside || found) {
+        bad = 1
+      }
+      inside = 1
+      found = 1
+      next
+    }
+    inside && is_known_key($0) { next }
+    inside && $0 ~ /^[[:space:]]*$/ {
+      inside = 0
+      next
+    }
+    inside {
+      bad = 1
+      inside = 0
+    }
+    { print }
+    END {
+      if (bad) {
+        exit 2
+      }
+      if (!found) {
+        exit 1
+      }
+    }
+  ' "$source_file" > "$target_file"
+}
+
+_find_persistent_bbr_sources() {
+  local scan_paths="${1:-$SYSCTL_SCAN_PATHS}"
+  local -a paths
+  local path candidate
+  IFS=':' read -r -a paths <<< "$scan_paths"
+
+  for path in "${paths[@]}"; do
+    if [[ -f "$path" && ! -L "$path" ]]; then
+      if grep -Eq '^[[:space:]]*net\.ipv4\.tcp_congestion_control[[:space:]]*=[[:space:]]*bbr([[:space:]]*(#.*)?)?$' "$path"; then
+        printf '%s\n' "$path"
+      fi
+      continue
+    fi
+    [[ -d "$path" && ! -L "$path" ]] || continue
+    for candidate in "$path"/*.conf; do
+      [[ -f "$candidate" && ! -L "$candidate" ]] || continue
+      if grep -Eq '^[[:space:]]*net\.ipv4\.tcp_congestion_control[[:space:]]*=[[:space:]]*bbr([[:space:]]*(#.*)?)?$' "$candidate"; then
+        printf '%s\n' "$candidate"
+      fi
+    done
+  done
+}
+
+_restore_legacy_tcp_tuning_files() {
+  local backup_dir="$1"
+  local legacy_file="$2"
+  local sysctl_conf="$3"
+  local ok=true
+
+  if [[ -f "$backup_dir/99-xrayebator-tcp.conf" ]]; then
+    cp -a -- "$backup_dir/99-xrayebator-tcp.conf" "$legacy_file" || ok=false
+  fi
+  if [[ -f "$backup_dir/sysctl.conf" ]]; then
+    cp -a -- "$backup_dir/sysctl.conf" "$sysctl_conf" || ok=false
+  fi
+  [[ "$ok" == "true" ]]
+}
+
+# Одноразовая host-state migration для v3.0.
+# Удаляет только точные файлы/блоки, созданные старыми версиями Xrayebator,
+# немедленно уводит активный congestion control с BBR и не трогает чужие
+# sysctl-конфиги. При чужом persistent BBR marker не ставится: миграция
+# предупредит оператора и повторит проверку при следующем запуске.
+migrate_remove_legacy_tcp_tuning_v3() {
+  local marker="${1:-$HOST_TUNING_MIGRATION_MARKER}"
+  local legacy_file="${2:-$LEGACY_TCP_TUNING_FILE}"
+  local sysctl_conf="${3:-$SYSTEM_SYSCTL_CONF}"
+  local active_file="${4:-$TCP_CC_ACTIVE_FILE}"
+  local available_file="${5:-$TCP_CC_AVAILABLE_FILE}"
+  local scan_paths="${6:-$SYSCTL_SCAN_PATHS}"
+  local expected_uid="${7:-0}"
+
+  if [[ -L "$marker" ]]; then
+    echo -e "${RED}  ✗ Migration marker не должен быть symlink: $marker${NC}"
+    return 1
+  fi
+  [[ -f "$marker" ]] && return 0
+  if [[ -e "$marker" ]]; then
+    echo -e "${RED}  ✗ Migration marker имеет неожиданный тип: $marker${NC}"
+    return 1
+  fi
+
+  echo -e "${MAGENTA}[migration] Удаление legacy BBR/TCP tuning${NC}"
+
+  local backup_dir=""
+  local candidate=""
+  local current_cc=""
+  local available_cc=""
+  local target_cc=""
+  local remaining_sources=""
+  local strip_rc=0
+
+  if [[ -e "$legacy_file" || -L "$legacy_file" ]]; then
+    if [[ -L "$legacy_file" || ! -f "$legacy_file" ]] \
+       || [[ "$(stat -c %u "$legacy_file" 2>/dev/null)" != "$expected_uid" ]] \
+       || ! _is_known_legacy_tcp_tuning_file "$legacy_file"; then
+      echo -e "${RED}  ✗ Неизвестный или изменённый файл оставлен без изменений: $legacy_file${NC}"
+      return 1
+    fi
+    mkdir -p "$XRAY_BACKUPS_DIR" || return 1
+    backup_dir=$(mktemp -d "$XRAY_BACKUPS_DIR/host-tuning-v3.XXXXXX") || return 1
+    chmod 0700 "$backup_dir"
+    cp -a -- "$legacy_file" "$backup_dir/99-xrayebator-tcp.conf" || return 1
+    rm -f -- "$legacy_file" || return 1
+    echo -e "${GREEN}  ✓ Удалён legacy sysctl.d-файл Xrayebator${NC}"
+  fi
+
+  if [[ -e "$sysctl_conf" || -L "$sysctl_conf" ]]; then
+    if [[ -L "$sysctl_conf" || ! -f "$sysctl_conf" ]] \
+       || [[ "$(stat -c %u "$sysctl_conf" 2>/dev/null)" != "$expected_uid" ]]; then
+      [[ -n "$backup_dir" ]] && _restore_legacy_tcp_tuning_files "$backup_dir" "$legacy_file" "$sysctl_conf"
+      echo -e "${RED}  ✗ Небезопасный системный конфиг оставлен без изменений: $sysctl_conf${NC}"
+      return 1
+    fi
+
+    candidate=$(mktemp "$(dirname "$sysctl_conf")/.xrayebator-sysctl.XXXXXX") || {
+      [[ -n "$backup_dir" ]] && _restore_legacy_tcp_tuning_files "$backup_dir" "$legacy_file" "$sysctl_conf"
+      return 1
+    }
+    _strip_legacy_tcp_tuning_block "$sysctl_conf" "$candidate" || strip_rc=$?
+    if [[ "$strip_rc" -eq 0 ]]; then
+      if [[ -z "$backup_dir" ]]; then
+        mkdir -p "$XRAY_BACKUPS_DIR" || { rm -f -- "$candidate"; return 1; }
+        backup_dir=$(mktemp -d "$XRAY_BACKUPS_DIR/host-tuning-v3.XXXXXX") || {
+          rm -f -- "$candidate"
+          return 1
+        }
+        chmod 0700 "$backup_dir"
+      fi
+      cp -a -- "$sysctl_conf" "$backup_dir/sysctl.conf" || {
+        rm -f -- "$candidate"
+        _restore_legacy_tcp_tuning_files "$backup_dir" "$legacy_file" "$sysctl_conf"
+        return 1
+      }
+      chmod --reference="$sysctl_conf" "$candidate" \
+        && chown --reference="$sysctl_conf" "$candidate" \
+        && mv -fT -- "$candidate" "$sysctl_conf" || {
+          rm -f -- "$candidate"
+          _restore_legacy_tcp_tuning_files "$backup_dir" "$legacy_file" "$sysctl_conf"
+          return 1
+        }
+      echo -e "${GREEN}  ✓ Удалён legacy-блок Xrayebator из sysctl.conf${NC}"
+    elif [[ "$strip_rc" -eq 1 ]]; then
+      rm -f -- "$candidate"
+    else
+      rm -f -- "$candidate"
+      [[ -n "$backup_dir" ]] && _restore_legacy_tcp_tuning_files "$backup_dir" "$legacy_file" "$sysctl_conf"
+      echo -e "${RED}  ✗ Legacy sysctl-блок изменён вручную; автоматическая очистка остановлена${NC}"
+      return 1
+    fi
+  fi
+
+  if [[ ! -r "$active_file" || ! -r "$available_file" ]]; then
+    [[ -n "$backup_dir" ]] && _restore_legacy_tcp_tuning_files "$backup_dir" "$legacy_file" "$sysctl_conf"
+    echo -e "${RED}  ✗ Ядро не предоставляет congestion-control state${NC}"
+    return 1
+  fi
+  current_cc=$(<"$active_file")
+  available_cc=$(<"$available_file")
+
+  if [[ "$current_cc" == "bbr" ]]; then
+    if [[ " $available_cc " == *" cubic "* ]]; then
+      target_cc="cubic"
+    elif [[ " $available_cc " == *" reno "* ]]; then
+      target_cc="reno"
+    else
+      [[ -n "$backup_dir" ]] && _restore_legacy_tcp_tuning_files "$backup_dir" "$legacy_file" "$sysctl_conf"
+      echo -e "${RED}  ✗ Не найден безопасный congestion-control fallback (cubic/reno)${NC}"
+      return 1
+    fi
+
+    if ! sysctl -q -w "net.ipv4.tcp_congestion_control=$target_cc"; then
+      [[ -n "$backup_dir" ]] && _restore_legacy_tcp_tuning_files "$backup_dir" "$legacy_file" "$sysctl_conf"
+      echo -e "${RED}  ✗ Не удалось переключить congestion control на $target_cc${NC}"
+      return 1
+    fi
+    current_cc=$(<"$active_file")
+    if [[ "$current_cc" == "bbr" ]]; then
+      [[ -n "$backup_dir" ]] && _restore_legacy_tcp_tuning_files "$backup_dir" "$legacy_file" "$sysctl_conf"
+      echo -e "${RED}  ✗ Congestion control остался BBR после переключения${NC}"
+      return 1
+    fi
+    echo -e "${GREEN}  ✓ Активный congestion control: $current_cc${NC}"
+  fi
+
+  remaining_sources=$(_find_persistent_bbr_sources "$scan_paths")
+  if [[ -n "$remaining_sources" ]]; then
+    echo -e "${RED}  ✗ BBR задан сторонним sysctl-конфигом; файл не изменён:${NC}"
+    printf '%s\n' "$remaining_sources" | sed 's/^/    /'
+    echo -e "${YELLOW}    Удалите настройку вручную; migration повторится при следующем запуске.${NC}"
+    return 1
+  fi
+
+  mkdir -p "$(dirname "$marker")" || return 1
+  if ! touch "$marker"; then
+    echo -e "${RED}  ✗ Не удалось записать migration marker: $marker${NC}"
+    return 1
+  fi
+  chown xray:xray "$marker" 2>/dev/null || true
+  chmod 0640 "$marker" 2>/dev/null || true
+  echo -e "${GREEN}  ✓ Legacy BBR/TCP tuning полностью отключён${NC}"
+  return 0
 }
 
 # run_migration <marker_basename> <description> <fn_name>
@@ -5777,6 +6021,10 @@ main_menu() {
   # Three-valued contract: fn returns 0=changed, 1=no-op, ≥2=fail.
 
   local migration_failures=0
+
+  if ! migrate_remove_legacy_tcp_tuning_v3; then
+    ((migration_failures++))
+  fi
 
   if ! migrate_client_fingerprint_state_2026; then
     ((migration_failures++))
