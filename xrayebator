@@ -5870,18 +5870,18 @@ main_menu() {
     echo -e "${CYAN} 4)${NC} Управление профилем (SNI / fingerprint / port / advanced)"
     echo ""
     echo -e "${MAGENTA} POST-QUANTUM ENCRYPTION:${NC}"
-    echo -e "${CYAN} 8)${NC} Обновить профиль до post-quantum (PQ XHTTP+Reality)"
+    echo -e "${CYAN} 5)${NC} Обновить профиль до post-quantum (PQ XHTTP+Reality)"
     echo ""
     echo -e "${MAGENTA} HAPP SUBSCRIPTION:${NC}"
-    echo -e "${CYAN} 9)${NC} Подписка HAPP (профиль 7 / HAPP 6 routes + URL/QR)"
+    echo -e "${CYAN} 6)${NC} Подписка HAPP (профиль 7 / HAPP 6 routes + URL/QR)"
     echo ""
     echo -e "${MAGENTA} BYPASS ROUTING:${NC}"
-    echo -e "${CYAN}11)${NC} Управление обходом VPN"
+    echo -e "${CYAN} 7)${NC} Управление обходом VPN"
     echo ""
     echo -e "${MAGENTA} ADVANCED ROUTING:${NC}"
-    echo -e "${CYAN}12)${NC} Каскад / upstream-ноды"
-    echo -e "${CYAN}13)${NC} Собственный домен / self-steal заглушка"
-    echo -e "${CYAN}14)${NC} Поднять outbound-сервер (зарубежная нода)"
+    echo -e "${CYAN} 8)${NC} Каскад / upstream-ноды"
+    echo -e "${CYAN} 9)${NC} Собственный домен / self-steal заглушка"
+    echo -e "${CYAN}10)${NC} Поднять outbound-сервер (зарубежная нода)"
     echo ""
     echo -e "${RED} 0)${NC} Выход"
     echo ""
@@ -5893,12 +5893,12 @@ main_menu() {
       2) delete_profile_menu ;;
       3) connect_profile_menu ;;
       4) manage_profile_menu ;;
-      8) upgrade_profile_to_pq_menu ;;
-      9) happ_subscription_menu ;;
-      11) bypass_routing_menu ;;
-      12) cascade_mode_menu ;;
-      13) install_selfsteal_stub_menu ;;
-      14) setup_outbound_server_menu ;;
+      5) upgrade_profile_to_pq_menu ;;
+      6) happ_subscription_menu ;;
+      7) bypass_routing_menu ;;
+      8) cascade_mode_menu ;;
+      9) install_selfsteal_stub_menu ;;
+      10) setup_outbound_server_menu ;;
       0) exit 0 ;;
       *) echo -e "${RED}Неверный выбор${NC}"; sleep 1 ;;
     esac

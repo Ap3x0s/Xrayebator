@@ -92,9 +92,9 @@ Xrayebator решает обе задачи так:
 | Post-quantum XHTTP | Маршрут `xhttp-pq` работает с VLESS-шифрованием `mlkem768x25519plus` | `.vless_encryption`, `.vless_decryption` |
 | Совместимость с v2ray | `v2rayNG`/`v2rayN` получают классический base64-body без HAPP-метаданных | `subhttp.sh` |
 | Revoke подписки | Генерирует новый 32-символьный hex-токен, старый URL перестаёт работать | `openssl rand -hex 16` |
-| Bypass routing | Семь групп доменов можно отправить напрямую через `freedom`, минуя VPN | меню `11` |
+| Bypass routing | Семь групп доменов можно отправить напрямую через `freedom`, минуя VPN | меню `7` |
 | Каскад | Переключает catch-all `tcp,udp` на зарубежный VLESS Reality upstream типа `tcp` или `xhttp` | `upstreams/cascade.json` |
-| Self-steal заглушка | Ставит nginx с валидным сертификатом на `127.0.0.1:9444` и заводит Reality fallback на него | меню `13` |
+| Self-steal заглушка | Ставит nginx с валидным сертификатом на `127.0.0.1:9444` и заводит Reality fallback на него | меню `9` |
 | Безопасная запись JSON | Пишет временный файл в целевом каталоге, валидирует, атомарно переименовывает | `safe_jq_write` |
 | Безопасный рестарт | Прогоняет `xray run -test -config` до рестарта; при ошибке откатывает конфиг из бэкапа | `safe_restart_xray` |
 | Миграции | Одноразовые миграции по marker-файлам: backup → правка → рестарт → маркер | `run_migration` |
@@ -220,7 +220,7 @@ sudo bash ./xrayebator-install.sh
    sudo xrayebator
    ```
 
-2. Выберите `9) Подписка HAPP`.
+2. Выберите `6) Подписка HAPP`.
 3. Выберите режим публикации: по IP VPS — быстро и без домена, по домену — для постоянного
    использования.
 4. Xrayebator создаст профиль `happ`, поднимет инбаунды, выпустит сертификат и покажет URL и QR-код.

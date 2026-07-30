@@ -93,9 +93,9 @@ about.
 | Post-quantum XHTTP | The `xhttp-pq` route runs VLESS encryption `mlkem768x25519plus` | `.vless_encryption`, `.vless_decryption` |
 | v2ray compatibility | `v2rayNG` and `v2rayN` receive a classic base64 body without HAPP metadata | `subhttp.sh` |
 | Subscription revoke | Generates a new 32-character hex token; the old URL stops working | `openssl rand -hex 16` |
-| Bypass routing | Seven domain groups can be sent straight through `freedom`, skipping the VPN | menu `11` |
+| Bypass routing | Seven domain groups can be sent straight through `freedom`, skipping the VPN | menu `7` |
 | Cascade | Switches the `tcp,udp` catch-all to a foreign VLESS Reality upstream of type `tcp` or `xhttp` | `upstreams/cascade.json` |
-| Self-steal stub | Puts nginx with a valid certificate on `127.0.0.1:9444` and points a Reality fallback at it | menu `13` |
+| Self-steal stub | Puts nginx with a valid certificate on `127.0.0.1:9444` and points a Reality fallback at it | menu `9` |
 | Safe JSON writes | Writes a temporary file inside the destination directory, validates it, renames atomically | `safe_jq_write` |
 | Safe restart | Runs `xray run -test -config` before restarting; rolls the config back from a backup on failure | `safe_restart_xray` |
 | Migrations | One-shot migrations driven by marker files: backup → edit → restart → marker | `run_migration` |
@@ -221,7 +221,7 @@ sudo bash ./xrayebator-install.sh
    sudo xrayebator
    ```
 
-2. Choose `9) Подписка HAPP` — the HAPP subscription entry.
+2. Choose `6) Подписка HAPP` — the HAPP subscription entry.
 3. Choose the publishing mode: by VPS IP for a quick start without a domain, by domain for permanent
    use.
 4. Xrayebator creates the `happ` profile, brings up the inbounds, issues the certificate and prints

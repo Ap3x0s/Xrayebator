@@ -58,15 +58,15 @@ and reloads the rules.
 | `2` | Delete a profile and its inbounds |
 | `3` | Show connection details for a profile |
 | `4` | Manage a profile: SNI, fingerprint, port, advanced |
-| `8` | Upgrade a single profile to PQ XHTTP |
-| `9` | HAPP subscription: a profile of 7 routes, public TLS, URL, QR, revoke |
-| `11` | Bypass routing: send domains directly, skipping the VPN |
-| `12` | Cascade and upstream nodes |
-| `13` | Custom domain and self-steal stub |
-| `14` | Set up an outbound server so this VPS can act as a foreign cascade node |
+| `5` | Upgrade a single profile to PQ XHTTP |
+| `6` | HAPP subscription: a profile of 7 routes, public TLS, URL, QR, revoke |
+| `7` | Bypass routing: send domains directly, skipping the VPN |
+| `8` | Cascade and upstream nodes |
+| `9` | Custom domain and self-steal stub |
+| `10` | Set up an outbound server so this VPS can act as a foreign cascade node |
 | `0` | Exit |
 
-The numbering has gaps — items `5`, `6`, `7` and `10` do not exist in the current version.
+Actions are numbered consecutively from `1` to `10`; `0` exits the program.
 
 Changing SNI or a port restarts the corresponding server inbound. Fingerprint is a client-side
 parameter: it changes only for the selected route and does not require an Xray restart. After any
@@ -123,7 +123,7 @@ connecting to the current VPS:
 client → current VPS → foreign VLESS Reality upstream → internet
 ```
 
-Menu item `12` stores the parameters in `/usr/local/etc/xray/upstreams/cascade.json`, adds the
+Menu item `8` stores the parameters in `/usr/local/etc/xray/upstreams/cascade.json`, adds the
 `cascade-upstream` outbound and switches only the `network=tcp,udp` catch-all rule.
 
 Two upstream types are supported: VLESS Reality over TCP, including Vision and XUDP, and XHTTP. The
@@ -135,7 +135,7 @@ Xray — no separate disable and enable is needed.
 Disabling the cascade removes the `cascade-upstream` outbound and returns the catch-all to `direct`.
 All changes go through `backup_config`, `safe_jq_write` and `safe_restart_xray`.
 
-Item `14` configures the other side: it turns the current VPS into the foreign node that a cascade
+Item `10` configures the other side: it turns the current VPS into the foreign node that a cascade
 from another server connects to.
 
 ## Custom domain and self-steal stub

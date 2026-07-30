@@ -89,9 +89,9 @@ Xrayebator 同时解决这两个问题：
 | 后量子 XHTTP | `xhttp-pq` 线路使用 VLESS 加密 `mlkem768x25519plus` | `.vless_encryption`、`.vless_decryption` |
 | v2ray 兼容 | `v2rayNG` 与 `v2rayN` 获得不含 HAPP 元数据的经典 base64 订阅体 | `subhttp.sh` |
 | 吊销订阅 | 生成新的 32 位十六进制令牌，旧链接立即失效 | `openssl rand -hex 16` |
-| 分流路由 | 七组域名可经 `freedom` 直连，绕过 VPN | 菜单 `11` |
+| 分流路由 | 七组域名可经 `freedom` 直连，绕过 VPN | 菜单 `7` |
 | 级联 | 把 `tcp,udp` 兜底规则切换到 `tcp` 或 `xhttp` 类型的境外 VLESS Reality 上游 | `upstreams/cascade.json` |
-| Self-steal 挡板 | 在 `127.0.0.1:9444` 部署带有效证书的 nginx，并让 Reality 回落指向它 | 菜单 `13` |
+| Self-steal 挡板 | 在 `127.0.0.1:9444` 部署带有效证书的 nginx，并让 Reality 回落指向它 | 菜单 `9` |
 | 安全写入 JSON | 在目标目录内写临时文件，校验后原子重命名 | `safe_jq_write` |
 | 安全重启 | 重启前执行 `xray run -test -config`，失败则从备份回滚配置 | `safe_restart_xray` |
 | 迁移 | 由标记文件驱动的一次性迁移：备份 → 修改 → 重启 → 写标记 | `run_migration` |
@@ -215,7 +215,7 @@ sudo bash ./xrayebator-install.sh
    sudo xrayebator
    ```
 
-2. 选择 `9) Подписка HAPP`，即 HAPP 订阅项。
+2. 选择 `6) Подписка HAPP`，即 HAPP 订阅项。
 3. 选择发布模式：按 VPS IP 无需域名、启动快；按域名适合长期使用。
 4. Xrayebator 会创建 `happ` 配置档、建立入站、签发证书，并显示链接与二维码。
 5. 在 HAPP 中导入订阅链接或二维码，而不是单条 `vless://` 链接。
