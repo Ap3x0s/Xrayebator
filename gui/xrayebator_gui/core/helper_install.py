@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import os
+import getpass
 import platform
-import pwd
 import shutil
 import subprocess
 from pathlib import Path
@@ -37,7 +36,7 @@ def install_linux_helper(timeout: float = 600.0) -> str:
     script = linux_installer_path()
     if not script.is_file():
         raise HelperInstallError(f"Не найден installer helper: {script}")
-    username = pwd.getpwuid(os.getuid()).pw_name
+    username = getpass.getuser()
     try:
         result = subprocess.run(
             [pkexec, "bash", str(script), "--user", username],

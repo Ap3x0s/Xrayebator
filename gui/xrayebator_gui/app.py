@@ -61,5 +61,8 @@ def main() -> int:
     app.setWindowIcon(icon)
 
     window = MainWindow(icon=icon)
+    if "--self-test" in sys.argv[1:]:
+        window.close()
+        return 0
     window.show()
     return app.exec()

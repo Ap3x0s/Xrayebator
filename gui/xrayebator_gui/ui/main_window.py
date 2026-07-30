@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import platform
 from typing import Callable, Optional
 
 from PySide6.QtCore import QObject, QThread, Signal, Slot
@@ -160,11 +161,12 @@ class MainWindow(QMainWindow):
         form = QFormLayout()
         mode_row = QHBoxLayout()
         self.mode_combo = QComboBox()
-        tun_label = (
-            "TUN (native Xray)"
-            if self._tun_available
-            else "TUN — privileged helper не установлен"
-        )
+        if self._tun_available:
+            tun_label = "TUN (native Xray)"
+        elif platform.system() == "Linux":
+            tun_label = "TUN — privileged helper не установлен"
+        else:
+            tun_label = "TUN — готовится для этой ОС"
         self.mode_combo.addItem(tun_label, ConnectionMode.TUN)
         tun_item = self.mode_combo.model().item(0)
         if tun_item is not None and not self._tun_available:
@@ -176,7 +178,9 @@ class MainWindow(QMainWindow):
         mode_row.addWidget(self.mode_combo, 1)
         self.install_helper_button = QPushButton("Установить TUN helper…")
         self.install_helper_button.setVisible(
-            self._desktop_backend is not None and not self._tun_available
+            platform.system() == "Linux"
+            and self._desktop_backend is not None
+            and not self._tun_available
         )
         self.install_helper_button.clicked.connect(self._install_tun_helper)
         mode_row.addWidget(self.install_helper_button)

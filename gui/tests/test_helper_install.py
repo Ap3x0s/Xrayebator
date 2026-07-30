@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 from xrayebator_gui.core import helper_install
 
 
@@ -16,15 +14,15 @@ def test_installer_uses_pkexec_without_shell(monkeypatch):
     calls = []
     monkeypatch.setattr(helper_install.platform, "system", lambda: "Linux")
     monkeypatch.setattr(helper_install.shutil, "which", lambda name: "/usr/bin/pkexec")
-    monkeypatch.setattr(
-        helper_install.pwd,
-        "getpwuid",
-        lambda uid: SimpleNamespace(pw_name="alice"),
-    )
+    monkeypatch.setattr(helper_install.getpass, "getuser", lambda: "alice")
 
     def fake_run(args, **kwargs):
         calls.append((args, kwargs))
-        return SimpleNamespace(returncode=0, stdout="installed", stderr="")
+        return type(
+            "Result",
+            (),
+            {"returncode": 0, "stdout": "installed", "stderr": ""},
+        )()
 
     monkeypatch.setattr(helper_install.subprocess, "run", fake_run)
 

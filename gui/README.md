@@ -3,11 +3,11 @@
 Desktop client for deploying Xrayebator to a VPS and connecting through an
 Xray VLESS Reality subscription.
 
-The current development build supports the system-proxy connection path and
-contains the Linux Xray-native TUN helper. TUN is enabled in the UI only when
-the privileged helper socket is installed and reachable. Packaging and live
-route/DNS leak verification are still tracked in
-[`DEVELOPMENT_PLAN.md`](DEVELOPMENT_PLAN.md).
+The current preview supports the system-proxy connection path on Windows,
+macOS, and Linux, and contains the Linux Xray-native TUN helper. TUN is enabled
+in the UI only when the privileged helper socket is installed and reachable.
+Native Windows/macOS TUN services and live route/DNS leak verification remain
+tracked in [`DEVELOPMENT_PLAN.md`](DEVELOPMENT_PLAN.md).
 
 ## Development
 
@@ -52,3 +52,22 @@ owner-only permissions.
 Do not use the development build as a leak-proof VPN yet. The helper contains
 DNS guarding and a fail-closed nftables kill switch, but packaging and live
 integration checks are required before that claim.
+
+## Desktop preview builds
+
+The `GUI desktop release` GitHub Actions workflow builds on each target OS
+rather than cross-compiling:
+
+- `Xrayebator-Windows-x64.exe`;
+- `Xrayebator-macOS-Intel.dmg`;
+- `Xrayebator-macOS-Apple-Silicon.dmg`.
+
+Every bundle contains the pinned Xray archive after checking its upstream
+SHA-256 file. A matching `.sha256` sidecar is published with every artifact.
+Manual workflow runs produce CI artifacts; pushing a `gui-v*` tag additionally
+creates a GitHub prerelease.
+
+These preview binaries are not yet signed or notarized. Windows SmartScreen
+and macOS Gatekeeper can therefore display an unverified-publisher warning.
+Use GitHub **Releases** for these end-user downloads; GitHub **Packages** is
+reserved for package/container registries and is not used by this workflow.

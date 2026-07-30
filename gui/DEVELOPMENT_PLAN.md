@@ -24,8 +24,9 @@ typed IPC API. The service must not expose arbitrary command execution.
   implemented; live helper install and check-only firewall self-test passed.
 - Full/Smart RU routing profiles, verified route/profile rollback, RTT probes,
   and tray controls: implemented.
+- Windows/macOS system-proxy preview bundles: implemented in native CI runners.
 - Windows/macOS TUN config fixtures: implemented; native privileged services,
-  installers, signing, and live platform tests remain.
+  signing/notarization, and live platform tests remain.
 
 ## Invariants
 
