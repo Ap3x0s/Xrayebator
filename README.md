@@ -20,6 +20,23 @@ Xrayebator ставит Xray-core, поднимает Reality-инбаунды �
 из семи маршрутов и отдаёт их клиенту одной HTTPS-ссылкой подписки. Актуальная линия — 2.0.
 </p>
 
+</div>
+
+```bash
+curl -fsSLo ./xrayebator-install.sh \
+  https://raw.githubusercontent.com/howdeploy/Xrayebator/main/install.sh
+less ./xrayebator-install.sh          # просмотрите скрипт перед запуском
+sudo bash ./xrayebator-install.sh
+```
+
+<div align="center">
+
+<p>
+Debian 12/13 · Ubuntu 22.04/24.04 · от 512 MB RAM · права <code>root</code> или <code>sudo</code><br>
+Дальше — <code>sudo xrayebator</code> → пункт <code>9</code> и подписка готова.
+Подробности: <a href="#быстрый-старт">Быстрый старт</a>
+</p>
+
 <p>
 <a href="#зачем-это-нужно">Назначение</a> ·
 <a href="#карта-возможностей">Возможности</a> ·
