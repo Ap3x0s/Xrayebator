@@ -1,0 +1,38 @@
+[Unit]
+Description=Xrayebator privileged TUN helper
+Documentation=https://github.com/howdeploy/Xrayebator
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/xrayebator-gui/helper.env
+ExecStart=/opt/xrayebator-gui/bin/xrayebator-gui-helper --core /opt/xrayebator-gui/xray --allow-uid ${XRAYEBATOR_ALLOWED_UID} --socket-gid ${XRAYEBATOR_SOCKET_GID}
+Restart=on-failure
+RestartSec=2
+KillMode=control-group
+TimeoutStopSec=20
+UMask=0077
+
+User=root
+Group=root
+RuntimeDirectory=xrayebator-gui
+RuntimeDirectoryMode=0750
+StateDirectory=xrayebator-gui
+StateDirectoryMode=0700
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_CHOWN
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_CHOWN
+DeviceAllow=/dev/net/tun rw
+ReadWritePaths=/run/xrayebator-gui /var/lib/xrayebator-gui
+
+[Install]
+WantedBy=multi-user.target
