@@ -1398,6 +1398,101 @@ migrate_transport_profile_metadata() {
   fi
 }
 
+_migrate_xhttp_route_path_repair_2026() {
+  local profile_files=("$PROFILES_DIR"/*.json)
+  [[ -f "${profile_files[0]}" ]] || return 1
+
+  local repairs
+  if ! repairs=$(jq -s '
+    [
+      .[] as $profile |
+      if (($profile.routes // []) | length) > 0 then
+        $profile.routes[] |
+        select(
+          .transport == "xhttp" and
+          (.port | type == "number") and
+          ((.xhttp_path // "") | startswith("/"))
+        ) |
+        {port: .port, path: .xhttp_path, uuid: $profile.uuid}
+      else
+        $profile |
+        select(
+          .transport == "xhttp" and
+          (.port | type == "number") and
+          ((.xhttp_path // "") | startswith("/"))
+        ) |
+        {port: .port, path: .xhttp_path, uuid: .uuid}
+      end
+    ] |
+    sort_by(.port) |
+    group_by(.port) |
+    map(
+      select((map(.path) | unique | length) == 1) |
+      {
+        port: .[0].port,
+        path: .[0].path,
+        uuids: (map(.uuid) | map(select(type == "string" and length > 0)) | unique)
+      }
+    )
+  ' "${profile_files[@]}" 2>/dev/null); then
+    echo -e "${RED}  ✗ Не удалось собрать XHTTP path из profile JSON${NC}"
+    return 2
+  fi
+
+  local repair_count
+  if ! repair_count=$(jq -r --argjson repairs "$repairs" '
+    [
+      $repairs[] as $repair |
+      .inbounds[]? |
+      select(
+        .port == $repair.port and
+        .protocol == "vless" and
+        .streamSettings.network == "xhttp" and
+        ((.streamSettings.xhttpSettings.path // "") == "") and
+        any(
+          .settings.clients[]?;
+          .id as $client_id |
+          ($repair.uuids | index($client_id)) != null
+        )
+      )
+    ] |
+    length
+  ' "$CONFIG_FILE" 2>/dev/null); then
+    echo -e "${RED}  ✗ Не удалось проверить XHTTP inbound metadata${NC}"
+    return 2
+  fi
+
+  if [[ "$repair_count" -eq 0 ]]; then
+    return 1
+  fi
+
+  if ! safe_jq_write --argjson repairs "$repairs" '
+    reduce $repairs[] as $repair (.;
+      (
+        .inbounds[] |
+        select(
+          .port == $repair.port and
+          .protocol == "vless" and
+          .streamSettings.network == "xhttp" and
+          ((.streamSettings.xhttpSettings.path // "") == "") and
+          any(
+            .settings.clients[]?;
+            .id as $client_id |
+            ($repair.uuids | index($client_id)) != null
+          )
+        ) |
+        .streamSettings.xhttpSettings.path
+      ) = $repair.path
+    )
+  ' "$CONFIG_FILE"; then
+    echo -e "${RED}  ✗ Не удалось восстановить XHTTP path в config.json${NC}"
+    return 2
+  fi
+
+  echo -e "${GREEN}  ✓ Восстановлен XHTTP path для inbound: $repair_count${NC}"
+  return 0
+}
+
 # Migration function for existing XHTTP profiles
 migrate_xhttp_profiles() {
   local migrated=0
@@ -5501,6 +5596,7 @@ main_menu() {
   run_migration "xhttp_default_2026"                   "XHTTP+PQ как дефолтный пресет создания профиля" _migrate_xhttp_default_2026 || ((migration_failures++))
   run_migration "subscription_tokens_2026"             "Subscription tokens (Phase 7) для существующих профилей" _migrate_subscription_tokens_2026 || ((migration_failures++))
   run_migration "happ_legacy_xhttp_route_2026"         "HAPP subscription не меняет существующие профили" _migrate_happ_legacy_xhttp_route_2026 || ((migration_failures++))
+  run_migration "xhttp_route_path_repair_2026"         "Repair lost multi-route XHTTP path" _migrate_xhttp_route_path_repair_2026 || ((migration_failures++))
   if [[ ! -f /usr/local/etc/xray/.sni_list_2026 ]]; then
     echo -e "${YELLOW}Перед SNI миграцией доступна команда probe-test для проверки доступности SNI.${NC}"
     echo -n -e "${YELLOW}Запустить probe-test сейчас? [y/N]: ${NC}"
