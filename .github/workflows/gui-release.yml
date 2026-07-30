@@ -1,6 +1,10 @@
 name: GUI desktop release
 
 on:
+  pull_request:
+    paths:
+      - ".github/workflows/gui-release.yml"
+      - "gui/**"
   workflow_dispatch:
     inputs:
       release_tag:
