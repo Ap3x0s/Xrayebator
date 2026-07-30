@@ -208,9 +208,9 @@ less ./xrayebator-install.sh
 sudo bash ./xrayebator-install.sh
 ```
 
-> The installer asks about TCP tuning and manages UFW on its own. Read
+> The installer does not change host TCP or sysctl settings, but manages UFW on its own. Read
 > [Environment variables](docs/configuration.md#installer-environment-variables) and
-> [Firewall and sysctl](docs/configuration.md#firewall-and-system-sysctl) BEFORE running it,
+> [Firewall and host networking](docs/configuration.md#firewall-and-host-networking) BEFORE running it,
 > especially if SSH listens on a non-standard port.
 
 ### HAPP subscription in five steps
@@ -239,7 +239,7 @@ Use `1) Создать новый профиль` for manual control over SNI, t
 
 | Document | Contents |
 |---|---|
-| [Configuration](docs/configuration.md) | Environment variables, firewall and sysctl, main menu, commands, bypass, cascade, self-steal, domain and DNS |
+| [Configuration](docs/configuration.md) | Environment variables, firewall and host networking, main menu, commands, bypass, cascade, self-steal, domain and DNS |
 | [Architecture](docs/architecture.md) | Repository and on-server state trees, inbound versus profile, subscription internals |
 | [Security](docs/security.md) | Service account and permissions, subscription protection, SSH access to the VPS |
 | [Troubleshooting](docs/troubleshooting.md) | Subscription not refreshing, XHTTP not working, client not connecting and other cases |

@@ -2,7 +2,7 @@
 
 [← 返回 README](../../README.zh-CN.md) · [English](../configuration.md) · [Русский](../ru/configuration.md)
 
-章节：[环境变量](#安装脚本的环境变量) · [防火墙与 sysctl](#防火墙与系统-sysctl) ·
+章节：[环境变量](#安装脚本的环境变量) · [防火墙与主机网络设置](#防火墙与主机网络设置) ·
 [主菜单](#主菜单) · [命令](#命令) · [分流路由](#分流路由) · [级联](#级联与上游节点) ·
 [Self-steal](#自有域名与-self-steal-挡板) · [域名与 DNS](#域名与-dns)
 
@@ -12,7 +12,6 @@
 
 | 变量 | 取值 | 作用 |
 |---|---|---|
-| `XRAY_TCP_TUNING` | `none` · `bbr` · `extended` | 预先指定 TCP 调优模式，安装时不再询问 |
 | `XRAY_FORCE_IPV4` | `1` | 强制通过 IPv4 下载 Xray 发行版 |
 | `XRAY_DOWNLOAD_PROXY` | 代理 URL | 通过 HTTP 或 SOCKS 代理下载内核 |
 | `XRAY_LOCAL_ZIP` | 文件路径 | 使用本地内核 ZIP，不再下载 |
@@ -33,11 +32,10 @@ XRAY_LOCAL_DGST=/tmp/Xray-linux-64.zip.dgst \
   sudo -E bash ./xrayebator-install.sh
 ```
 
-## 防火墙与系统 sysctl
+## 防火墙与主机网络设置
 
-安装脚本会用单独一步询问 TCP 拥塞控制，默认选项是什么都不改。如果选择 BBR 或扩展调优，
-脚本会写入 `/etc/sysctl.d/99-xrayebator-tcp.conf` 并执行 `sysctl --system`。
-在没有 TTY 的非交互模式下使用 `none`。
+Xrayebator 不会更改主机的 TCP 拥塞控制算法，也不会写入或应用系统级 `sysctl` 参数。
+主机网络设置始终由 VPS 管理员控制。
 
 UFW 由安装脚本自行管理：安装 `ufw` 包，若 UFW 未启用则执行 `ufw --force enable`，
 随后开放端口 `22, 80, 443, 8443, 2053, 2083, 2087, 8080, 2096, 8880, 9443/tcp` 并重新加载规则。

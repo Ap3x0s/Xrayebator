@@ -47,8 +47,8 @@ echo -e "${NC}\n"
 echo -e "${YELLOW}Начало установки...${NC}\n"
 sleep 2
 
-# [1/10] Установка зависимостей
-echo -e "${BLUE}[1/10]${NC} ${YELLOW}Установка необходимых пакетов...${NC}"
+# [1/9] Установка зависимостей
+echo -e "${BLUE}[1/9]${NC} ${YELLOW}Установка необходимых пакетов...${NC}"
 apt update > /dev/null 2>&1
 apt install -y ca-certificates curl wget jq qrencode uuid-runtime ufw unzip openssl socat > /dev/null 2>&1
 if [[ $? -eq 0 ]]; then
@@ -58,8 +58,8 @@ else
   exit 1
 fi
 
-# [2/10] Установка Xray-core (REQ-B03 single source of truth)
-echo -e "${BLUE}[2/10]${NC} ${YELLOW}Установка Xray-core...${NC}"
+# [2/9] Установка Xray-core (REQ-B03 single source of truth)
+echo -e "${BLUE}[2/9]${NC} ${YELLOW}Установка Xray-core...${NC}"
 
 # Inline-копия update_xray_core() (синхронизирована с update.sh / xrayebator через
 # validation/test-update-xray-core-sync.sh).
@@ -278,8 +278,8 @@ update_xray_core() {
       return 3
     fi
   else
-    # Install mode: systemd unit будет создан позже в [3/10].
-    echo -e "${CYAN}  → Xray-core установлен. Сервис настроен в [3/10].${NC}"
+    # Install mode: systemd unit будет создан позже в [3/9].
+    echo -e "${CYAN}  → Xray-core установлен. Сервис настроен в [3/9].${NC}"
     _cleanup_xray_backups
     return 0
   fi
@@ -353,8 +353,8 @@ XRAY_VERSION=$(/usr/local/bin/xray version 2>/dev/null | head -1)
 echo -e "${GREEN}✓ Xray-core установлен${NC}"
 echo -e "${CYAN}  ${XRAY_VERSION}${NC}\n"
 
-# [3/10] Настройка Xray сервиса (non-root с capabilities)
-echo -e "${BLUE}[3/10]${NC} ${YELLOW}Настройка Xray сервиса...${NC}"
+# [3/9] Настройка Xray сервиса (non-root с capabilities)
+echo -e "${BLUE}[3/9]${NC} ${YELLOW}Настройка Xray сервиса...${NC}"
 
 # Create xray system user if not exists
 if ! getent passwd xray >/dev/null 2>&1; then
@@ -456,8 +456,8 @@ fi
 
 echo -e "${GREEN}✓ Geo-базы настроены (Loyalsoldier enhanced)${NC}\n"
 
-# [4/10] Создание структуры директорий
-echo -e "${BLUE}[4/10]${NC} ${YELLOW}Создание структуры директорий...${NC}"
+# [4/9] Создание структуры директорий
+echo -e "${BLUE}[4/9]${NC} ${YELLOW}Создание структуры директорий...${NC}"
 mkdir -p "$PROFILES_DIR"
 mkdir -p "$DATA_DIR"
 mkdir -p "$SCRIPTS_DIR"
@@ -466,12 +466,12 @@ chown xray:xray /var/log/xray
 chown -R xray:xray /usr/local/etc/xray/
 echo -e "${GREEN}✓ Директории созданы${NC}\n"
 
-# [5/10] Генерация ключей Reality
-echo -e "${BLUE}[5/10]${NC} ${YELLOW}Генерация ключей Reality...${NC}"
+# [5/9] Генерация ключей Reality
+echo -e "${BLUE}[5/9]${NC} ${YELLOW}Генерация ключей Reality...${NC}"
 
 if [[ ! -x /usr/local/bin/xray ]]; then
   echo -e "${RED}✗ Бинарник /usr/local/bin/xray не найден или не исполняемый${NC}"
-  echo -e "${YELLOW}  Установка Xray на шаге [2/10] могла завершиться некорректно${NC}"
+  echo -e "${YELLOW}  Установка Xray на шаге [2/9] могла завершиться некорректно${NC}"
   exit 1
 fi
 
@@ -591,8 +591,8 @@ chown xray:xray "$VLESS_DECRYPTION_FILE" "$VLESS_ENCRYPTION_FILE" 2>/dev/null ||
 echo -e "${GREEN}✓ VLESS Encryption ключи сгенерированы${NC}"
 echo -e "${CYAN}  decryption: ${VLESS_DECRYPTION:0:48}...${NC}"
 
-# [6/10] Создание базовой конфигурации
-echo -e "${BLUE}[6/10]${NC} ${YELLOW}Создание конфигурации Xray...${NC}"
+# [6/9] Создание базовой конфигурации
+echo -e "${BLUE}[6/9]${NC} ${YELLOW}Создание конфигурации Xray...${NC}"
 cat > "$CONFIG_FILE" << 'EOF'
 {
   "log": {
@@ -673,8 +673,8 @@ chown xray:xray /usr/local/etc/xray/.config_optimized
 chmod 644 "$CONFIG_FILE"
 echo -e "${GREEN}✓ Конфигурация создана${NC}\n"
 
-# [7/10] Настройка Firewall
-echo -e "${BLUE}[7/10]${NC} ${YELLOW}Настройка firewall...${NC}"
+# [7/9] Настройка Firewall
+echo -e "${BLUE}[7/9]${NC} ${YELLOW}Настройка firewall...${NC}"
 if ! ufw status | grep -q "Status: active"; then
   ufw --force enable > /dev/null 2>&1
 fi
@@ -691,74 +691,8 @@ ufw reload > /dev/null 2>&1
 echo -e "${GREEN}✓ Firewall настроен${NC}"
 echo -e "${CYAN}  Открытые порты: 443, 2053, 2096, 8080, 8443, 8880, 9443${NC}\n"
 
-# [8/10] Опциональная настройка TCP
-  echo -e "${BLUE}[8/10]${NC} ${YELLOW}Настройка TCP congestion control...${NC}"
-  TCP_TUNING_MODE="${XRAY_TCP_TUNING:-ask}"
-  if [[ "$TCP_TUNING_MODE" == "ask" ]]; then
-    if [[ -t 0 ]]; then
-      echo -e "${CYAN} 1)${NC} Не менять системные TCP-настройки ${GREEN}(рекомендуется)${NC}"
-      echo -e "${CYAN} 2)${NC} Включить только BBR + fq"
-      echo -e "${CYAN} 3)${NC} Применить расширенный TCP-тюнинг"
-      echo -n -e "${YELLOW}Выбор [1]: ${NC}"
-      read -r tcp_choice
-      case "${tcp_choice:-1}" in
-        2) TCP_TUNING_MODE="bbr" ;;
-        3) TCP_TUNING_MODE="extended" ;;
-        *) TCP_TUNING_MODE="none" ;;
-      esac
-    else
-      TCP_TUNING_MODE="none"
-    fi
-  fi
-
-  case "$TCP_TUNING_MODE" in
-    none|skip)
-      echo -e "${CYAN}✓ Системные TCP-настройки оставлены без изменений${NC}\n"
-      ;;
-    bbr|minimal)
-      cat > /etc/sysctl.d/99-xrayebator-tcp.conf <<'EOF'
-# Xrayebator minimal TCP tuning
-net.core.default_qdisc=fq
-net.ipv4.tcp_congestion_control=bbr
-EOF
-      sysctl --system > /dev/null 2>&1 || true
-      echo -e "${GREEN}✓ Включены BBR + fq${NC}\n"
-      ;;
-    extended)
-      cat > /etc/sysctl.d/99-xrayebator-tcp.conf <<'EOF'
-# Xrayebator extended TCP tuning
-net.core.default_qdisc=fq
-net.ipv4.tcp_congestion_control=bbr
-net.ipv4.tcp_fastopen=3
-net.ipv4.tcp_slow_start_after_idle=0
-net.ipv4.tcp_notsent_lowat=16384
-net.ipv4.tcp_rmem=4096 87380 16777216
-net.ipv4.tcp_wmem=4096 65536 16777216
-net.core.rmem_max=16777216
-net.core.wmem_max=16777216
-net.core.rmem_default=1048576
-net.core.wmem_default=1048576
-net.ipv4.ip_local_port_range=1024 65535
-net.ipv4.tcp_max_tw_buckets=2000000
-net.ipv4.tcp_fin_timeout=10
-net.ipv4.tcp_keepalive_time=600
-net.ipv4.tcp_keepalive_intvl=30
-net.ipv4.tcp_keepalive_probes=3
-net.ipv4.tcp_mtu_probing=1
-net.ipv4.tcp_syncookies=1
-net.core.netdev_max_backlog=16384
-net.ipv4.tcp_max_syn_backlog=8192
-EOF
-      sysctl --system > /dev/null 2>&1 || true
-      echo -e "${GREEN}✓ Применён расширенный TCP-тюнинг${NC}\n"
-      ;;
-    *)
-      echo -e "${YELLOW}⚠ Неизвестный XRAY_TCP_TUNING=$TCP_TUNING_MODE; настройки пропущены${NC}\n"
-      ;;
-  esac
-
-  # [9/10] Загрузка данных
-echo -e "${BLUE}[9/10]${NC} ${YELLOW}Загрузка данных приложения...${NC}"
+# [8/9] Загрузка данных
+echo -e "${BLUE}[8/9]${NC} ${YELLOW}Загрузка данных приложения...${NC}"
 curl -fsSL "${RAW_BASE_URL}/sni_list.txt" -o "${DATA_DIR}/sni_list.txt"
 if [[ $? -eq 0 ]] && [[ -s "${DATA_DIR}/sni_list.txt" ]]; then
   echo -e "${GREEN}✓ Список SNI загружен${NC}"
@@ -785,8 +719,8 @@ else
   echo -e "${CYAN}✓ ASCII арт недоступен (не критично)${NC}\n"
 fi
 
-# [10/10] Установка приложения
-echo -e "${BLUE}[10/10]${NC} ${YELLOW}Установка управляющего приложения...${NC}"
+# [9/9] Установка приложения
+echo -e "${BLUE}[9/9]${NC} ${YELLOW}Установка управляющего приложения...${NC}"
 XRAYEBATOR_TMP=$(mktemp /tmp/xrayebator_install_XXXXXX)
 if curl -fsSL --connect-timeout 10 --max-time 60 "${RAW_BASE_URL}/xrayebator" -o "$XRAYEBATOR_TMP" \
    && [[ -s "$XRAYEBATOR_TMP" ]] \

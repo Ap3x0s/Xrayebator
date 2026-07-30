@@ -13,10 +13,10 @@ for file in xrayebator install.sh update.sh; do
   grep -q -- '--http1.1' "$path" || fail "$file: HTTP/1.1 fallback missing"
 done
 
-grep -q 'XRAY_TCP_TUNING' "$REPO_ROOT/install.sh" || fail "optional TCP tuning selector missing"
-grep -q '/etc/sysctl.d/99-xrayebator-tcp.conf' "$REPO_ROOT/install.sh" || fail "sysctl.d config missing"
-if grep -q 'cat >> /etc/sysctl.conf' "$REPO_ROOT/install.sh"; then
-  fail "installer still appends global tuning directly to /etc/sysctl.conf"
+if grep -Eiq \
+  'BBR|XRAY_TCP_TUNING|tcp_congestion_control|default_qdisc|/etc/sysctl|(^|[;&|[:space:]])sysctl([[:space:]]|$)' \
+  "$REPO_ROOT/install.sh" "$REPO_ROOT/update.sh" "$REPO_ROOT/uninstall.sh" "$REPO_ROOT/xrayebator"; then
+  fail "project scripts must not configure or remove host-wide TCP/sysctl tuning"
 fi
 
-echo "PASS: installer network fallbacks and optional TCP tuning"
+echo "PASS: installer network fallbacks and host-network isolation"

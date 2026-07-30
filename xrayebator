@@ -4050,8 +4050,8 @@ update_xray_core() {
       return 3
     fi
   else
-    # Install mode: systemd unit будет создан позже в [3/10].
-    echo -e "${CYAN}  → Xray-core установлен. Сервис настроен в [3/10].${NC}"
+    # Install mode: systemd unit будет создан позже в [3/9].
+    echo -e "${CYAN}  → Xray-core установлен. Сервис настроен в [3/9].${NC}"
     _cleanup_xray_backups
     return 0
   fi

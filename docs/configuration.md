@@ -3,7 +3,7 @@
 [← Back to README](../README.md) · [Русский](ru/configuration.md) · [简体中文](zh-CN/configuration.md)
 
 Sections: [Environment variables](#installer-environment-variables) ·
-[Firewall and sysctl](#firewall-and-system-sysctl) · [Main menu](#main-menu) ·
+[Firewall and host networking](#firewall-and-host-networking) · [Main menu](#main-menu) ·
 [Commands](#commands) · [Bypass routing](#bypass-routing) · [Cascade](#cascade-and-upstream-nodes) ·
 [Self-steal](#custom-domain-and-self-steal-stub) · [Domain and DNS](#domain-and-dns)
 
@@ -13,7 +13,6 @@ Sections: [Environment variables](#installer-environment-variables) ·
 
 | Variable | Value | Effect |
 |---|---|---|
-| `XRAY_TCP_TUNING` | `none` · `bbr` · `extended` | Selects the TCP tuning mode up front so the installer does not ask |
 | `XRAY_FORCE_IPV4` | `1` | Forces the Xray release download over IPv4 |
 | `XRAY_DOWNLOAD_PROXY` | proxy URL | Downloads the core through an HTTP or SOCKS proxy |
 | `XRAY_LOCAL_ZIP` | file path | Uses a local core ZIP instead of downloading |
@@ -35,12 +34,10 @@ XRAY_LOCAL_DGST=/tmp/Xray-linux-64.zip.dgst \
   sudo -E bash ./xrayebator-install.sh
 ```
 
-## Firewall and system sysctl
+## Firewall and host networking
 
-The installer asks about TCP congestion control as a separate step. The default choice is to change
-nothing. If you pick BBR or the extended tuning, the installer writes
-`/etc/sysctl.d/99-xrayebator-tcp.conf` and applies `sysctl --system`. Without a TTY the mode is
-`none`.
+Xrayebator does not change the host TCP congestion-control algorithm and does not write or apply
+system-wide `sysctl` values. Host networking remains under the VPS operator's control.
 
 The installer manages UFW itself: it installs the `ufw` package, enables it with `ufw --force enable`
 when inactive, then opens ports `22, 80, 443, 8443, 2053, 2083, 2087, 8080, 2096, 8880, 9443/tcp`

@@ -202,9 +202,9 @@ less ./xrayebator-install.sh
 sudo bash ./xrayebator-install.sh
 ```
 
-> 安装脚本会询问 TCP 调优，并且会自行管理 UFW。运行前请先阅读
+> 安装脚本不会更改主机 TCP 或 sysctl 设置，但会自行管理 UFW。运行前请先阅读
 > [环境变量](docs/zh-CN/configuration.md#安装脚本的环境变量) 和
-> [防火墙与 sysctl](docs/zh-CN/configuration.md#防火墙与系统-sysctl)，
+> [防火墙与主机网络设置](docs/zh-CN/configuration.md#防火墙与主机网络设置)，
 > 尤其是当 SSH 监听在非标准端口时。
 
 ### 五步完成 HAPP 订阅
@@ -230,7 +230,7 @@ sudo bash ./xrayebator-install.sh
 
 | 文档 | 内容 |
 |---|---|
-| [配置](docs/zh-CN/configuration.md) | 环境变量、防火墙与 sysctl、主菜单、命令、分流、级联、self-steal、域名与 DNS |
+| [配置](docs/zh-CN/configuration.md) | 环境变量、防火墙与主机网络设置、主菜单、命令、分流、级联、self-steal、域名与 DNS |
 | [架构](docs/zh-CN/architecture.md) | 仓库结构与服务器状态目录树、入站与配置档的区别、订阅内部机制 |
 | [安全](docs/zh-CN/security.md) | 服务账户与权限、订阅保护、VPS 的 SSH 访问 |
 | [故障排查](docs/zh-CN/troubleshooting.md) | 订阅不刷新、XHTTP 不可用、客户端连不上等常见问题 |
