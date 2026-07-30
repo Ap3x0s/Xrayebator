@@ -1,6 +1,6 @@
 # Тесты
 
-[← Назад к README](../../README.md)
+[← Назад к README](../../README.ru.md) · [English](../testing.md) · [简体中文](../zh-CN/testing.md)
 
 ---
 

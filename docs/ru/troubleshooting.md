@@ -1,6 +1,6 @@
 # Частые проблемы
 
-[← Назад к README](../../README.md)
+[← Назад к README](../../README.ru.md) · [English](../troubleshooting.md) · [简体中文](../zh-CN/troubleshooting.md)
 
 ---
 

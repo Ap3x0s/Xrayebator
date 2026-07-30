@@ -1,6 +1,6 @@
 # Настройка
 
-[← Назад к README](../../README.md)
+[← Назад к README](../../README.ru.md) · [English](../configuration.md) · [简体中文](../zh-CN/configuration.md)
 
 Разделы: [Переменные окружения](#переменные-окружения-установщика) ·
 [Firewall и sysctl](#firewall-и-системные-sysctl) · [Главное меню](#главное-меню) ·
