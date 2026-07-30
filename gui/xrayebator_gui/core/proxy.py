@@ -92,7 +92,9 @@ def is_enabled() -> bool:
                 return False
             out = subprocess.run(
                 ["networksetup", "-getwebproxy", services[0]],
-                capture_output=True, text=True, timeout=10,
+                capture_output=True,
+                text=True,
+                timeout=10,
             ).stdout
             return "Enabled: Yes" in out
         if system == "Linux":
@@ -100,7 +102,9 @@ def is_enabled() -> bool:
                 return False
             out = subprocess.run(
                 ["gsettings", "get", "org.gnome.system.proxy", "mode"],
-                capture_output=True, text=True, timeout=10,
+                capture_output=True,
+                text=True,
+                timeout=10,
             ).stdout.strip()
             return out == "'manual'"
     except (OSError, subprocess.SubprocessError):
@@ -110,9 +114,7 @@ def is_enabled() -> bool:
 
 # --- Windows ---------------------------------------------------------------
 
-_WIN_PROXY_KEY = (
-    r"Software\Microsoft\Windows\CurrentVersion\Internet Settings"
-)
+_WIN_PROXY_KEY = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings"
 _WIN_PROXY_VALUES = ("ProxyEnable", "ProxyServer", "ProxyOverride")
 
 
@@ -184,11 +186,14 @@ def _win_disable() -> bool:
 
 # --- macOS -----------------------------------------------------------------
 
+
 def _mac_services() -> list[str]:
     """Активные network services (строки со '*' — отключённые, пропускаем)."""
     out = subprocess.run(
         ["networksetup", "-listallnetworkservices"],
-        capture_output=True, text=True, timeout=15,
+        capture_output=True,
+        text=True,
+        timeout=15,
     ).stdout
     services = []
     for line in out.splitlines()[1:]:  # первая строка — заголовок
@@ -258,17 +263,11 @@ def _mac_restore(values: dict[str, dict[str, dict[str, Any]]]) -> bool:
         ):
             saved = proxies[kind]
             if saved["server"] and saved["port"]:
-                _mac_run(
-                    [command, service, saved["server"], str(saved["port"])]
-                )
+                _mac_run([command, service, saved["server"], str(saved["port"])])
             state_command = (
-                "-setwebproxystate"
-                if kind == "web"
-                else "-setsecurewebproxystate"
+                "-setwebproxystate" if kind == "web" else "-setsecurewebproxystate"
             )
-            _mac_run(
-                [state_command, service, "on" if saved["enabled"] else "off"]
-            )
+            _mac_run([state_command, service, "on" if saved["enabled"] else "off"])
     return True
 
 
@@ -291,6 +290,7 @@ def _mac_disable() -> bool:
 
 
 # --- Linux (GNOME) ----------------------------------------------------------
+
 
 def _gsettings(*args: str) -> bool:
     if not shutil.which("gsettings"):
@@ -330,8 +330,7 @@ _LINUX_PROXY_KEYS = (
 
 def _linux_capture() -> dict[tuple[str, str], str]:
     return {
-        (schema, key): _gsettings_get(schema, key)
-        for schema, key in _LINUX_PROXY_KEYS
+        (schema, key): _gsettings_get(schema, key) for schema, key in _LINUX_PROXY_KEYS
     }
 
 

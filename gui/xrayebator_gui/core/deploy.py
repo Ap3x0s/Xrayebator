@@ -287,6 +287,7 @@ class Deployer:
 # Qt-обёртка (импорт Qt ленивый, чтобы core оставался тестируемым без Qt)
 # ---------------------------------------------------------------------------
 
+
 def make_deploy_thread(**kwargs):  # pragma: no cover - тонкая обёртка
     """Создать QThread-обёртку над Deployer. Qt импортируется здесь."""
     from PySide6.QtCore import QThread, Signal

@@ -88,9 +88,18 @@ def _sha256(path: Path) -> str:
 def _parse_dgst(dgst_text: str, asset_name: str) -> Optional[str]:
     """Извлечь sha256 ассета из файла .dgst релиза Xray-core."""
     for line in dgst_text.splitlines():
+        key, separator, value = line.partition("=")
+        if separator and key.strip().upper() == "SHA2-256":
+            digest = value.strip()
+            if re.fullmatch(r"[0-9a-fA-F]{64}", digest):
+                return digest
         parts = line.split()
-        if len(parts) >= 2 and parts[-1].endswith(asset_name):
-            return parts[0].strip()
+        if (
+            len(parts) >= 2
+            and parts[-1].endswith(asset_name)
+            and re.fullmatch(r"[0-9a-fA-F]{64}", parts[0])
+        ):
+            return parts[0]
     return None
 
 
@@ -104,12 +113,7 @@ def _extract_member(
         with zf.open(member) as src, open(tmp, "wb") as dst:
             shutil.copyfileobj(src, dst)
         if executable:
-            tmp.chmod(
-                tmp.stat().st_mode
-                | stat.S_IXUSR
-                | stat.S_IXGRP
-                | stat.S_IXOTH
-            )
+            tmp.chmod(tmp.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
         os.replace(tmp, dest)
     finally:
         tmp.unlink(missing_ok=True)
@@ -174,9 +178,7 @@ def ensure_binary(version: Optional[str] = None) -> Path:
         installed = _installed_version(dest)
         if installed == tag:
             return dest
-        raise XrayError(
-            f"Vendor Xray имеет версию {installed or '?'}, требуется {tag}"
-        )
+        raise XrayError(f"Vendor Xray имеет версию {installed or '?'}, требуется {tag}")
 
     base = f"https://github.com/{XRAY_REPO}/releases/download/{tag}"
     tmp = Path(tempfile.mkdtemp(prefix="xray-dl-"))
@@ -190,15 +192,11 @@ def ensure_binary(version: Optional[str] = None) -> Path:
             raise XrayError(f"Не найден sha256 для {asset} в .dgst")
         actual = _sha256(zip_path)
         if actual.lower() != expected.lower():
-            raise XrayError(
-                f"sha256 не совпал для {asset}: {actual} != {expected}"
-            )
+            raise XrayError(f"sha256 не совпал для {asset}: {actual} != {expected}")
         _install_from_zip(zip_path, dest)
         installed = _installed_version(dest)
         if installed != tag:
-            raise XrayError(
-                f"Установлен Xray {installed or '?'}, ожидался {tag}"
-            )
+            raise XrayError(f"Установлен Xray {installed or '?'}, ожидался {tag}")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     return dest
@@ -212,7 +210,9 @@ def _download(url: str, dest: Path) -> None:
                 f.write(chunk)
 
 
-def _build_outbounds(link: VlessLink) -> list[dict]:
+def _build_outbounds(
+    link: VlessLink, *, outbound_mark: Optional[int] = None
+) -> list[dict]:
     user: dict = {"id": link.uuid, "encryption": link.encryption or "none"}
     # flow несовместим с post-quantum encryption — добавляем только для "none"
     if link.flow and (not link.encryption or link.encryption == "none"):
@@ -239,23 +239,34 @@ def _build_outbounds(link: VlessLink) -> list[dict]:
         if link.host:
             xhttp["host"] = link.host
         stream["xhttpSettings"] = xhttp
+    if outbound_mark is not None:
+        if not 1 <= outbound_mark <= 0xFFFFFFFF:
+            raise XrayError(f"Некорректная метка outbound: {outbound_mark}")
+        stream["sockopt"] = {"mark": outbound_mark}
 
-    return [
-        {
-            "tag": "proxy",
-            "protocol": "vless",
-            "settings": {
-                "vnext": [
-                    {
-                        "address": link.address,
-                        "port": link.port,
-                        "users": [user],
-                    }
-                ]
-            },
-            "streamSettings": stream,
+    proxy_outbound = {
+        "tag": "proxy",
+        "protocol": "vless",
+        "settings": {
+            "vnext": [
+                {
+                    "address": link.address,
+                    "port": link.port,
+                    "users": [user],
+                }
+            ]
         },
-        {"tag": "direct", "protocol": "freedom"},
+        "streamSettings": stream,
+    }
+    direct_outbound: dict = {
+        "tag": "direct",
+        "protocol": "freedom",
+    }
+    if outbound_mark is not None:
+        direct_outbound["streamSettings"] = {"sockopt": {"mark": outbound_mark}}
+    return [
+        proxy_outbound,
+        direct_outbound,
         {"tag": "block", "protocol": "blackhole"},
     ]
 
@@ -318,6 +329,7 @@ def build_tun_client_config(
     mtu: int = 1500,
     ipv6: bool = True,
     include_local_proxies: bool = False,
+    outbound_mark: Optional[int] = None,
 ) -> dict:
     """Build a full-device Xray-native TUN configuration.
 
@@ -328,8 +340,10 @@ def build_tun_client_config(
         raise XrayError(f"Некорректный TUN MTU: {mtu}")
 
     detected_system = system or platform.system()
-    name = interface_name if interface_name is not None else _default_tun_name(
-        detected_system
+    name = (
+        interface_name
+        if interface_name is not None
+        else _default_tun_name(detected_system)
     )
     routes = ["0.0.0.0/0"]
     gateways = ["10.254.0.1/30"]
@@ -369,17 +383,25 @@ def build_tun_client_config(
     return {
         "log": {"loglevel": "warning"},
         "inbounds": inbounds,
-        "outbounds": _build_outbounds(link),
+        "outbounds": _build_outbounds(link, outbound_mark=outbound_mark),
     }
 
 
 class XrayProcess:
     """Запуск/остановка локального xray-core."""
 
-    def __init__(self, binary: Optional[Path] = None):
+    def __init__(
+        self,
+        binary: Optional[Path] = None,
+        *,
+        config_path: Optional[Path] = None,
+        stderr_path: Optional[Path] = None,
+    ):
         self._binary = binary or xray_binary_path()
         self._proc: Optional[subprocess.Popen] = None
-        self._config_path = data_dir() / "config.json"
+        self._config_path = config_path or data_dir() / "config.json"
+        self._stderr_path = stderr_path or data_dir() / "xray.log"
+        self._stderr_file = None
 
     def start(self, config: dict) -> None:
         """Записать конфиг и запустить xray; детект раннего падения."""
@@ -390,19 +412,39 @@ class XrayProcess:
                 f"Бинарник xray не найден: {self._binary}. "
                 "Сначала вызовите ensure_binary()."
             )
-        self._config_path.write_text(
-            json.dumps(config, indent=2), encoding="utf-8"
+        self._config_path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp_name = tempfile.mkstemp(
+            prefix=f".{self._config_path.name}.",
+            dir=self._config_path.parent,
         )
+        try:
+            os.fchmod(fd, stat.S_IRUSR | stat.S_IWUSR)
+            with os.fdopen(fd, "w", encoding="utf-8") as config_file:
+                fd = -1
+                json.dump(config, config_file, indent=2)
+                config_file.flush()
+                os.fsync(config_file.fileno())
+            os.replace(tmp_name, self._config_path)
+        finally:
+            if fd >= 0:
+                os.close(fd)
+            Path(tmp_name).unlink(missing_ok=True)
+
+        self._stderr_path.parent.mkdir(parents=True, exist_ok=True)
+        self._stderr_file = open(self._stderr_path, "w+b")
         self._proc = subprocess.Popen(
             [str(self._binary), "run", "-c", str(self._config_path)],
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            text=True,
+            stderr=self._stderr_file,
         )
         # Даём процессу шанс упасть сразу (битый конфиг и т.п.)
         time.sleep(1.0)
         if self._proc.poll() is not None:
-            stderr = (self._proc.stderr.read() if self._proc.stderr else "")[:2000]
+            self._stderr_file.flush()
+            self._stderr_file.seek(0)
+            stderr = self._stderr_file.read(2000).decode("utf-8", errors="replace")
+            self._stderr_file.close()
+            self._stderr_file = None
             self._proc = None
             raise XrayError(f"xray завершился сразу после старта:\n{stderr}")
 
@@ -416,22 +458,40 @@ class XrayProcess:
             self._proc.kill()
             self._proc.wait(timeout=5)
         self._proc = None
+        if self._stderr_file is not None:
+            self._stderr_file.close()
+            self._stderr_file = None
 
     def is_running(self) -> bool:
         return self._proc is not None and self._proc.poll() is None
 
-    def health_check(self, socks_port: int = SOCKS_PORT, timeout: float = 10.0) -> Optional[str]:
+    def health_check(
+        self, socks_port: int = SOCKS_PORT, timeout: float = 10.0
+    ) -> Optional[str]:
         """Проверить туннель: запрос api.ipify.org через SOCKS5.
 
         Возвращает внешний IP или None.
         """
         proxy = f"socks5h://127.0.0.1:{socks_port}"
+        session = requests.Session()
+        session.trust_env = False
         try:
-            resp = requests.get(
+            resp = session.get(
                 "https://api.ipify.org",
                 proxies={"http": proxy, "https": proxy},
                 timeout=timeout,
             )
+            resp.raise_for_status()
+            return resp.text.strip()
+        except requests.RequestException:
+            return None
+
+    def health_check_tun(self, timeout: float = 10.0) -> Optional[str]:
+        """Проверить полный системный маршрут без локального proxy."""
+        session = requests.Session()
+        session.trust_env = False
+        try:
+            resp = session.get("https://api.ipify.org", timeout=timeout)
             resp.raise_for_status()
             return resp.text.strip()
         except requests.RequestException:

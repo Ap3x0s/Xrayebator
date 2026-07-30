@@ -40,7 +40,11 @@ def test_system_proxy_config_has_local_inbounds():
 
 
 def test_linux_tun_config_uses_auto_routes_and_loop_prevention():
-    config = build_tun_client_config(link(), system="Linux")
+    config = build_tun_client_config(
+        link(),
+        system="Linux",
+        outbound_mark=0x5852,
+    )
     inbound = config["inbounds"][0]
     settings = inbound["settings"]
 
@@ -49,12 +53,14 @@ def test_linux_tun_config_uses_auto_routes_and_loop_prevention():
     assert settings["autoSystemRoutingTable"] == ["0.0.0.0/0", "::/0"]
     assert settings["autoOutboundsInterface"] == "auto"
     assert "dns" not in settings
+    assert config["outbounds"][0]["streamSettings"]["sockopt"]["mark"] == 0x5852
+    assert config["outbounds"][1]["streamSettings"]["sockopt"]["mark"] == 0x5852
 
 
 def test_windows_tun_config_includes_wintun_description_and_dns():
-    settings = build_tun_client_config(
-        link(), system="Windows", ipv6=False
-    )["inbounds"][0]["settings"]
+    settings = build_tun_client_config(link(), system="Windows", ipv6=False)[
+        "inbounds"
+    ][0]["settings"]
 
     assert settings["name"] == "xrayebator"
     assert settings["desc"] == "Xrayebator"
@@ -73,9 +79,7 @@ def test_darwin_leaves_utun_name_selection_to_xray():
 
 
 def test_tun_can_expose_local_proxies_for_mixed_mode():
-    config = build_tun_client_config(
-        link(), system="Linux", include_local_proxies=True
-    )
+    config = build_tun_client_config(link(), system="Linux", include_local_proxies=True)
 
     assert [inbound["protocol"] for inbound in config["inbounds"]] == [
         "tun",
@@ -106,8 +110,21 @@ def test_tun_rejects_unknown_platform():
         build_tun_client_config(link(), system="Plan9")
 
 
+@pytest.mark.parametrize("mark", [0, -1, 0x1_0000_0000])
+def test_tun_rejects_invalid_outbound_mark(mark):
+    with pytest.raises(XrayError, match="метка"):
+        build_tun_client_config(link(), system="Linux", outbound_mark=mark)
+
+
 def test_parse_dgst_accepts_release_asset_line():
     digest = "a" * 64
     text = f"{digest}  Xray-linux-64.zip\n"
+
+    assert _parse_dgst(text, "Xray-linux-64.zip") == digest
+
+
+def test_parse_dgst_accepts_actual_xray_release_format():
+    digest = "b" * 64
+    text = f"MD5= {'a' * 32}\nSHA2-256= {digest}\n"
 
     assert _parse_dgst(text, "Xray-linux-64.zip") == digest

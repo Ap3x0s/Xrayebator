@@ -3,10 +3,11 @@
 Desktop client for deploying Xrayebator to a VPS and connecting through an
 Xray VLESS Reality subscription.
 
-The current development build supports the system-proxy connection path.
-Xray-native TUN is the primary target and is tracked in
-[`DEVELOPMENT_PLAN.md`](DEVELOPMENT_PLAN.md); it is not presented as complete
-until route, DNS, privilege, and leak-safety checks pass.
+The current development build supports the system-proxy connection path and
+contains the Linux Xray-native TUN helper. TUN is enabled in the UI only when
+the privileged helper socket is installed and reachable. Packaging and live
+route/DNS leak verification are still tracked in
+[`DEVELOPMENT_PLAN.md`](DEVELOPMENT_PLAN.md).
 
 ## Development
 
@@ -30,5 +31,6 @@ SSH passwords are stored through the operating system keyring rather than in
 4. Save the returned subscription URL.
 5. Load subscription routes and connect through local Xray.
 
-Do not use the development build as a leak-proof VPN yet. TUN, DNS guarding,
-kill switch, and privileged service isolation are required before that claim.
+Do not use the development build as a leak-proof VPN yet. The helper contains
+DNS guarding and a fail-closed nftables kill switch, but packaging and live
+integration checks are required before that claim.

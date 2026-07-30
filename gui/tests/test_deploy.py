@@ -91,12 +91,13 @@ def test_deploy_uses_user_owned_staging_and_privileged_install(tmp_path):
         f"{ssh.staging}/xrayebator",
     ]
     install_commands = [
-        command
-        for command, privileged in ssh.commands
-        if privileged and command != ""
+        command for command, privileged in ssh.commands if privileged and command != ""
     ]
     assert any(command.startswith("bash ") for command in install_commands)
-    assert any("quickstart --email alice@example.com" in command for command in install_commands)
+    assert any(
+        "quickstart --email alice@example.com" in command
+        for command in install_commands
+    )
     assert ssh.commands[-1] == (f"rm -rf -- {ssh.staging}", False)
     assert ssh.closed
 

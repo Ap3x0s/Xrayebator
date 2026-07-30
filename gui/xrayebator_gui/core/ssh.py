@@ -83,9 +83,7 @@ class SSHClient:
                 port=port,
                 username=user,
                 password=password if not key_path else None,
-                key_filename=(
-                    str(Path(key_path).expanduser()) if key_path else None
-                ),
+                key_filename=(str(Path(key_path).expanduser()) if key_path else None),
                 timeout=timeout,
                 banner_timeout=timeout,
                 auth_timeout=timeout,
@@ -94,7 +92,9 @@ class SSHClient:
             )
         except paramiko.AuthenticationException as e:
             client.close()
-            raise SSHAuthError(f"Аутентификация не удалась для {user}@{host}: {e}") from e
+            raise SSHAuthError(
+                f"Аутентификация не удалась для {user}@{host}: {e}"
+            ) from e
         except paramiko.SSHException as e:
             client.close()
             msg = str(e)

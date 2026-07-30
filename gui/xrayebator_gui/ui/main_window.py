@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Callable, Optional
 
-from PySide6.QtCore import QObject, QThread, Qt, Signal, Slot
+from PySide6.QtCore import QObject, QThread, Signal, Slot
 from PySide6.QtGui import QAction, QCloseEvent, QIcon
 from PySide6.QtWidgets import (
     QComboBox,
@@ -26,10 +26,9 @@ from ..core.connection import (
     ConnectionMode,
     ConnectionSnapshot,
     ConnectionState,
-    RouteSwitchError,
 )
 from ..core.deploy import STEPS, make_deploy_thread
-from ..core.local_proxy import LocalProxyBackend
+from ..core.desktop_backend import DesktopBackend
 from ..core.servers import ServerStore
 from ..core.ssh import SSHClient
 from ..core import subscription
@@ -43,7 +42,9 @@ class OperationThread(QThread):
     succeeded = Signal(object)
     failed = Signal(str)
 
-    def __init__(self, operation: Callable[[], object], parent: Optional[QObject] = None):
+    def __init__(
+        self, operation: Callable[[], object], parent: Optional[QObject] = None
+    ):
         super().__init__(parent)
         self._operation = operation
 
@@ -96,7 +97,13 @@ class MainWindow(QMainWindow):
         self.resize(760, 540)
 
         self._store = store or ServerStore()
-        self._controller = controller or ConnectionController(LocalProxyBackend())
+        if controller is None:
+            desktop_backend = DesktopBackend()
+            self._controller = ConnectionController(desktop_backend)
+            self._tun_available = desktop_backend.tun_available
+        else:
+            self._controller = controller
+            self._tun_available = False
         self._bridge = _ConnectionBridge(self)
         self._controller.subscribe(self._bridge.snapshot_changed.emit)
         self._bridge.snapshot_changed.connect(self._on_snapshot)
@@ -145,14 +152,19 @@ class MainWindow(QMainWindow):
 
         form = QFormLayout()
         self.mode_combo = QComboBox()
-        self.mode_combo.addItem("TUN — в разработке", ConnectionMode.TUN)
+        tun_label = (
+            "TUN (native Xray)"
+            if self._tun_available
+            else "TUN — privileged helper не установлен"
+        )
+        self.mode_combo.addItem(tun_label, ConnectionMode.TUN)
         tun_item = self.mode_combo.model().item(0)
-        if tun_item is not None:
+        if tun_item is not None and not self._tun_available:
             tun_item.setEnabled(False)
         self.mode_combo.addItem(
             "Системный proxy (текущий MVP)", ConnectionMode.SYSTEM_PROXY
         )
-        self.mode_combo.setCurrentIndex(1)
+        self.mode_combo.setCurrentIndex(0 if self._tun_available else 1)
         form.addRow("Режим:", self.mode_combo)
 
         route_row = QHBoxLayout()
@@ -271,7 +283,9 @@ class MainWindow(QMainWindow):
         def load() -> list[VlessLink]:
             routes = subscription.parse(subscription.fetch(url))
             if not routes:
-                raise RuntimeError("Подписка не содержит поддерживаемых VLESS-маршрутов")
+                raise RuntimeError(
+                    "Подписка не содержит поддерживаемых VLESS-маршрутов"
+                )
             return routes
 
         self._start_operation(load, self._routes_loaded, self._routes_failed)
@@ -320,9 +334,7 @@ class MainWindow(QMainWindow):
         )
         self._deploy_thread = thread
         thread.step_changed.connect(
-            lambda index, name: self._append_log(
-                f"[{index + 1}/{len(STEPS)}] {name}"
-            )
+            lambda index, name: self._append_log(f"[{index + 1}/{len(STEPS)}] {name}")
         )
         thread.log_line.connect(self._append_log)
         thread.finished_ok.connect(
@@ -344,9 +356,7 @@ class MainWindow(QMainWindow):
             subscription_url=result["subscription_url"],
             profile=result.get("profile", "happ"),
         )
-        self._append_log(
-            f"Сервер добавлен. Подписка: {result['subscription_url']}"
-        )
+        self._append_log(f"Сервер добавлен. Подписка: {result['subscription_url']}")
         self._reload_servers(select_id=server["id"])
 
     def _deployment_failed(self, message: str) -> None:
@@ -390,9 +400,7 @@ class MainWindow(QMainWindow):
         mode = self.mode_combo.currentData()
         if not isinstance(mode, ConnectionMode):
             mode = ConnectionMode(mode)
-        self._start_connection_operation(
-            lambda: self._controller.connect(route, mode)
-        )
+        self._start_connection_operation(lambda: self._controller.connect(route, mode))
 
     @Slot()
     def _switch_route(self) -> None:

@@ -114,7 +114,9 @@ class ConnectionController:
             self._transition(ConnectionState.VERIFYING)
             external_ip = self._backend.verify()
             if not external_ip:
-                raise ConnectionError("Туннель запущен, но проверка внешнего IP не прошла")
+                raise ConnectionError(
+                    "Туннель запущен, но проверка внешнего IP не прошла"
+                )
         except Exception as exc:
             self._stop_after_failure()
             self._transition(ConnectionState.ERROR, error=str(exc), external_ip=None)
@@ -151,7 +153,9 @@ class ConnectionController:
 
     def switch_route(self, route: VlessLink) -> ConnectionSnapshot:
         if self._snapshot.state != ConnectionState.CONNECTED:
-            raise InvalidTransition("Маршрут можно менять только при активном соединении")
+            raise InvalidTransition(
+                "Маршрут можно менять только при активном соединении"
+            )
         previous = self._snapshot.route
         mode = self._snapshot.mode
         if previous is None or mode is None:

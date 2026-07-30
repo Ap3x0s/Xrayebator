@@ -27,16 +27,16 @@ class VlessLink:
     address: str
     port: int
     uuid: str
-    network: str = "tcp"          # tcp / grpc / xhttp
+    network: str = "tcp"  # tcp / grpc / xhttp
     security: str = ""
     sni: str = ""
-    fingerprint: str = ""         # fp
-    public_key: str = ""          # pbk
-    short_id: str = ""            # sid
+    fingerprint: str = ""  # fp
+    public_key: str = ""  # pbk
+    short_id: str = ""  # sid
     flow: str = ""
     path: str = ""
     host: str = ""
-    service_name: str = ""        # grpc serviceName
+    service_name: str = ""  # grpc serviceName
     encryption: str = "none"
     remark: str = ""
 
@@ -90,13 +90,13 @@ def parse(body: str) -> list[VlessLink]:
         line = line.strip()
         if not line.startswith("vless://"):
             continue
-        link = _parse_vless(line)
+        link = parse_link(line)
         if link is not None:
             links.append(link)
     return links
 
 
-def _parse_vless(url: str) -> VlessLink | None:
+def parse_link(url: str) -> VlessLink | None:
     """Разобрать одну vless:// ссылку."""
     try:
         u = urlparse(url)
