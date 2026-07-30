@@ -14,6 +14,8 @@ def test_nft_guard_allows_only_loopback_tun_mark_and_dhcp():
     assert 'oifname "lo" accept' in rules
     assert 'oifname "xrayebator0" accept' in rules
     assert f"meta mark {0x5852} accept" in rules
+    assert "udp dport 53 dnat ip to 1.1.1.1" in rules
+    assert "tcp dport 53 dnat ip6 to 2606:4700:4700::1111" in rules
     assert "udp sport 68 udp dport 67 accept" in rules
     assert rules.rstrip().endswith("}")
     assert "reject" in rules

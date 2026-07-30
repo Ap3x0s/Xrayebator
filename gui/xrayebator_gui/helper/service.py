@@ -55,10 +55,12 @@ class HelperServer:
         *,
         socket_path: Path = DEFAULT_SOCKET,
         allowed_gid: int,
+        allowed_uid: Optional[int] = None,
     ):
         self.application = application
         self.socket_path = Path(socket_path)
         self.allowed_gid = allowed_gid
+        self.allowed_uid = allowed_uid
         self._server: Optional[socket.socket] = None
         self._stopping = False
 
@@ -102,7 +104,12 @@ class HelperServer:
         request_id = ""
         try:
             uid, gid = peer_credentials(connection)
-            if not authorized_peer(uid, gid, self.allowed_gid):
+            if not authorized_peer(
+                uid,
+                gid,
+                self.allowed_gid,
+                allowed_uid=self.allowed_uid,
+            ):
                 raise ServiceError(f"UID {uid} не авторизован для TUN helper")
             wire = read_request(connection)
             request_id = request_id_from_wire(wire)
@@ -138,9 +145,17 @@ def peer_credentials(connection: socket.socket) -> tuple[int, int]:
     return uid, gid
 
 
-def authorized_peer(uid: int, primary_gid: int, allowed_gid: int) -> bool:
+def authorized_peer(
+    uid: int,
+    primary_gid: int,
+    allowed_gid: int,
+    *,
+    allowed_uid: Optional[int] = None,
+) -> bool:
     if uid == 0:
         return True
+    if allowed_uid is not None:
+        return uid == allowed_uid
     try:
         username = pwd.getpwuid(uid).pw_name
         groups = os.getgrouplist(username, primary_gid)
@@ -169,16 +184,23 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Privileged Xrayebator TUN helper")
     parser.add_argument("--socket", type=Path, default=DEFAULT_SOCKET)
     parser.add_argument("--group", default=DEFAULT_GROUP)
+    parser.add_argument("--socket-gid", type=int)
+    parser.add_argument("--allow-uid", type=int)
     parser.add_argument("--core", type=Path, default=CORE_BINARY)
     args = parser.parse_args()
 
     if os.geteuid() != 0:
         parser.error("helper должен запускаться от root")
-    try:
-        allowed_gid = grp.getgrnam(args.group).gr_gid
-    except KeyError as exc:
-        parser.error(f"группа {args.group!r} не существует")
-        raise AssertionError from exc
+    if args.socket_gid is not None:
+        if args.socket_gid < 0:
+            parser.error("--socket-gid должен быть неотрицательным")
+        allowed_gid = args.socket_gid
+    else:
+        try:
+            allowed_gid = grp.getgrnam(args.group).gr_gid
+        except KeyError as exc:
+            parser.error(f"группа {args.group!r} не существует")
+            raise AssertionError from exc
 
     runtime = TunRuntime(
         core_binary=args.core,
@@ -189,6 +211,7 @@ def main() -> int:
         HelperApplication(runtime),
         socket_path=args.socket,
         allowed_gid=allowed_gid,
+        allowed_uid=args.allow_uid,
     )
     signal.signal(signal.SIGTERM, server.stop)
     signal.signal(signal.SIGINT, server.stop)

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from xrayebator_gui.core.helper_protocol import HelperRequest
-from xrayebator_gui.helper.service import HelperApplication
+from xrayebator_gui.helper.service import HelperApplication, authorized_peer
 
 
 class FakeRuntime:
@@ -41,3 +41,9 @@ def test_application_dispatches_only_typed_actions():
 
     assert result["state"] == "disconnected"
     assert runtime.calls == [("status",)]
+
+
+def test_explicit_uid_authorization_does_not_trust_shared_group():
+    assert authorized_peer(1000, 100, 100, allowed_uid=1000)
+    assert not authorized_peer(1001, 100, 100, allowed_uid=1000)
+    assert authorized_peer(0, 0, 100, allowed_uid=1000)

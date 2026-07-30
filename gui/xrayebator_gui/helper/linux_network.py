@@ -1,4 +1,4 @@
-"""Linux-only DNS and nftables guard operations for the privileged helper."""
+"""Linux nftables guard and DNS redirection for the privileged helper."""
 
 from __future__ import annotations
 
@@ -22,11 +22,7 @@ class LinuxNetwork:
         self.command_timeout = command_timeout
 
     def check_dependencies(self) -> None:
-        missing = [
-            command
-            for command in ("nft", "resolvectl")
-            if shutil.which(command) is None
-        ]
+        missing = [command for command in ("nft",) if shutil.which(command) is None]
         if missing:
             raise NetworkError(
                 "Не установлены зависимости TUN helper: " + ", ".join(missing)
@@ -78,16 +74,13 @@ class LinuxNetwork:
         interface: str,
         servers: tuple[str, ...] = ("1.1.1.1", "8.8.8.8"),
     ) -> None:
+        """Wait for TUN; DNS redirection itself is in the nft transaction."""
+        del servers
         self.wait_for_interface(interface)
-        self._run(["resolvectl", "dns", interface, *servers])
-        self._run(["resolvectl", "domain", interface, "~."])
-        self._run(["resolvectl", "default-route", interface, "yes"])
 
     def restore_dns(self, interface: str) -> None:
-        self._run(
-            ["resolvectl", "revert", interface],
-            check=False,
-        )
+        # Removing the nft table restores the original resolver unchanged.
+        del interface
 
     def _run(
         self,
@@ -122,6 +115,15 @@ def build_nft_rules(interface: str, mark: int) -> str:
         raise NetworkError(f"Некорректная firewall mark: {mark}")
     return (
         f"table inet {NFT_TABLE} {{\n"
+        "  chain dns_output {\n"
+        "    type nat hook output priority -100; policy accept;\n"
+        "    meta nfproto ipv4 udp dport 53 dnat ip to 1.1.1.1\n"
+        "    meta nfproto ipv4 tcp dport 53 dnat ip to 1.1.1.1\n"
+        "    meta nfproto ipv6 udp dport 53 dnat ip6 to "
+        "2606:4700:4700::1111\n"
+        "    meta nfproto ipv6 tcp dport 53 dnat ip6 to "
+        "2606:4700:4700::1111\n"
+        "  }\n"
         "  chain output {\n"
         "    type filter hook output priority -50; policy accept;\n"
         '    oifname "lo" accept\n'

@@ -15,9 +15,8 @@ import time
 import zipfile
 from pathlib import Path
 from typing import Optional
-
-import requests
-from platformdirs import user_data_dir
+from urllib.error import URLError
+from urllib.request import ProxyHandler, build_opener
 
 from .subscription import VlessLink
 
@@ -45,6 +44,8 @@ class XrayError(Exception):
 
 
 def data_dir() -> Path:
+    from platformdirs import user_data_dir
+
     d = Path(user_data_dir(APP_NAME))
     d.mkdir(parents=True, exist_ok=True)
     return d
@@ -203,6 +204,8 @@ def ensure_binary(version: Optional[str] = None) -> Path:
 
 
 def _download(url: str, dest: Path) -> None:
+    import requests
+
     with requests.get(url, stream=True, timeout=120) as resp:
         resp.raise_for_status()
         with open(dest, "wb") as f:
@@ -472,6 +475,8 @@ class XrayProcess:
 
         Возвращает внешний IP или None.
         """
+        import requests
+
         proxy = f"socks5h://127.0.0.1:{socks_port}"
         session = requests.Session()
         session.trust_env = False
@@ -488,11 +493,9 @@ class XrayProcess:
 
     def health_check_tun(self, timeout: float = 10.0) -> Optional[str]:
         """Проверить полный системный маршрут без локального proxy."""
-        session = requests.Session()
-        session.trust_env = False
         try:
-            resp = session.get("https://api.ipify.org", timeout=timeout)
-            resp.raise_for_status()
-            return resp.text.strip()
-        except requests.RequestException:
+            opener = build_opener(ProxyHandler({}))
+            with opener.open("https://api.ipify.org", timeout=timeout) as response:
+                return response.read(128).decode("ascii").strip()
+        except (OSError, UnicodeError, URLError):
             return None

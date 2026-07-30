@@ -12,8 +12,6 @@ import re
 from dataclasses import dataclass
 from urllib.parse import parse_qs, unquote, urlparse
 
-import requests
-
 
 class SubscriptionError(Exception):
     """Ошибка загрузки или разбора подписки."""
@@ -49,6 +47,8 @@ class VlessLink:
 
 def fetch(url: str, timeout: float = 20.0) -> str:
     """Скачать тело подписки. TLS-сертификат Let's Encrypt — verify=True."""
+    import requests
+
     try:
         resp = requests.get(url, timeout=timeout, verify=True)
         resp.raise_for_status()

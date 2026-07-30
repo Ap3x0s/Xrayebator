@@ -23,6 +23,18 @@ The application stores server metadata in the platform user-data directory.
 SSH passwords are stored through the operating system keyring rather than in
 `servers.json`.
 
+## Linux TUN helper
+
+When the helper is absent, the main window shows **Install TUN helper**.
+The action invokes `pkexec`, installs a root-owned copy of the narrow helper
+API and the pinned Xray core, then starts
+`xrayebator-gui-helper.service`. The service socket authorizes only the UID
+that performed the desktop installation.
+
+The installer supports `x86_64` and `aarch64`, verifies the Xray archive
+against an embedded SHA-256, and does not execute Xray from the user's
+workspace. It requires `python3`, `curl`, `unzip`, `nft`, and `systemd`.
+
 ## Current flow
 
 1. Add VPS credentials.

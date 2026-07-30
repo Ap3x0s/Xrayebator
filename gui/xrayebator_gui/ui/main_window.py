@@ -29,6 +29,7 @@ from ..core.connection import (
 )
 from ..core.deploy import STEPS, make_deploy_thread
 from ..core.desktop_backend import DesktopBackend
+from ..core.helper_install import install_linux_helper
 from ..core.servers import ServerStore
 from ..core.ssh import SSHClient
 from ..core import subscription
@@ -97,8 +98,10 @@ class MainWindow(QMainWindow):
         self.resize(760, 540)
 
         self._store = store or ServerStore()
+        self._desktop_backend: Optional[DesktopBackend] = None
         if controller is None:
             desktop_backend = DesktopBackend()
+            self._desktop_backend = desktop_backend
             self._controller = ConnectionController(desktop_backend)
             self._tun_available = desktop_backend.tun_available
         else:
@@ -151,6 +154,7 @@ class MainWindow(QMainWindow):
         layout.addLayout(server_row)
 
         form = QFormLayout()
+        mode_row = QHBoxLayout()
         self.mode_combo = QComboBox()
         tun_label = (
             "TUN (native Xray)"
@@ -165,7 +169,14 @@ class MainWindow(QMainWindow):
             "Системный proxy (текущий MVP)", ConnectionMode.SYSTEM_PROXY
         )
         self.mode_combo.setCurrentIndex(0 if self._tun_available else 1)
-        form.addRow("Режим:", self.mode_combo)
+        mode_row.addWidget(self.mode_combo, 1)
+        self.install_helper_button = QPushButton("Установить TUN helper…")
+        self.install_helper_button.setVisible(
+            self._desktop_backend is not None and not self._tun_available
+        )
+        self.install_helper_button.clicked.connect(self._install_tun_helper)
+        mode_row.addWidget(self.install_helper_button)
+        form.addRow("Режим:", mode_row)
 
         route_row = QHBoxLayout()
         self.route_combo = QComboBox()
@@ -344,6 +355,44 @@ class MainWindow(QMainWindow):
         thread.finished.connect(self._deployment_thread_finished)
         thread.start()
 
+    @Slot()
+    def _install_tun_helper(self) -> None:
+        if self._operation is not None:
+            return
+        self._append_log("Запрашиваю права для установки TUN helper…")
+        self._set_operation_busy(True)
+
+        def succeeded(result: object) -> None:
+            self._set_operation_busy(False)
+            if self._desktop_backend is None or not self._desktop_backend.tun_available:
+                message = (
+                    "Installer завершился, но helper socket недоступен. "
+                    "Проверьте systemctl status xrayebator-gui-helper."
+                )
+                self._append_log(message)
+                QMessageBox.warning(self, "TUN helper", message)
+                return
+            self._tun_available = True
+            tun_item = self.mode_combo.model().item(0)
+            if tun_item is not None:
+                tun_item.setEnabled(True)
+            self.mode_combo.setItemText(0, "TUN (native Xray)")
+            self.mode_combo.setCurrentIndex(0)
+            self.install_helper_button.hide()
+            self._append_log(str(result))
+            QMessageBox.information(
+                self,
+                "TUN helper",
+                "Privileged helper установлен. Режим TUN готов к подключению.",
+            )
+
+        def failed(message: str) -> None:
+            self._set_operation_busy(False)
+            self._append_log(f"Установка TUN helper не удалась: {message}")
+            QMessageBox.critical(self, "Ошибка установки TUN helper", message)
+
+        self._start_operation(install_linux_helper, succeeded, failed)
+
     def _deployment_finished(self, values: dict, result: dict) -> None:
         server = self._store.add(
             name=values["host"],
@@ -470,6 +519,7 @@ class MainWindow(QMainWindow):
         self.server_combo.setEnabled(not busy)
         self.mode_combo.setEnabled(not busy)
         self.refresh_button.setEnabled(not busy and self._selected_server() is not None)
+        self.install_helper_button.setEnabled(not busy)
 
     @Slot(object)
     def _on_snapshot(self, snapshot: ConnectionSnapshot) -> None:
