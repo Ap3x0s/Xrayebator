@@ -25,6 +25,8 @@ echo "  ✓ generated subhttp syntax ok"
 grep -q '^emit_500()' "$SUBHTTP_TMP" || fail "subhttp must emit HTTP 500 instead of closing connection"
 ! grep -q '^set -u$' "$SUBHTTP_TMP" || fail "subhttp must not use set -u; it can turn config/env issues into nginx 502"
 grep -q 'source /usr/local/bin/xrayebator' "$SUBHTTP_TMP" || fail "subhttp must source installed xrayebator"
+grep -q 'mktemp /tmp/xrayebator-subhttp-body.XXXXXX' "$SUBHTTP_TMP" || fail "subhttp response buffer must use mktemp"
+! grep -q 'subhttp_body\\.\\$\\$' "$SUBHTTP_TMP" || fail "subhttp must not use a predictable PID-only temp path"
 echo "  ✓ subhttp failure mode guards ok"
 
 grep -q '^ensure_xray_runtime_user()' xrayebator || fail "xrayebator missing runtime user repair"

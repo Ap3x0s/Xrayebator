@@ -21,6 +21,8 @@ CONFIG_FILE="/usr/local/etc/xray/config.json"
 PROFILES_DIR="/usr/local/etc/xray/profiles"
 DATA_DIR="/usr/local/etc/xray/data"
 UPSTREAMS_DIR="/usr/local/etc/xray/upstreams"
+XRAY_BACKUPS_DIR="/usr/local/etc/xray/backups"
+XRAY_BIN="/usr/local/bin/xray"
 PRIVATE_KEY_FILE="/usr/local/etc/xray/.private_key"
 PUBLIC_KEY_FILE="/usr/local/etc/xray/.public_key"
 VLESS_DECRYPTION_FILE="/usr/local/etc/xray/.vless_decryption"
@@ -786,23 +788,94 @@ safe_jq_write() {
   fi
 }
 
-# Создание бэкапа config.json перед миграцией
-# Args: $1=migration_name (optional, for logging)
+# Создание бэкапа config.json перед мутацией.
+# Args: $1=operation_name, $2=optional caller variable receiving the exact path.
 backup_config() {
-  local migration_name=${1:-"manual"}
-  local backup_dir="/usr/local/etc/xray/backups"
+  local operation_name=${1:-"manual"}
+  local result_var=${2:-}
+  local backup_dir="$XRAY_BACKUPS_DIR"
+  local safe_operation_name
+
+  if [[ -n "$result_var" && ! "$result_var" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]]; then
+    echo -e "${RED}  ✗ Некорректное имя переменной результата backup_config${NC}"
+    return 1
+  fi
+  [[ -n "$result_var" ]] && printf -v "$result_var" '%s' ""
+
+  safe_operation_name=$(printf '%s' "$operation_name" | tr -c 'a-zA-Z0-9_.-' '_')
   mkdir -p "$backup_dir"
   chmod 700 "$backup_dir" 2>/dev/null
   chown xray:xray "$backup_dir" 2>/dev/null
-  local backup_file="$backup_dir/config_$(date +%Y%m%d_%H%M%S)_${migration_name}.json"
+  local backup_file="$backup_dir/config_$(date +%Y%m%d_%H%M%S_%N)_${safe_operation_name}.json"
   if ! cp "$CONFIG_FILE" "$backup_file"; then
     echo -e "${RED}  ✗ Не удалось создать бэкап config.json: $backup_file${NC}"
     return 1
   fi
   chmod 600 "$backup_file" 2>/dev/null
   chown xray:xray "$backup_file" 2>/dev/null
+  [[ -n "$result_var" ]] && printf -v "$result_var" '%s' "$backup_file"
   echo -e "${CYAN}  -> Бэкап конфига: $(basename "$backup_file")${NC}"
   return 0
+}
+
+_restore_config_backup() {
+  local backup_file=${1:-}
+
+  if [[ -z "$backup_file" || ! -f "$backup_file" || ! -s "$backup_file" ]]; then
+    echo -e "${RED}  ✗ Точный бэкап для отката отсутствует: ${backup_file:-не задан}${NC}"
+    return 1
+  fi
+  if ! cp "$backup_file" "$CONFIG_FILE"; then
+    echo -e "${RED}  ✗ Не удалось восстановить config.json из $(basename "$backup_file")${NC}"
+    return 1
+  fi
+  chmod 600 "$CONFIG_FILE" 2>/dev/null
+  chown xray:xray "$CONFIG_FILE" 2>/dev/null
+  echo -e "${GREEN}  ✓ Конфиг восстановлен из: $(basename "$backup_file")${NC}"
+  return 0
+}
+
+_snapshot_profiles() {
+  local result_var=${1:-}
+  local snapshot_dir
+
+  if [[ ! "$result_var" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]]; then
+    echo -e "${RED}  ✗ Некорректное имя переменной результата _snapshot_profiles${NC}"
+    return 1
+  fi
+  printf -v "$result_var" '%s' ""
+
+  snapshot_dir=$(mktemp -d /tmp/xrayebator-profiles.XXXXXX) || return 1
+  if [[ -d "$PROFILES_DIR" ]] && ! cp -a "$PROFILES_DIR/." "$snapshot_dir/"; then
+    rm -rf -- "$snapshot_dir"
+    echo -e "${RED}  ✗ Не удалось создать снимок profile JSON${NC}"
+    return 1
+  fi
+  printf -v "$result_var" '%s' "$snapshot_dir"
+  return 0
+}
+
+_restore_profiles_snapshot() {
+  local snapshot_dir=${1:-}
+
+  if [[ "$snapshot_dir" != /tmp/xrayebator-profiles.* || ! -d "$snapshot_dir" ]]; then
+    echo -e "${RED}  ✗ Некорректный снимок profile JSON: ${snapshot_dir:-не задан}${NC}"
+    return 1
+  fi
+  mkdir -p "$PROFILES_DIR"
+  if ! cp -a "$snapshot_dir/." "$PROFILES_DIR/"; then
+    echo -e "${RED}  ✗ Не удалось восстановить profile JSON${NC}"
+    return 1
+  fi
+  echo -e "${GREEN}  ✓ Profile JSON восстановлены${NC}"
+  return 0
+}
+
+_discard_profiles_snapshot() {
+  local snapshot_dir=${1:-}
+  if [[ "$snapshot_dir" == /tmp/xrayebator-profiles.* && -d "$snapshot_dir" ]]; then
+    rm -rf -- "$snapshot_dir"
+  fi
 }
 
 ensure_xray_runtime_user() {
@@ -885,45 +958,43 @@ SVCEOF
   return 1
 }
 
-# Безопасный перезапуск Xray с валидацией конфига
+# Безопасный перезапуск Xray с валидацией конфига.
+# Args: $1=exact backup path for this operation (required for rollback).
 # Returns: 0=success, 1=failure (validation/restart failed; rollback attempted)
 safe_restart_xray() {
-  if [[ ! -x /usr/local/bin/xray ]]; then
-    echo -e "${RED}  ✗ Бинарник /usr/local/bin/xray не найден${NC}"
+  local rollback_backup=${1:-}
+
+  if [[ ! -x "$XRAY_BIN" ]]; then
+    echo -e "${RED}  ✗ Бинарник $XRAY_BIN не найден${NC}"
+    [[ -n "$rollback_backup" ]] && _restore_config_backup "$rollback_backup"
     return 1
   fi
 
   if [[ ! -f "$CONFIG_FILE" || ! -s "$CONFIG_FILE" ]]; then
     echo -e "${RED}  ✗ config.json отсутствует или пустой — Xray НЕ перезапущен${NC}"
-    local latest_backup
-    latest_backup=$(ls -t /usr/local/etc/xray/backups/config_*.json 2>/dev/null | head -1)
-    if [[ -n "$latest_backup" ]]; then
+    if [[ -n "$rollback_backup" ]]; then
       echo -e "${YELLOW}  -> Восстанавливаю конфиг из бэкапа...${NC}"
-      cp "$latest_backup" "$CONFIG_FILE"
-      echo -e "${GREEN}  ✓ Конфиг восстановлен из: $(basename "$latest_backup")${NC}"
+      _restore_config_backup "$rollback_backup"
     fi
     return 1
   fi
 
   local test_output
-  test_output=$(/usr/local/bin/xray run -test -format json -config "$CONFIG_FILE" 2>&1)
+  test_output=$("$XRAY_BIN" run -test -format json -config "$CONFIG_FILE" 2>&1)
 
   if ! grep -qx "Configuration OK." <<< "$test_output"; then
     echo -e "${RED}  ✗ Конфиг не прошёл валидацию -- Xray НЕ перезапущен${NC}"
     echo -e "${YELLOW}  Ошибка: ${test_output}${NC}"
 
-    # Rollback: restore from latest backup if exists
-    local latest_backup
-    latest_backup=$(ls -t /usr/local/etc/xray/backups/config_*.json 2>/dev/null | head -1)
-    if [[ -n "$latest_backup" ]]; then
+    if [[ -n "$rollback_backup" ]]; then
       echo -e "${YELLOW}  -> Восстанавливаю конфиг из бэкапа...${NC}"
-      cp "$latest_backup" "$CONFIG_FILE"
-      echo -e "${GREEN}  ✓ Конфиг восстановлен из: $(basename "$latest_backup")${NC}"
+      _restore_config_backup "$rollback_backup"
     fi
     return 1
   fi
 
   if ! ensure_xray_service_unit; then
+    [[ -n "$rollback_backup" ]] && _restore_config_backup "$rollback_backup"
     return 1
   fi
 
@@ -935,15 +1006,14 @@ safe_restart_xray() {
     return 0
   else
     echo -e "${RED}  ✗ Xray не запустился после перезапуска${NC}"
-    local latest_backup
-    latest_backup=$(ls -t /usr/local/etc/xray/backups/config_*.json 2>/dev/null | head -1)
-    if [[ -n "$latest_backup" ]]; then
+    if [[ -n "$rollback_backup" ]]; then
       echo -e "${YELLOW}  -> Откатываю config.json и пробую вернуть старую конфигурацию...${NC}"
-      cp "$latest_backup" "$CONFIG_FILE"
-      systemctl restart xray
-      sleep 1
+      if _restore_config_backup "$rollback_backup"; then
+        systemctl restart xray
+        sleep 1
+      fi
       if systemctl is-active --quiet xray; then
-        echo -e "${GREEN}  ✓ Xray восстановлен на предыдущем конфиге: $(basename "$latest_backup")${NC}"
+        echo -e "${GREEN}  ✓ Xray восстановлен на предыдущем конфиге${NC}"
       else
         echo -e "${RED}  ✗ Откат конфига не поднял Xray — требуется ручная проверка${NC}"
       fi
@@ -1195,6 +1265,8 @@ run_migration() {
   local marker_basename="$1"
   local description="$2"
   local fn_name="$3"
+  local rollback_config=""
+  local profiles_snapshot=""
 
   local marker="/usr/local/etc/xray/.${marker_basename}"
 
@@ -1206,10 +1278,12 @@ run_migration() {
   echo -e "${MAGENTA}[migration] ${description}${NC}"
 
   # Step 1: backup BEFORE any mutation (centralized per REQ-D07).
-  # safe_restart_xray's auto-rollback использует latest backup, поэтому
-  # backup ДОЛЖЕН быть создан до того, как fn начнёт мутировать config.
-  if ! backup_config "$marker_basename"; then
+  if ! backup_config "$marker_basename" rollback_config; then
     echo -e "${RED}  ✗ Migration aborted: не удалось создать бэкап${NC}"
+    return 1
+  fi
+  if ! _snapshot_profiles profiles_snapshot; then
+    echo -e "${RED}  ✗ Migration aborted: не удалось создать снимок profile JSON${NC}"
     return 1
   fi
 
@@ -1220,12 +1294,19 @@ run_migration() {
   case $fn_rc in
     0)
       # Changed config — needs restart
-      if safe_restart_xray; then
-        touch "$marker"
+      if safe_restart_xray "$rollback_config"; then
+        if ! touch "$marker"; then
+          _discard_profiles_snapshot "$profiles_snapshot"
+          echo -e "${RED}  ✗ Migration applied, но marker не записан: $marker${NC}"
+          return 1
+        fi
         chown xray:xray "$marker" 2>/dev/null || true
+        _discard_profiles_snapshot "$profiles_snapshot"
         echo -e "${GREEN}  ✓ Migration applied: ${marker_basename}${NC}"
         return 0
       else
+        _restore_profiles_snapshot "$profiles_snapshot" || true
+        _discard_profiles_snapshot "$profiles_snapshot"
         echo -e "${RED}  ✗ safe_restart_xray failed для ${description}${NC}"
         echo -e "${YELLOW}    Маркер НЕ выставлен — config откачен (auto-rollback), миграция повторится${NC}"
         return 2
@@ -1234,15 +1315,23 @@ run_migration() {
     1)
       # No change — skip restart, but still mark as done (idempotent no-op for next runs).
       # Без этого touch'а fn re-проверял бы (зря) каждый launch.
-      touch "$marker"
+      if ! touch "$marker"; then
+        _discard_profiles_snapshot "$profiles_snapshot"
+        echo -e "${RED}  ✗ Не удалось записать migration marker: $marker${NC}"
+        return 1
+      fi
       chown xray:xray "$marker" 2>/dev/null || true
+      _discard_profiles_snapshot "$profiles_snapshot"
       echo -e "${CYAN}  ✓ Nothing to migrate: ${marker_basename}${NC}"
       return 0
       ;;
     *)
       # fn вернула ≥2 — реальная ошибка (НЕ no-op).
+      _restore_config_backup "$rollback_config" || true
+      _restore_profiles_snapshot "$profiles_snapshot" || true
+      _discard_profiles_snapshot "$profiles_snapshot"
       echo -e "${RED}  ✗ Migration fn '$fn_name' returned $fn_rc${NC}"
-      echo -e "${YELLOW}    Маркер НЕ выставлен — миграция повторится при следующем запуске${NC}"
+      echo -e "${YELLOW}    Config/profile JSON откачены; миграция повторится при следующем запуске${NC}"
       return 1
       ;;
   esac
@@ -1319,12 +1408,19 @@ migrate_client_fingerprint_state_2026() {
   local marker="${1:-/usr/local/etc/xray/.client_fingerprint_state_2026}"
   [[ -f "$marker" ]] && return 0
   local changed=0
+  local rollback_config=""
+  local profiles_snapshot=""
+
+  backup_config "client_fingerprint_state_2026" rollback_config || return 1
+  _snapshot_profiles profiles_snapshot || return 1
 
   if jq -e '
     any(.inbounds[]?; ((.streamSettings.realitySettings? // {}) | has("fingerprint")))
   ' "$CONFIG_FILE" >/dev/null 2>&1; then
-    backup_config "client_fingerprint_state_2026" || return 1
     if ! _remove_ignored_reality_server_fingerprints "$CONFIG_FILE"; then
+      _restore_config_backup "$rollback_config" || true
+      _restore_profiles_snapshot "$profiles_snapshot" || true
+      _discard_profiles_snapshot "$profiles_snapshot"
       echo -e "${RED}  ✗ Не удалось удалить устаревший server-side fingerprint${NC}"
       return 1
     fi
@@ -1336,6 +1432,9 @@ migrate_client_fingerprint_state_2026() {
   if [[ "$profiles_rc" -eq 0 ]]; then
     changed=1
   elif [[ "$profiles_rc" -ge 2 ]]; then
+    _restore_config_backup "$rollback_config" || true
+    _restore_profiles_snapshot "$profiles_snapshot" || true
+    _discard_profiles_snapshot "$profiles_snapshot"
     echo -e "${RED}  ✗ Не удалось обновить profile fingerprints до Firefox${NC}"
     return 1
   fi
@@ -1345,10 +1444,14 @@ migrate_client_fingerprint_state_2026() {
   fi
 
   if ! touch "$marker"; then
+    _restore_config_backup "$rollback_config" || true
+    _restore_profiles_snapshot "$profiles_snapshot" || true
+    _discard_profiles_snapshot "$profiles_snapshot"
     echo -e "${RED}  ✗ Не удалось записать migration marker: $marker${NC}"
     return 1
   fi
   chown xray:xray "$marker" 2>/dev/null || true
+  _discard_profiles_snapshot "$profiles_snapshot"
   return 0
 }
 
@@ -1490,6 +1593,93 @@ _migrate_xhttp_route_path_repair_2026() {
   fi
 
   echo -e "${GREEN}  ✓ Восстановлен XHTTP path для inbound: $repair_count${NC}"
+  return 0
+}
+
+_migrate_dead_stealth_routes_2026() {
+  local profile_file uuid ports_json removals_json='[]'
+  local changed_profiles=()
+
+  for profile_file in "$PROFILES_DIR"/*.json; do
+    [[ -f "$profile_file" ]] || continue
+    if ! jq -e '
+      any((.routes // [])[];
+        .label == "tcp-stealth-8443" or .label == "tcp-stealth-2053"
+      )
+    ' "$profile_file" >/dev/null 2>&1; then
+      continue
+    fi
+
+    uuid=$(jq -r '.uuid // empty' "$profile_file" 2>/dev/null)
+    ports_json=$(jq -c '[
+      (.routes // [])[] |
+      select(.label == "tcp-stealth-8443" or .label == "tcp-stealth-2053") |
+      .port |
+      select(type == "number")
+    ] | unique' "$profile_file" 2>/dev/null)
+    if [[ -z "$uuid" ]] || ! jq -e 'type == "array" and length > 0' <<< "$ports_json" >/dev/null 2>&1; then
+      echo -e "${RED}  ✗ Некорректный legacy stealth route: $(basename "$profile_file")${NC}"
+      return 2
+    fi
+
+    removals_json=$(jq -c --arg uuid "$uuid" --argjson ports "$ports_json" \
+      '. + [{uuid:$uuid, ports:$ports}]' <<< "$removals_json") || return 2
+    changed_profiles+=("$profile_file")
+  done
+
+  [[ ${#changed_profiles[@]} -gt 0 ]] || return 1
+
+  if ! safe_jq_write --argjson removals "$removals_json" '
+    .inbounds |= map(
+      . as $inbound |
+      [
+        $removals[] |
+        select((.ports | index($inbound.port)) != null) |
+        .uuid
+      ] as $remove_uuids |
+      if ($remove_uuids | length) > 0 then
+        .settings.clients = (
+          (.settings.clients // []) |
+          map(. as $client | select(($remove_uuids | index($client.id)) == null))
+        ) |
+        if (.settings.clients | length) == 0 then empty else . end
+      else
+        .
+      end
+    )
+  ' "$CONFIG_FILE"; then
+    echo -e "${RED}  ✗ Не удалось удалить legacy stealth UUID из config.json${NC}"
+    return 2
+  fi
+
+  for profile_file in "${changed_profiles[@]}"; do
+    if ! safe_jq_write '
+      .routes |= map(
+        select(.label != "tcp-stealth-8443" and .label != "tcp-stealth-2053")
+      ) |
+      if (.routes | length) == 0 then
+        error("profile would have no routes")
+      else
+        .transport = .routes[0].transport |
+        .port = .routes[0].port |
+        .fingerprint = (.routes[0].fingerprint // "firefox") |
+        .sni = .routes[0].sni |
+        .pq_enabled = (.routes[0].pq_enabled // false) |
+        if .routes[0].transport == "xhttp" then
+          .xhttp_path = .routes[0].xhttp_path | del(.grpc_service_name)
+        elif .routes[0].transport == "grpc" then
+          .grpc_service_name = .routes[0].grpc_service_name | del(.xhttp_path)
+        else
+          del(.xhttp_path, .grpc_service_name)
+        end
+      end
+    ' "$profile_file"; then
+      echo -e "${RED}  ✗ Не удалось удалить legacy stealth route: $(basename "$profile_file")${NC}"
+      return 2
+    fi
+  done
+
+  echo -e "${GREEN}  ✓ Удалены мёртвые tcp-stealth маршруты: ${#changed_profiles[@]} профилей${NC}"
   return 0
 }
 
@@ -2375,14 +2565,15 @@ _apply_bypass_rule() {
     fi
   done <<< "$domains_raw"
 
-  backup_config "bypass_routing_add"
+  local rollback_config=""
+  backup_config "bypass_routing_add" rollback_config || return 2
   # safe_jq_write routing.rules: PREPEND нового bypass-правила.
   if safe_jq_write \
       --argjson domains "$normalized_json" \
       '.routing.rules = [{"type":"field","domain":$domains,"outboundTag":"direct"}] + .routing.rules' \
       "$CONFIG_FILE"; then
     fix_xray_permissions
-    if safe_restart_xray; then
+    if safe_restart_xray "$rollback_config"; then
       return 0
     fi
     return 2
@@ -2392,7 +2583,8 @@ _apply_bypass_rule() {
 
 _bypass_remove_rule() {
   local d="domain:$1"
-  backup_config "bypass_routing_remove"
+  local rollback_config=""
+  backup_config "bypass_routing_remove" rollback_config || return 2
   # safe_jq_write routing.rules: удалить domain из bypass-правил.
   if safe_jq_write \
       --arg d "$d" \
@@ -2406,7 +2598,7 @@ _bypass_remove_rule() {
         end
       ]' "$CONFIG_FILE"; then
     fix_xray_permissions
-    if safe_restart_xray; then
+    if safe_restart_xray "$rollback_config"; then
       return 0
     fi
     return 2
@@ -2415,7 +2607,8 @@ _bypass_remove_rule() {
 }
 
 _bypass_reset_all() {
-  backup_config "bypass_routing_reset"
+  local rollback_config=""
+  backup_config "bypass_routing_reset" rollback_config || return 2
   # safe_jq_write routing.rules: удалить только domain bypass-правила.
   if safe_jq_write '
       .routing.rules = [
@@ -2423,7 +2616,7 @@ _bypass_reset_all() {
         select(.outboundTag != "direct" or (.network // null) != null or (.port // null) != null or (((.domain // []) | length) == 0))
       ]' "$CONFIG_FILE"; then
     fix_xray_permissions
-    if safe_restart_xray; then
+    if safe_restart_xray "$rollback_config"; then
       return 0
     fi
     return 2
@@ -2736,6 +2929,7 @@ _cascade_build_fragment_outbound_json() {
 _cascade_apply_current_upstream() {
   local reason=${1:-cascade_apply}
   local upstream_file outbound_json fragment_json address old_address had_active=false
+  local rollback_config=""
   upstream_file=$(_cascade_config_file)
   [[ -f "$upstream_file" ]] || {
     echo -e "${RED}✗ Сначала настройте upstream-ноду${NC}"
@@ -2748,7 +2942,7 @@ _cascade_apply_current_upstream() {
   old_address=$(jq -r 'first(.outbounds[]? | select(.tag == "cascade-upstream") | .settings.vnext[0].address) // ""' "$CONFIG_FILE" 2>/dev/null)
   [[ -f "$CASCADE_ACTIVE_FILE" ]] && had_active=true
 
-  backup_config "$reason" || return 1
+  backup_config "$reason" rollback_config || return 1
   if ! safe_jq_write \
       --argjson outbound "$outbound_json" \
       --argjson fragment "$fragment_json" \
@@ -2792,7 +2986,7 @@ _cascade_apply_current_upstream() {
   fi
 
   fix_xray_permissions
-  if safe_restart_xray; then
+  if safe_restart_xray "$rollback_config"; then
     touch "$CASCADE_ACTIVE_FILE"
     chown xray:xray "$CASCADE_ACTIVE_FILE" 2>/dev/null || true
     echo -e "${GREEN}✓ Активный каскад синхронизирован с upstream${NC}"
@@ -2959,7 +3153,8 @@ disable_cascade_mode() {
   read -r confirm
   [[ "$confirm" =~ ^[yYдД]$ ]] || return 1
 
-  backup_config "cascade_disable" || return 1
+  local rollback_config=""
+  backup_config "cascade_disable" rollback_config || return 1
   if ! safe_jq_write '
       def quic_block_match:
         (.type == "field" and (.network // "") == "udp" and ((.port | tostring) == "443") and .outboundTag == "block");
@@ -2974,7 +3169,7 @@ disable_cascade_mode() {
     return 1
   fi
   fix_xray_permissions
-  if safe_restart_xray; then
+  if safe_restart_xray "$rollback_config"; then
     rm -f "$CASCADE_ACTIVE_FILE"
     echo -e "${GREEN}✓ Каскад отключен${NC}"
   else
@@ -3071,7 +3266,8 @@ setup_outbound_server_menu() {
   read -r confirm
   [[ "$confirm" =~ ^[yYдД]$ ]] || return 1
 
-  backup_config "outbound_server" || return 1
+  local rollback_config=""
+  backup_config "outbound_server" rollback_config || return 1
 
   # Переиспользуем add_inbound (TCP Reality Vision) — логику inbound не дублируем.
   if ! add_inbound "$uuid" "tcp" "$port" "$sni" "$fingerprint" "" ""; then
@@ -3080,7 +3276,7 @@ setup_outbound_server_menu() {
   fi
 
   fix_xray_permissions
-  if ! safe_restart_xray; then
+  if ! safe_restart_xray "$rollback_config"; then
     echo -e "${RED}✗ Xray не принял конфиг — выполнен авто-откат. Inbound не поднят.${NC}"
     return 1
   fi
@@ -3304,8 +3500,9 @@ _selfsteal_ensure_443_inbound() {
 _selfsteal_apply_to_reality_inbounds() {
   local domain=$1
   local reality_ports
+  local rollback_config=""
   reality_ports=$(jq -r '.inbounds[]? | select(.streamSettings.security == "reality") | .port' "$CONFIG_FILE" 2>/dev/null)
-  backup_config "selfsteal_$domain" || return 1
+  backup_config "selfsteal_$domain" rollback_config || return 1
 
   if ! _selfsteal_ensure_443_inbound "$domain"; then
     echo -e "${RED}✗ Не удалось создать служебный inbound 443${NC}"
@@ -3332,7 +3529,7 @@ _selfsteal_apply_to_reality_inbounds() {
   fi
 
   fix_xray_permissions
-  if ! safe_restart_xray; then
+  if ! safe_restart_xray "$rollback_config"; then
     return 1
   fi
 
@@ -4305,7 +4502,9 @@ fi
 expire_value=$(jq -r '.expire // 4102444800' "$profile_file" 2>/dev/null)
 sub_userinfo="upload=0; download=0; total=0; expire=${expire_value}"
 
-body_tmp="/tmp/subhttp_body.$$"
+body_tmp=$(mktemp /tmp/xrayebator-subhttp-body.XXXXXX) ||
+  emit_500 "cannot create response buffer"
+trap 'rm -f -- "$body_tmp"' EXIT
 if [[ "$universal_sub" == "true" ]]; then
   # v2rayNG сначала пытается Base64-decode subscription body. Даём ему
   # классический v2ray-sub: только proxy URI, без HAPP comments/routing.
@@ -4348,7 +4547,6 @@ fi
 printf '\r\n'
 cat "$body_tmp"
 
-rm -f "$body_tmp"
 exit 0
 SUBHTTP_EOF
 
@@ -5548,8 +5746,8 @@ happ_subscription_menu() {
       echo ""
     fi
 
-    echo -e "${CYAN} 1)${NC} Создать HAPP-подписку по IP VPS ${GREEN}(7 маршрутов + URL/QR)${NC}"
-    echo -e "${CYAN} 2)${NC} Создать HAPP-подписку по домену ${GREEN}(7 маршрутов + URL/QR)${NC}"
+    echo -e "${CYAN} 1)${NC} Создать HAPP-подписку по IP VPS ${GREEN}(профиль 7 / HAPP 6 routes + URL/QR)${NC}"
+    echo -e "${CYAN} 2)${NC} Создать HAPP-подписку по домену ${GREEN}(профиль 7 / HAPP 6 routes + URL/QR)${NC}"
     echo -e "${CYAN} 3)${NC} Local-only debug (127.0.0.1:8080)"
     echo -e "${CYAN} 4)${NC} Управление существующими подписками (URL / QR / revoke)"
     echo -e "${CYAN} 5)${NC} Настройки HAPP (.happ_defaults.env)"
@@ -5597,6 +5795,7 @@ main_menu() {
   run_migration "subscription_tokens_2026"             "Subscription tokens (Phase 7) для существующих профилей" _migrate_subscription_tokens_2026 || ((migration_failures++))
   run_migration "happ_legacy_xhttp_route_2026"         "HAPP subscription не меняет существующие профили" _migrate_happ_legacy_xhttp_route_2026 || ((migration_failures++))
   run_migration "xhttp_route_path_repair_2026"         "Repair lost multi-route XHTTP path" _migrate_xhttp_route_path_repair_2026 || ((migration_failures++))
+  run_migration "dead_stealth_routes_pruned_2026"      "Remove dead tcp-stealth routes"       _migrate_dead_stealth_routes_2026 || ((migration_failures++))
   if [[ ! -f /usr/local/etc/xray/.sni_list_2026 ]]; then
     echo -e "${YELLOW}Перед SNI миграцией доступна команда probe-test для проверки доступности SNI.${NC}"
     echo -n -e "${YELLOW}Запустить probe-test сейчас? [y/N]: ${NC}"
@@ -5674,7 +5873,7 @@ main_menu() {
     echo -e "${CYAN} 8)${NC} Обновить профиль до post-quantum (PQ XHTTP+Reality)"
     echo ""
     echo -e "${MAGENTA} HAPP SUBSCRIPTION:${NC}"
-    echo -e "${CYAN} 9)${NC} Подписка HAPP (авто 7 маршрутов + URL/QR)"
+    echo -e "${CYAN} 9)${NC} Подписка HAPP (профиль 7 / HAPP 6 routes + URL/QR)"
     echo ""
     echo -e "${MAGENTA} BYPASS ROUTING:${NC}"
     echo -e "${CYAN}11)${NC} Управление обходом VPN"
@@ -5739,7 +5938,7 @@ create_profile_menu() {
   echo -e "${BLUE}╚════════════════════════════════════════════════════════════╝${NC}"
   echo ""
   echo -e "${CYAN} 1)${NC} Multi-route профиль ${YELLOW}(ручной режим, как готовая HAPP-подписка)${NC}"
-  echo -e "    ${GREEN}✓${NC} Семь маршрутов в одном профиле: xhttp-legacy, xhttp-pq, TCP, gRPC"
+  echo -e "    ${GREEN}✓${NC} Семь routes в profile JSON; HAPP получает 6 (PQ-XHTTP остаётся raw-only)"
   echo -e "    ${BLUE}ℹ${NC} Обычному HAPP-пользователю проще выбрать пункт 9 в главном меню"
   echo ""
   echo -e "${CYAN} 2)${NC} VLESS + TCP + Reality + Vision ${YELLOW}(legacy, отдельный профиль)${NC}"
@@ -5932,12 +6131,11 @@ create_profile_all_routes() {
     return 1
   fi
 
-  if ! backup_config "create_profile_$name"; then
+  local rollback_config=""
+  if ! backup_config "create_profile_$name" rollback_config; then
     rm -f "$PROFILES_DIR/$name.json"
     return 1
   fi
-  local rollback_config
-  rollback_config=$(ls -t /usr/local/etc/xray/backups/config_*_create_profile_"$name".json 2>/dev/null | head -1)
 
   local created_ports=()
   local route_index label transport sni fingerprint pq grpc xhttp
@@ -5968,7 +6166,7 @@ create_profile_all_routes() {
     created_ports+=("$port")
   done
 
-  if ! safe_restart_xray; then
+  if ! safe_restart_xray "$rollback_config"; then
     rm -f "$PROFILES_DIR/$name.json"
     local p
     for p in "${created_ports[@]}"; do
@@ -6105,7 +6303,8 @@ create_profile() {
     return 1
   fi
 
-  if ! backup_config "create_profile_$name"; then
+  local rollback_config=""
+  if ! backup_config "create_profile_$name" rollback_config; then
     rm -f "$PROFILES_DIR/$name.json"
     return 1
   fi
@@ -6124,7 +6323,7 @@ create_profile() {
     return 1
   fi
 
-  if ! safe_restart_xray; then
+  if ! safe_restart_xray "$rollback_config"; then
     rm -f "$PROFILES_DIR/$name.json"
     close_firewall_port "$port"
     echo ""
@@ -6207,8 +6406,17 @@ add_inbound() {
     fi
   fi
 
-  local existing_tag=$(jq -r --argjson port "$port" '.inbounds[] | select(.port == $port) | .tag' "$CONFIG_FILE" 2>/dev/null)
-  if [[ -n "$existing_tag" ]]; then
+  local existing_count
+  existing_count=$(jq -r --argjson port "$port" '[.inbounds[] | select(.port == $port)] | length' "$CONFIG_FILE" 2>/dev/null)
+  if [[ ! "$existing_count" =~ ^[0-9]+$ ]]; then
+    echo -e "${RED}✗ Не удалось проверить занятость порта $port${NC}"
+    return 1
+  fi
+  if [[ "$existing_count" -gt 1 ]]; then
+    echo -e "${RED}✗ В config.json найдено несколько inbound на порту $port${NC}"
+    return 1
+  fi
+  if [[ "$existing_count" -eq 1 ]]; then
     # Check transport compatibility
     local existing_transport=$(jq -r --argjson port "$port" \
       '.inbounds[] | select(.port == $port) | .streamSettings.network' \
@@ -6219,10 +6427,48 @@ add_inbound() {
       tcp|tcp-utls|tcp-xudp|tcp-mux) expected_network="tcp" ;;
     esac
 
+    if ! jq -e --argjson port "$port" '
+      any(.inbounds[];
+        .port == $port and
+        .protocol == "vless" and
+        .streamSettings.security == "reality"
+      )
+    ' "$CONFIG_FILE" >/dev/null 2>&1; then
+      echo -e "${RED}✗ Порт $port занят не-VLESS/не-REALITY inbound${NC}"
+      return 1
+    fi
+
     if [[ -n "$existing_transport" ]] && [[ "$expected_network" != "$existing_transport" ]]; then
       echo ""
       echo -e "${RED}✗ Порт $port уже используется с транспортом '$existing_transport' (несовместимо с '$transport')${NC}"
       echo -e "${YELLOW}Используйте другой порт для транспорта '$transport'${NC}"
+      return 1
+    fi
+
+    local existing_decryption
+    existing_decryption=$(jq -r --argjson port "$port" \
+      '.inbounds[] | select(.port == $port) | .settings.decryption // "none"' \
+      "$CONFIG_FILE" 2>/dev/null)
+    if [[ "$expected_network" == "xhttp" ]]; then
+      local existing_pq_enabled="false"
+      if [[ -n "$existing_decryption" && "$existing_decryption" != "none" ]]; then
+        existing_pq_enabled="true"
+      fi
+      if [[ "$existing_pq_enabled" != "$pq_enabled" ]]; then
+        echo -e "${RED}✗ Порт $port использует несовместимый режим XHTTP encryption/PQ${NC}"
+        echo -e "${YELLOW}  Новый профиль PQ=$pq_enabled, inbound PQ=$existing_pq_enabled${NC}"
+        echo -e "${CYAN}  Выберите свободный порт или XHTTP inbound с тем же режимом.${NC}"
+        return 1
+      fi
+    elif [[ -n "$existing_decryption" && "$existing_decryption" != "none" ]]; then
+      echo -e "${RED}✗ Порт $port использует VLESS encryption, которого нет в новом профиле${NC}"
+      return 1
+    fi
+
+    if jq -e --argjson port "$port" --arg uuid "$uuid" '
+      any(.inbounds[] | select(.port == $port) | .settings.clients[]?; .id == $uuid)
+    ' "$CONFIG_FILE" >/dev/null 2>&1; then
+      echo -e "${RED}✗ UUID $uuid уже существует на порту $port${NC}"
       return 1
     fi
 
@@ -6254,8 +6500,10 @@ add_inbound() {
         [[ ! -f "$pf" ]] && continue
         local pf_uuid=$(jq -r '.uuid' "$pf" 2>/dev/null)
         if [[ "$pf_uuid" == "$uuid" ]]; then
-          safe_jq_write --arg sni "$existing_sni" '.sni = $sni' "$pf" || \
-            echo -e "${YELLOW}  ⚠ Не удалось обновить SNI в профиле$(basename "$pf")${NC}"
+          if ! safe_jq_write --arg sni "$existing_sni" '.sni = $sni' "$pf"; then
+            echo -e "${RED}  ✗ Не удалось обновить SNI в профиле $(basename "$pf")${NC}"
+            return 1
+          fi
           break
         fi
       done
@@ -6269,16 +6517,13 @@ add_inbound() {
       local inbound_xhttp_path=""
       inbound_metadata=$(read_inbound_transport_metadata "$port" "$transport")
       IFS='|' read -r inbound_grpc_service_name inbound_xhttp_path <<< "$inbound_metadata"
-      write_profile_transport_metadata "$profile_file" "$inbound_grpc_service_name" "$inbound_xhttp_path" || \
-        echo -e "${YELLOW}  ⚠ Не удалось синхронизировать transport metadata профиля $(basename "$profile_file")${NC}"
+      if ! write_profile_transport_metadata "$profile_file" "$inbound_grpc_service_name" "$inbound_xhttp_path"; then
+        echo -e "${RED}  ✗ Не удалось синхронизировать transport metadata профиля $(basename "$profile_file")${NC}"
+        return 1
+      fi
     fi
 
     echo -e "${CYAN} → Добавление клиента в существующий inbound на порту $port${NC}"
-    # Phase 6 note: decryption инбаунда НЕ меняется здесь.
-    # Если existing inbound имеет decryption: "none", а транспорт xhttp — новый клиент
-    # технически добавится в clients[], но его vless:// URL без encryption= НЕ будет работать.
-    # Plan 6.3 даёт кнопку "Upgrade to post-quantum" для переключения профиля на PQ.
-    # REQ-A08: миграции НЕ трогают существующие inbound'ы автоматически.
     # Определяем flow по типу транспорта нового профиля (не копируем слепо от первого клиента)
     local client_flow=""
     case "$transport" in
@@ -6446,6 +6691,64 @@ XHTTPEOF
   return 0
 }
 
+_remove_profile_uuid_from_config() {
+  local uuid=$1
+  local ports_json=$2
+
+  safe_jq_write --arg uuid "$uuid" --argjson ports "$ports_json" '
+    .inbounds |= map(
+      .port as $inbound_port |
+      if (($ports | index($inbound_port)) != null) and any(.settings.clients[]?; .id == $uuid) then
+        .settings.clients = ((.settings.clients // []) | map(select(.id != $uuid))) |
+        if (.settings.clients | length) == 0 then empty else . end
+      else
+        .
+      end
+    )
+  ' "$CONFIG_FILE"
+}
+
+_move_profile_client_between_inbounds() {
+  local uuid=$1
+  local old_port=$2
+  local new_port=$3
+  local target_flow=$4
+  local source_client
+
+  source_client=$(jq -c --arg uuid "$uuid" --argjson port "$old_port" '
+    first(.inbounds[] | select(.port == $port) | .settings.clients[]? | select(.id == $uuid)) // empty
+  ' "$CONFIG_FILE" 2>/dev/null)
+  [[ -n "$source_client" ]] || return 1
+  source_client=$(jq -c --arg flow "$target_flow" '.flow = $flow' <<< "$source_client") || return 1
+
+  safe_jq_write \
+    --arg uuid "$uuid" \
+    --argjson old_port "$old_port" \
+    --argjson new_port "$new_port" \
+    --argjson client "$source_client" '
+      if $old_port == $new_port then
+        error("source and target ports are equal")
+      elif ([.inbounds[] | select(.port == $old_port)] | length) != 1 then
+        error("source inbound not unique")
+      elif ([.inbounds[] | select(.port == $new_port)] | length) != 1 then
+        error("target inbound not unique")
+      elif any(.inbounds[] | select(.port == $new_port) | .settings.clients[]?; .id == $uuid) then
+        error("UUID already exists on target port")
+      else
+        .inbounds |= map(
+          if .port == $new_port then
+            .settings.clients = ((.settings.clients // []) + [$client])
+          elif .port == $old_port then
+            .settings.clients = ((.settings.clients // []) | map(select(.id != $uuid))) |
+            if (.settings.clients | length) == 0 then empty else . end
+          else
+            .
+          end
+        )
+      end
+    ' "$CONFIG_FILE"
+}
+
 # Удаление профиля
 delete_profile_menu() {
   show_ascii
@@ -6484,85 +6787,58 @@ delete_profile_menu() {
       local uuid=$(jq -r '.uuid' "$profile_file")
       local route_count
       route_count=$(_profile_route_count "$profile_file")
-
+      local ports_json
       if [[ "$route_count" =~ ^[0-9]+$ ]] && [[ "$route_count" -gt 0 ]]; then
-        local config_ok=true
-        local port clients_count
-        local route_ports=()
-        while IFS= read -r port; do
-          [[ -z "$port" ]] && continue
-          route_ports+=("$port")
-          clients_count=$(jq -r --argjson port "$port" \
-            '.inbounds[] | select(.port == $port) | .settings.clients | length' \
-            "$CONFIG_FILE" 2>/dev/null)
-          [[ -z "$clients_count" ]] && clients_count=0
-          if [[ "$clients_count" -le 1 ]]; then
-            safe_jq_write --argjson port "$port" 'del(.inbounds[] | select(.port == $port))' "$CONFIG_FILE" || config_ok=false
-          else
-            safe_jq_write --arg uuid "$uuid" --argjson port "$port" \
-              '(.inbounds[] | select(.port == $port) | .settings.clients) |= map(select(.id != $uuid))' \
-              "$CONFIG_FILE" || config_ok=false
-          fi
-        done < <(jq -r '.routes[].port' "$profile_file")
-
-        if [[ "$config_ok" == "true" ]]; then
-          rm -f "$profile_file"
-          local p
-          for p in "${route_ports[@]}"; do
-            close_firewall_port "$p"
-          done
-          safe_restart_xray
-          fix_xray_permissions
-          echo ""
-          echo -e "${GREEN}✓ Multi-route профиль '$profile_name' успешно удален${NC}"
-        else
-          echo ""
-          echo -e "${RED}✗ Ошибка обновления конфига — профиль НЕ удалён${NC}"
-        fi
-        echo ""
+        ports_json=$(jq -c '[.routes[]?.port | select(type == "number")] | unique' "$profile_file" 2>/dev/null)
+      else
+        ports_json=$(jq -c '[.port | select(type == "number")] | unique' "$profile_file" 2>/dev/null)
+      fi
+      if [[ -z "$uuid" || "$uuid" == "null" ]] ||
+         ! jq -e 'type == "array" and length > 0' <<< "$ports_json" >/dev/null 2>&1; then
+        echo -e "${RED}✗ Профиль повреждён: нет корректных uuid/port${NC}"
         echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
         read
         return
       fi
 
-      local port=$(jq -r '.port' "$profile_file")
-
-      # Считаем клиентов через config.json (надёжнее чем файлы профилей)
-      local clients_count=$(jq -r --argjson port "$port" \
-        '.inbounds[] | select(.port == $port) | .settings.clients | length' \
-        "$CONFIG_FILE" 2>/dev/null)
-      [[ -z "$clients_count" ]] && clients_count=0
-
-      local config_ok=false
-      if [[ "$clients_count" -le 1 ]]; then
-        # Единственный клиент (или inbound отсутствует) — удаляем весь inbound
-        if safe_jq_write --argjson port "$port" 'del(.inbounds[] | select(.port == $port))' "$CONFIG_FILE"; then
-          echo -e "${CYAN}  → Удаление inbound на порту $port${NC}"
-          config_ok=true
-        fi
-      else
-        # Есть другие клиенты — удаляем только этого (scoped по порту)
-        if safe_jq_write --arg uuid "$uuid" --argjson port "$port" '
-          (.inbounds[] | select(.port == $port) | .settings.clients) |= map(select(.id != $uuid))
-        ' "$CONFIG_FILE"; then
-          echo -e "${CYAN}  → Удаление клиента из inbound (порт $port используется другими профилями)${NC}"
-          config_ok=true
-        fi
+      local rollback_config=""
+      if ! backup_config "delete_profile_$profile_name" rollback_config; then
+        echo -e "${RED}✗ Профиль НЕ удалён: не удалось создать бэкап config.json${NC}"
+        return
       fi
 
-      if [[ "$config_ok" == "true" ]]; then
-        rm -f "$PROFILES_DIR/$profile_name.json"
-
-        # Close firewall port if not used by other profiles
-        close_firewall_port "$port"
-
-        safe_restart_xray
-        fix_xray_permissions
-        echo ""
-        echo -e "${GREEN}✓ Профиль '$profile_name' успешно удален${NC}"
-      else
-        echo ""
+      # Удаляем только совпавший UUID. Даже stale profile, указывающий на порт
+      # чужого единственного клиента, не имеет права удалить весь inbound.
+      if ! _remove_profile_uuid_from_config "$uuid" "$ports_json"; then
         echo -e "${RED}✗ Ошибка обновления конфига — профиль НЕ удалён${NC}"
+        return
+      fi
+
+      fix_xray_permissions
+      if ! safe_restart_xray "$rollback_config"; then
+        echo -e "${RED}✗ Xray не принял конфиг — профиль НЕ удалён, config.json откачен${NC}"
+        return
+      fi
+
+      if ! rm -f "$profile_file" || [[ -e "$profile_file" ]]; then
+        echo -e "${RED}✗ Не удалось удалить profile JSON — возвращаю прежний config.json${NC}"
+        if _restore_config_backup "$rollback_config"; then
+          safe_restart_xray "$rollback_config" || true
+        fi
+        return
+      fi
+
+      local port
+      while IFS= read -r port; do
+        close_firewall_port "$port"
+      done < <(jq -r '.[]' <<< "$ports_json")
+
+      fix_xray_permissions
+      echo ""
+      if [[ "$route_count" =~ ^[0-9]+$ ]] && [[ "$route_count" -gt 0 ]]; then
+        echo -e "${GREEN}✓ Multi-route профиль '$profile_name' успешно удален${NC}"
+      else
+        echo -e "${GREEN}✓ Профиль '$profile_name' успешно удален${NC}"
       fi
     else
       echo -e "${YELLOW}⚠ Удаление отменено${NC}"
@@ -6940,24 +7216,37 @@ change_sni_menu() {
     echo -n -e "${YELLOW}Применить SNI '$new_sni'? (y/N): ${NC}"
     read confirm
     if [[ "$confirm" =~ ^[yYдД]$ ]]; then
-      # Update config
-      backup_config "sni_change_${port}" || return
+      local rollback_config=""
+      local profiles_snapshot=""
+      backup_config "sni_change_${port}" rollback_config || return
+      _snapshot_profiles profiles_snapshot || return
       if ! update_transport_settings_for_sni "$port" "$new_sni" "$CONFIG_FILE"; then
+        _restore_config_backup "$rollback_config" || true
+        _restore_profiles_snapshot "$profiles_snapshot" || true
+        _discard_profiles_snapshot "$profiles_snapshot"
         echo -e "${RED}✗ Ошибка обновления config.json${NC}"
         sleep 2
         return
       fi
-      if ! safe_restart_xray; then
+      if ! safe_restart_xray "$rollback_config"; then
+        _restore_profiles_snapshot "$profiles_snapshot" || true
+        _discard_profiles_snapshot "$profiles_snapshot"
         sleep 2
         return
       fi
 
       # Update all profile/route JSON entries tied to this inbound port only after Xray accepted config.
       if ! update_all_profiles_on_port "$port" "sni" "$new_sni"; then
+        _restore_profiles_snapshot "$profiles_snapshot" || true
+        if _restore_config_backup "$rollback_config"; then
+          safe_restart_xray "$rollback_config" || true
+        fi
+        _discard_profiles_snapshot "$profiles_snapshot"
         echo -e "${RED}✗ Ошибка обновления профиля${NC}"
         sleep 2
         return
       fi
+      _discard_profiles_snapshot "$profiles_snapshot"
 
       echo ""
       echo -e "${GREEN}✓ SNI '${target_label}' изменен на: ${YELLOW}$new_sni${NC}"
@@ -7100,24 +7389,38 @@ change_sni_menu() {
   fi
 
   # Update config (transport-aware)
-  backup_config "sni_change_${port}" || return
+  local rollback_config=""
+  local profiles_snapshot=""
+  backup_config "sni_change_${port}" rollback_config || return
+  _snapshot_profiles profiles_snapshot || return
   if ! update_transport_settings_for_sni "$port" "$new_sni" "$CONFIG_FILE"; then
+    _restore_config_backup "$rollback_config" || true
+    _restore_profiles_snapshot "$profiles_snapshot" || true
+    _discard_profiles_snapshot "$profiles_snapshot"
     echo -e "${RED}✗ Ошибка обновления config.json${NC}"
     sleep 2
     return
   fi
 
-  if ! safe_restart_xray; then
+  if ! safe_restart_xray "$rollback_config"; then
+    _restore_profiles_snapshot "$profiles_snapshot" || true
+    _discard_profiles_snapshot "$profiles_snapshot"
     sleep 2
     return
   fi
 
   # Update all profile/route JSON entries tied to this inbound port only after Xray accepted config.
   if ! update_all_profiles_on_port "$port" "sni" "$new_sni"; then
+    _restore_profiles_snapshot "$profiles_snapshot" || true
+    if _restore_config_backup "$rollback_config"; then
+      safe_restart_xray "$rollback_config" || true
+    fi
+    _discard_profiles_snapshot "$profiles_snapshot"
     echo -e "${RED}✗ Ошибка обновления профиля${NC}"
     sleep 2
     return
   fi
+  _discard_profiles_snapshot "$profiles_snapshot"
 
   echo ""
   echo -e "${GREEN}✓ SNI '${target_label}' изменен на: ${YELLOW}$new_sni${NC}"
@@ -7301,6 +7604,12 @@ change_port_menu() {
   else
     old_port=$(jq -r '.port' "$profile_file")
   fi
+  if ! _profile_route_matches_live_inbound "$profile_file" "$route_index"; then
+    echo -e "${RED}✗ Profile JSON не совпадает с live inbound — смена порта остановлена${NC}"
+    echo -e "${YELLOW}  Сначала исправьте рассинхронизацию профиля/config.json.${NC}"
+    sleep 2
+    return
+  fi
   echo ""
   echo -e "${CYAN}Текущий порт '${target_label}':${NC} ${GREEN}$old_port${NC}\n"
   echo -e "${YELLOW}Рекомендуемый сценарий для 2026:${NC}\n"
@@ -7365,6 +7674,7 @@ change_port_menu() {
   local profile_grpc_service_name=""
   local profile_xhttp_path=""
   local profile_fingerprint=""
+  local profile_pq_enabled="false"
 
   profile_uuid=$(jq -r '.uuid' "$profile_file")
   if [[ -n "$route_index" ]]; then
@@ -7372,9 +7682,11 @@ change_port_menu() {
     profile_grpc_service_name=$(jq -r --argjson i "$route_index" '.routes[$i].grpc_service_name // ""' "$profile_file")
     profile_xhttp_path=$(jq -r --argjson i "$route_index" '.routes[$i].xhttp_path // ""' "$profile_file")
     profile_fingerprint=$(jq -r --argjson i "$route_index" '.routes[$i].fingerprint // .fingerprint // "firefox"' "$profile_file")
+    profile_pq_enabled=$(jq -r --argjson i "$route_index" '.routes[$i].pq_enabled // false' "$profile_file")
   else
     profile_transport=$(jq -r '.transport' "$profile_file")
     profile_fingerprint=$(jq -r '.fingerprint // "firefox"' "$profile_file")
+    profile_pq_enabled=$(jq -r '.pq_enabled // false' "$profile_file")
     profile_metadata=$(read_profile_transport_metadata "$profile_file")
     IFS='|' read -r profile_grpc_service_name profile_xhttp_path <<< "$profile_metadata"
   fi
@@ -7394,6 +7706,7 @@ change_port_menu() {
   local target_inbound_metadata=""
   local target_inbound_grpc_service_name=""
   local target_inbound_xhttp_path=""
+  local target_inbound_pq_enabled="false"
   local move_to_existing=false
 
   if [[ -n "$target_inbound_tag" ]]; then
@@ -7402,6 +7715,15 @@ change_port_menu() {
     target_inbound_sni=$(jq -r --argjson port "$new_port" '.inbounds[] | select(.port == $port) | .streamSettings.realitySettings.serverNames[0]' "$CONFIG_FILE")
     target_inbound_metadata=$(read_inbound_transport_metadata "$new_port" "$profile_transport")
     IFS='|' read -r target_inbound_grpc_service_name target_inbound_xhttp_path <<< "$target_inbound_metadata"
+    if [[ "$target_inbound_transport" == "xhttp" ]]; then
+      local target_decryption
+      target_decryption=$(jq -r --argjson port "$new_port" \
+        '.inbounds[] | select(.port == $port) | .settings.decryption // "none"' \
+        "$CONFIG_FILE" 2>/dev/null)
+      if [[ -n "$target_decryption" && "$target_decryption" != "none" ]]; then
+        target_inbound_pq_enabled="true"
+      fi
+    fi
 
     # Normalize transport for comparison (tcp-utls, tcp-xudp, tcp-mux use tcp network)
     local profile_network="$profile_transport"
@@ -7419,6 +7741,15 @@ change_port_menu() {
       echo ""
       echo -e "${CYAN}Нельзя объединить разные транспорты на одном порту.${NC}"
       echo ""
+      echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
+      read
+      return
+    fi
+
+    if [[ "$profile_network" == "xhttp" && "$profile_pq_enabled" != "$target_inbound_pq_enabled" ]]; then
+      echo -e "${RED}✗ Порт $new_port использует несовместимый режим XHTTP encryption/PQ${NC}"
+      echo -e "${YELLOW}  Профиль PQ=$profile_pq_enabled, inbound PQ=$target_inbound_pq_enabled${NC}"
+      echo -e "${CYAN}  Выберите свободный порт или XHTTP inbound с тем же режимом.${NC}"
       echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
       read
       return
@@ -7461,93 +7792,126 @@ change_port_menu() {
     return
   fi
 
+  local rollback_config=""
+  local profiles_snapshot=""
+  if ! backup_config "change_port_${profile_name}_${old_port}_to_${new_port}" rollback_config; then
+    echo -e "${RED}✗ Смена порта отменена: не удалось создать бэкап config.json${NC}"
+    return
+  fi
+  if ! _snapshot_profiles profiles_snapshot; then
+    echo -e "${RED}✗ Смена порта отменена: не удалось создать снимок profile JSON${NC}"
+    return
+  fi
+
   if [[ "$move_to_existing" == "true" ]]; then
-    # Move client to existing inbound on target port
     echo -e "${CYAN}  → Перемещение клиента на порт $new_port...${NC}"
 
-    # Определяем flow по типу транспорта профиля
     local target_flow=""
     case "$profile_transport" in
       tcp|tcp-utls|tcp-xudp) target_flow="xtls-rprx-vision" ;;
       tcp-mux|grpc|xhttp) target_flow="" ;;
     esac
 
-    # Шаг 1: Добавить клиента на новый порт
-    if ! safe_jq_write --arg uuid "$profile_uuid" --argjson port "$new_port" --arg flow "$target_flow" '
-      (.inbounds[] | select(.port == $port) | .settings.clients) += [{"id": $uuid, "flow": $flow}]
-    ' "$CONFIG_FILE"; then
-      echo -e "${RED}  ✗ Ошибка добавления клиента на порт $new_port — операция отменена${NC}"
-      echo -n -e "${YELLOW}Нажмите Enter...${NC}"; read
+    # Добавление на новый порт, удаление со старого и удаление опустевшего
+    # inbound происходят одним jq commit — промежуточного полусостояния нет.
+    if ! _move_profile_client_between_inbounds \
+      "$profile_uuid" "$old_port" "$new_port" "$target_flow"; then
+      _restore_config_backup "$rollback_config" || true
+      _restore_profiles_snapshot "$profiles_snapshot" || true
+      _discard_profiles_snapshot "$profiles_snapshot"
+      echo -e "${RED}✗ Не удалось атомарно переместить UUID — операция отменена${NC}"
       return
     fi
 
-    # Шаг 2: Удалить клиента со старого порта
-    if ! safe_jq_write --arg uuid "$profile_uuid" --argjson port "$old_port" '
-      (.inbounds[] | select(.port == $port) | .settings.clients) |= map(select(.id != $uuid))
-    ' "$CONFIG_FILE"; then
-      echo -e "${RED}  ✗ Ошибка удаления клиента с порта $old_port${NC}"
-      echo -e "${YELLOW}  → Откат: удаление клиента с нового порта $new_port...${NC}"
-      safe_jq_write --arg uuid "$profile_uuid" --argjson port "$new_port" '
-        (.inbounds[] | select(.port == $port) | .settings.clients) |= map(select(.id != $uuid))
-      ' "$CONFIG_FILE"
-      echo -n -e "${YELLOW}Нажмите Enter...${NC}"; read
-      return
-    fi
-
-    # Шаг 3: Если старый inbound пуст — удалить его
-    local old_clients_count=$(jq -r --argjson port "$old_port" '.inbounds[] | select(.port == $port) | .settings.clients | length' "$CONFIG_FILE")
-    if [[ "$old_clients_count" == "0" ]]; then
-      echo -e "${CYAN}  → Удаление пустого inbound на порту $old_port...${NC}"
-      safe_jq_write --argjson port "$old_port" 'del(.inbounds[] | select(.port == $port))' "$CONFIG_FILE"
-      close_firewall_port "$old_port"
-    fi
-
-    # Шаг 4: Обновить port + SNI. Client fingerprint выбранного маршрута сохраняется.
     if [[ -n "$route_index" ]]; then
-      safe_jq_write --argjson i "$route_index" --argjson port "$new_port" --arg sni "$target_inbound_sni" --arg fp "$profile_fingerprint" '
-        .routes[$i].port = $port |
-        .routes[$i].sni = $sni |
-        .routes[$i].fingerprint = $fp |
-        if $i == 0 then .port = $port | .sni = $sni | .fingerprint = $fp else . end
-      ' "$profile_file"
-      safe_jq_write --argjson i "$route_index" --arg grpc_service_name "$target_inbound_grpc_service_name" --arg xhttp_path "$target_inbound_xhttp_path" '
-        if .routes[$i].transport == "grpc" then
-          .routes[$i].grpc_service_name = $grpc_service_name |
-          if $i == 0 then .grpc_service_name = $grpc_service_name else . end
-        elif .routes[$i].transport == "xhttp" then
-          .routes[$i].xhttp_path = $xhttp_path |
-          if $i == 0 then .xhttp_path = $xhttp_path else . end
-        else
-          .
-        end
-      ' "$profile_file"
+      if ! safe_jq_write \
+        --argjson i "$route_index" \
+        --argjson port "$new_port" \
+        --arg sni "$target_inbound_sni" \
+        --arg fp "$profile_fingerprint" \
+        --arg grpc_service_name "$target_inbound_grpc_service_name" \
+        --arg xhttp_path "$target_inbound_xhttp_path" '
+          if (.routes[$i] // null) == null then error("route not found") else
+            .routes[$i].port = $port |
+            .routes[$i].sni = $sni |
+            .routes[$i].fingerprint = $fp |
+            if .routes[$i].transport == "grpc" then
+              .routes[$i].grpc_service_name = $grpc_service_name
+            elif .routes[$i].transport == "xhttp" then
+              .routes[$i].xhttp_path = $xhttp_path
+            else . end |
+            if $i == 0 then
+              .port = $port | .sni = $sni | .fingerprint = $fp |
+              if .routes[$i].transport == "grpc" then .grpc_service_name = $grpc_service_name
+              elif .routes[$i].transport == "xhttp" then .xhttp_path = $xhttp_path
+              else . end
+            else . end
+          end
+        ' "$profile_file"; then
+        _restore_config_backup "$rollback_config" || true
+        _restore_profiles_snapshot "$profiles_snapshot" || true
+        _discard_profiles_snapshot "$profiles_snapshot"
+        echo -e "${RED}✗ Profile JSON не обновлён — операция полностью откачена${NC}"
+        return
+      fi
     else
-      safe_jq_write --argjson port "$new_port" --arg sni "$target_inbound_sni" --arg fp "$profile_fingerprint" \
-        '.port = $port | .sni = $sni | .fingerprint = $fp' "$profile_file"
-      write_profile_transport_metadata "$profile_file" "$target_inbound_grpc_service_name" "$target_inbound_xhttp_path"
+      if ! safe_jq_write \
+        --argjson port "$new_port" \
+        --arg sni "$target_inbound_sni" \
+        --arg fp "$profile_fingerprint" \
+        --arg grpc_service_name "$target_inbound_grpc_service_name" \
+        --arg xhttp_path "$target_inbound_xhttp_path" '
+          .port = $port | .sni = $sni | .fingerprint = $fp |
+          if .transport == "grpc" then .grpc_service_name = $grpc_service_name
+          elif .transport == "xhttp" then .xhttp_path = $xhttp_path
+          else . end
+        ' "$profile_file"; then
+        _restore_config_backup "$rollback_config" || true
+        _restore_profiles_snapshot "$profiles_snapshot" || true
+        _discard_profiles_snapshot "$profiles_snapshot"
+        echo -e "${RED}✗ Profile JSON не обновлён — операция полностью откачена${NC}"
+        return
+      fi
     fi
 
   else
-    # Move entire inbound to new port (original logic)
-    if ! safe_jq_write --arg old_tag "inbound-$old_port" --argjson new_port "$new_port" '
-      (.inbounds[] | select(.tag == $old_tag) | .port) |= $new_port |
-      (.inbounds[] | select(.tag == $old_tag) | .tag) |= ("inbound-" + ($new_port | tostring))
+    if ! safe_jq_write --argjson old_port "$old_port" --argjson new_port "$new_port" '
+      if ([.inbounds[] | select(.port == $old_port)] | length) != 1 then
+        error("source inbound not unique")
+      else
+        (.inbounds[] | select(.port == $old_port) | .port) = $new_port |
+        (.inbounds[] | select(.port == $new_port) | .tag) = ("inbound-" + ($new_port | tostring))
+      end
     ' "$CONFIG_FILE"; then
+      _restore_config_backup "$rollback_config" || true
+      _restore_profiles_snapshot "$profiles_snapshot" || true
+      _discard_profiles_snapshot "$profiles_snapshot"
       echo -e "${RED}  ✗ Ошибка смены порта в конфиге — операция отменена${NC}"
-      echo -n -e "${YELLOW}Нажмите Enter...${NC}"; read
       return
     fi
 
-    # Обновить ВСЕ профили/маршруты на старом порту (inbound перенесён целиком)
-    update_all_profiles_port_reference "$old_port" "$new_port"
-
-    # Update firewall
-    open_firewall_port "$new_port"
-    close_firewall_port "$old_port"
+    if ! update_all_profiles_port_reference "$old_port" "$new_port"; then
+      _restore_config_backup "$rollback_config" || true
+      _restore_profiles_snapshot "$profiles_snapshot" || true
+      _discard_profiles_snapshot "$profiles_snapshot"
+      echo -e "${RED}✗ Не удалось обновить все profile JSON — операция полностью откачена${NC}"
+      return
+    fi
   fi
 
   fix_xray_permissions
-  safe_restart_xray
+  if ! safe_restart_xray "$rollback_config"; then
+    _restore_profiles_snapshot "$profiles_snapshot" || true
+    _discard_profiles_snapshot "$profiles_snapshot"
+    echo -e "${RED}✗ Xray не принял новый порт — config и profile JSON откачены${NC}"
+    return
+  fi
+  _discard_profiles_snapshot "$profiles_snapshot"
+
+  open_firewall_port "$new_port" || \
+    echo -e "${YELLOW}⚠ Новый порт $new_port не открыт через UFW — проверьте firewall вручную${NC}"
+  close_firewall_port "$old_port"
+
   echo ""
   echo -e "${GREEN}✓ Порт '${target_label}' изменен: ${YELLOW}$old_port → $new_port${NC}"
   echo ""
@@ -7663,31 +8027,56 @@ manage_profile_advanced_menu() {
     return
   fi
 
+  local rollback_config=""
+  local profiles_snapshot=""
+  if ! backup_config "vision_seed" rollback_config; then
+    echo -e "${RED}✗ Не удалось создать бэкап config.json${NC}"
+    return
+  fi
+  if ! _snapshot_profiles profiles_snapshot; then
+    echo -e "${RED}✗ Не удалось создать снимок profile JSON${NC}"
+    return
+  fi
+
   if ! safe_jq_write \
       --argjson testpre "$testpre_val" \
       --argjson testseed "$testseed_json" \
       '. + {testpre: $testpre, testseed: $testseed}' \
       "$profile_file"; then
+    _discard_profiles_snapshot "$profiles_snapshot"
     echo -e "${RED}✗ Ошибка записи profile JSON${NC}"
     sleep 2
     return
   fi
 
-  backup_config "vision_seed"
   if ! safe_jq_write \
       --argjson port "$port" \
       --arg uuid "$uuid" \
       --argjson testpre "$testpre_val" \
       --argjson testseed "$testseed_json" \
-      '(.inbounds[] | select(.port == $port) | .settings.clients[] | select(.id == $uuid)) |= (. + {testpre: $testpre, testseed: $testseed})' \
+      'if any(.inbounds[] | select(.port == $port) | .settings.clients[]?; .id == $uuid) then
+         (.inbounds[] | select(.port == $port) | .settings.clients[] | select(.id == $uuid)) |=
+           (. + {testpre: $testpre, testseed: $testseed})
+       else
+         error("profile UUID not found on inbound")
+       end' \
       "$CONFIG_FILE"; then
+    _restore_config_backup "$rollback_config" || true
+    _restore_profiles_snapshot "$profiles_snapshot" || true
+    _discard_profiles_snapshot "$profiles_snapshot"
     echo -e "${RED}✗ Ошибка записи config.json${NC}"
     sleep 2
     return
   fi
 
   fix_xray_permissions
-  safe_restart_xray
+  if ! safe_restart_xray "$rollback_config"; then
+    _restore_profiles_snapshot "$profiles_snapshot" || true
+    _discard_profiles_snapshot "$profiles_snapshot"
+    echo -e "${RED}✗ Xray не принял Vision Seed — config и profile JSON откачены${NC}"
+    return
+  fi
+  _discard_profiles_snapshot "$profiles_snapshot"
   echo -e "${GREEN}Vision Seed применен. testpre=${testpre_val}, testseed=${testseed_json}${NC}"
   echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
   read -r _
@@ -8028,6 +8417,26 @@ upgrade_profile_to_pq_menu() {
   local sni=$(jq -r '.sni // "www.ozon.ru"' "$pfile")
   local fingerprint=$(jq -r '.fingerprint // "firefox"' "$pfile")
   local old_transport=$(jq -r '.transport // "tcp"' "$pfile")
+  local inbound_count live_sni live_clients_json live_clients_count
+  inbound_count=$(jq -r --argjson p "$port" '[.inbounds[] | select(.port == $p)] | length' "$CONFIG_FILE" 2>/dev/null)
+  if [[ "$inbound_count" != "1" ]]; then
+    echo -e "${RED}✗ На порту $port найдено inbound: ${inbound_count:-0}; ожидался ровно один${NC}"
+    sleep 2
+    return
+  fi
+  live_sni=$(jq -r --argjson p "$port" \
+    '.inbounds[] | select(.port == $p) | .streamSettings.realitySettings.serverNames[0] // empty' \
+    "$CONFIG_FILE" 2>/dev/null)
+  [[ -n "$live_sni" ]] && sni="$live_sni"
+  live_clients_json=$(jq -c --argjson p "$port" '
+    [.inbounds[] | select(.port == $p) | .settings.clients[]? | .flow = ""]
+  ' "$CONFIG_FILE" 2>/dev/null)
+  live_clients_count=$(jq -r 'length' <<< "$live_clients_json" 2>/dev/null)
+  if [[ ! "$live_clients_count" =~ ^[0-9]+$ ]] || [[ "$live_clients_count" -lt 1 ]]; then
+    echo -e "${RED}✗ Live inbound на порту $port не содержит клиентов — апгрейд прерван${NC}"
+    sleep 2
+    return
+  fi
 
   # H1 fix: short_id ЧИТАЕМ ИЗ СУЩЕСТВУЮЩЕГО INBOUND (config.json), НЕ из profile JSON.
   # create_profile() в xrayebator НИКОГДА не сохраняет short_id в profile JSON.
@@ -8045,6 +8454,12 @@ upgrade_profile_to_pq_menu() {
 
   # CRITICAL: проверка shared inbound — если на порту другие профили, ВСЕ они уйдут в PQ
   local profiles_on_port=($(get_profiles_on_port "$port"))
+  local p
+  local selected_listed=false
+  for p in "${profiles_on_port[@]}"; do
+    [[ "$p" == "$selected" ]] && selected_listed=true
+  done
+  [[ "$selected_listed" == "true" ]] || profiles_on_port+=("$selected")
   echo ""
   echo -e "${RED}╔═══════════════════════════════════════════════════════════════╗${NC}"
   echo -e "${RED}║                  ⚠ ВНИМАНИЕ                                  ║${NC}"
@@ -8062,7 +8477,7 @@ upgrade_profile_to_pq_menu() {
   echo -e "  ${GREEN}• Порт сохраняется: $port${NC}"
   echo -e "  ${GREEN}• SNI сохраняется (читается из существующего инбаунда): $sni${NC}"
   echo ""
-  if [[ ${#profiles_on_port[@]} -gt 1 ]]; then
+  if [[ "$live_clients_count" -gt 1 ]]; then
     echo -e "${RED}⚠ На порту $port размещён ОБЩИЙ inbound — операция МАССОВАЯ и НЕОБРАТИМАЯ:${NC}"
     echo -e "  ${RED}• ВСЕ перечисленные ниже профили будут переведены на XHTTP+PQ${NC}"
     echo -e "  ${RED}• TCP+Vision профили на этом порту потеряют flow=xtls-rprx-vision${NC}"
@@ -8074,6 +8489,9 @@ upgrade_profile_to_pq_menu() {
     for p in "${profiles_on_port[@]}"; do
       echo -e "  ${CYAN}•${NC} $p"
     done
+    if [[ "$live_clients_count" -gt "${#profiles_on_port[@]}" ]]; then
+      echo -e "  ${YELLOW}• unmanaged UUID без profile JSON: $((live_clients_count - ${#profiles_on_port[@]}))${NC}"
+    fi
     echo ""
   fi
   echo -n -e "${YELLOW}Подтвердите апгрейд (y/N): ${NC}"
@@ -8084,24 +8502,35 @@ upgrade_profile_to_pq_menu() {
 
   # === Phase 1b: MUTATION ===
   # Цель: атомарно заменить inbound на XHTTP+PQ + рестартнуть Xray.
-  # Все мутации защищены backup + safe_jq_write + safe_restart_xray (auto-rollback).
-  # Если safe_restart_xray fails — config откачен, Xray работает на старой конфигурации,
-  # profile JSON ещё НЕ менялся (Phase 1c не достигнута) — состояние согласовано.
+  # Все мутации защищены точным backup + снимком profile JSON.
   echo -e "${CYAN}→ Phase 1b: бэкап и замена inbound в config.json${NC}"
 
-  # Шаг A: бэкап (на случай ошибки)
-  backup_config "upgrade_profile_pq_$selected"
+  local rollback_config=""
+  local profiles_snapshot=""
+  if ! backup_config "upgrade_profile_pq_$selected" rollback_config; then
+    echo -e "${RED}✗ Не удалось создать бэкап config.json${NC}"
+    return
+  fi
+  if ! _snapshot_profiles profiles_snapshot; then
+    echo -e "${RED}✗ Не удалось создать снимок profile JSON${NC}"
+    return
+  fi
 
   # Шаг B: читаем содержимое decryption ОДИН раз
   local VLESS_DECRYPTION
   VLESS_DECRYPTION=$(cat "$VLESS_DECRYPTION_FILE")
   if [[ -z "$VLESS_DECRYPTION" ]]; then
+    _discard_profiles_snapshot "$profiles_snapshot"
     echo -e "${RED}✗ $VLESS_DECRYPTION_FILE пуст — апгрейд прерван${NC}"; sleep 2; return
   fi
 
   # Шаг C: сгенерировать XHTTP path (как делает add_inbound) — простой случайный
   local xhttp_path="/$(openssl rand -hex 8)"
   local PRIVATE_KEY=$(cat "$PRIVATE_KEY_FILE")
+  if [[ -z "$PRIVATE_KEY" ]]; then
+    _discard_profiles_snapshot "$profiles_snapshot"
+    echo -e "${RED}✗ $PRIVATE_KEY_FILE пуст — апгрейд прерван${NC}"; sleep 2; return
+  fi
 
   # Шаг D: REPLACE inbound с port=$port на новый XHTTP+pq shape (с СОХРАНЁННЫМ uuid)
   # Стратегия: del-by-port + append (НЕ object merge — иначе clobber freedom outbound и т.п.)
@@ -8151,56 +8580,65 @@ upgrade_profile_to_pq_menu() {
 UPGEOF
 )
 
-  # ВАЖНО: если на порту были другие профили, их UUID должны быть в clients[]. Собираем их.
-  if [[ ${#profiles_on_port[@]} -gt 1 ]]; then
-    # Собрать массив clients из всех profile JSON на этом порту
-    local clients_json="["
-    local first=1
-    for p in "${profiles_on_port[@]}"; do
-      local pu=$(jq -r '.uuid' "$PROFILES_DIR/$p.json")
-      if [[ $first -eq 1 ]]; then first=0; else clients_json+=","; fi
-      clients_json+="{\"id\":\"$pu\",\"flow\":\"\"}"
-    done
-    clients_json+="]"
-    # Подменить settings.clients в new_inbound через jq
-    new_inbound=$(echo "$new_inbound" | jq --argjson c "$clients_json" '.settings.clients = $c')
+  # Источник истины — live inbound, а не список profile JSON. Так orphan/stale
+  # клиенты не исчезают при shared-port upgrade; меняется только их flow.
+  if ! new_inbound=$(jq -c --argjson clients "$live_clients_json" \
+    '.settings.clients = $clients' <<< "$new_inbound"); then
+    _discard_profiles_snapshot "$profiles_snapshot"
+    echo -e "${RED}✗ Не удалось сохранить live clients для PQ inbound${NC}"
+    return
   fi
 
   # Шаг E: атомарная замена — del-by-port + append
   if ! safe_jq_write --argjson port "$port" --argjson new_in "$new_inbound" \
     '(.inbounds |= map(select(.port != $port))) | .inbounds += [$new_in]' \
     "$CONFIG_FILE"; then
+    _restore_config_backup "$rollback_config" || true
+    _restore_profiles_snapshot "$profiles_snapshot" || true
+    _discard_profiles_snapshot "$profiles_snapshot"
     echo -e "${RED}✗ Ошибка обновления config.json${NC}"; sleep 2; return
   fi
 
+  fix_xray_permissions
+  if ! safe_restart_xray "$rollback_config"; then
+    _restore_profiles_snapshot "$profiles_snapshot" || true
+    _discard_profiles_snapshot "$profiles_snapshot"
+    echo -e "${RED}✗ Xray не принял PQ inbound — config и profile JSON откачены${NC}"
+    sleep 3
+    return
+  fi
+
   # === Phase 1c: POST-MUTATION ===
-  # Цель: синхронизировать profile JSON со state'ом config.json + показать новую ссылку.
-  # Достигается ТОЛЬКО если Phase 1b прошла полностью (config.json обновлён + Xray рестартнул).
-  # Если safe_jq_write на profile JSON фейлится — config.json уже на новом inbound, оператор
-  # увидит ошибку и сможет исправить profile JSON вручную (jq + safe_jq_write helper).
+  # Только после успешного рестарта синхронизируем profile JSON.
   echo -e "${CYAN}→ Phase 1c: синхронизация profile JSON и вывод новой vless:// ссылки${NC}"
 
-  # Шаг F: обновить profile JSON (selected И всех на порту, если shared)
   # H1 fix: НЕ записываем short_id в profile JSON. Schema v1 не имела этого поля,
   # schema v2 НЕ должна вводить новое поле без явного решения. short_id живёт в
   # config.json:.inbounds[].streamSettings.realitySettings.shortIds[0] — один источник истины.
+  local profiles_ok=true
   for p in "${profiles_on_port[@]}"; do
     if ! safe_jq_write --arg path "$xhttp_path" \
       '.transport = "xhttp" | .schema_version = 2 | .pq_enabled = true | .xhttp_path = $path' \
       "$PROFILES_DIR/$p.json"; then
       echo -e "${RED}  ✗ Ошибка обновления profile JSON: $p${NC}"
+      profiles_ok=false
     else
       echo -e "${CYAN}  → Обновлен: ${YELLOW}$p${NC}"
     fi
   done
 
-  # Шаг G: восстановить permissions и рестарт с auto-rollback
-  fix_xray_permissions
-  if ! safe_restart_xray; then
-    echo -e "${RED}✗ safe_restart_xray failed — config откачен на бэкап upgrade_profile_pq_$selected${NC}"
-    echo -e "${YELLOW}  Profile JSON МОЖЕТ остаться изменённым — проверьте: jq . $pfile${NC}"
-    sleep 3; return
+  if [[ "$profiles_ok" != "true" ]]; then
+    _restore_profiles_snapshot "$profiles_snapshot" || true
+    if _restore_config_backup "$rollback_config"; then
+      safe_restart_xray "$rollback_config" || true
+    fi
+    _discard_profiles_snapshot "$profiles_snapshot"
+    echo -e "${RED}✗ Profile JSON не синхронизированы — PQ upgrade полностью откачен${NC}"
+    sleep 3
+    return
   fi
+  _discard_profiles_snapshot "$profiles_snapshot"
+  fix_xray_permissions
 
   echo ""
   echo -e "${GREEN}✓ Профиль '$selected' успешно переведён на XHTTP+PQ${NC}"
@@ -8254,38 +8692,46 @@ uninstall_adguard_home() {
 
   echo ""
 
-  # Шаг 3: Остановка службы
-  echo -e "${CYAN}Шаг 1/6: Остановка AdGuard Home...${NC}"
+  # Сначала переключаем Xray с AdGuard DNS, пока сам AdGuard ещё доступен.
+  # При ошибке валидации точный backup возвращает полностью рабочее состояние.
+  echo -e "${CYAN}Шаг 1/5: Переключение Xray DNS на DoH Local...${NC}"
+  local rollback_config=""
+  if [[ ! -f "$CONFIG_FILE" ]] ||
+     ! backup_config "adguard_dns_restore" rollback_config ||
+     ! safe_jq_write '.dns = {
+       "servers": [
+         "https+local://1.1.1.1/dns-query",
+         "localhost"
+       ],
+       "queryStrategy": "UseIPv4",
+       "disableCache": false
+     }' "$CONFIG_FILE"; then
+    [[ -n "$rollback_config" ]] && _restore_config_backup "$rollback_config" || true
+    echo -e "${RED}✗ Xray DNS не подготовлен — AdGuard НЕ удалён${NC}"
+    return
+  fi
+  fix_xray_permissions
+  if ! safe_restart_xray "$rollback_config"; then
+    echo -e "${RED}✗ Xray не принял DoH-конфиг — AdGuard НЕ удалён${NC}"
+    return
+  fi
+  echo -e "${GREEN}  ✓ Xray DNS → DoH Local${NC}"
+
+  echo -e "${CYAN}Шаг 2/5: Остановка AdGuard Home...${NC}"
   systemctl stop AdGuardHome 2>/dev/null || true
   systemctl disable AdGuardHome 2>/dev/null || true
   echo -e "${GREEN}  ✓ Служба остановлена${NC}"
 
-  # Шаг 4: Удаление
-  echo -e "${CYAN}Шаг 2/6: Удаление файлов...${NC}"
+  echo -e "${CYAN}Шаг 3/5: Удаление файлов...${NC}"
   /opt/AdGuardHome/AdGuardHome -s uninstall 2>/dev/null || true
   rm -rf /opt/AdGuardHome/
+  if [[ -e /opt/AdGuardHome ]]; then
+    echo -e "${RED}✗ Каталог /opt/AdGuardHome не удалён; Xray уже безопасно переключён на DoH${NC}"
+    return
+  fi
   echo -e "${GREEN}  ✓ AdGuard Home удалён${NC}"
 
-  # Шаг 5: Восстановление Xray DNS
-  echo -e "${CYAN}Шаг 3/6: Восстановление Xray DNS...${NC}"
-  if [[ -f "$CONFIG_FILE" ]]; then
-    backup_config "adguard_dns_restore"
-    if safe_jq_write '.dns = {
-      "servers": [
-        "https+local://1.1.1.1/dns-query",
-        "localhost"
-      ],
-      "queryStrategy": "UseIPv4",
-      "disableCache": false
-    }' "$CONFIG_FILE"; then
-      echo -e "${GREEN}  ✓ Xray DNS → DoH Local${NC}"
-    else
-      echo -e "${RED}  ✗ Ошибка восстановления Xray DNS${NC}"
-    fi
-  fi
-
-  # Шаг 6: Восстановление systemd-resolved
-  echo -e "${CYAN}Шаг 4/6: Восстановление systemd-resolved...${NC}"
+  echo -e "${CYAN}Шаг 4/5: Восстановление systemd-resolved...${NC}"
   if [[ -f /etc/systemd/resolved.conf.d/adguardhome.conf ]]; then
     rm -f /etc/systemd/resolved.conf.d/adguardhome.conf
     # Восстанавливаем resolv.conf на стандартный stub
@@ -8299,7 +8745,7 @@ uninstall_adguard_home() {
   fi
 
   # Закрытие портов
-  echo -e "${CYAN}Шаг 5/6: Закрытие портов...${NC}"
+  echo -e "${CYAN}Шаг 5/5: Закрытие портов...${NC}"
   if command -v ufw &>/dev/null; then
     ufw delete allow 53/tcp >/dev/null 2>&1
     ufw delete allow 53/udp >/dev/null 2>&1
@@ -8307,10 +8753,6 @@ uninstall_adguard_home() {
     ufw reload >/dev/null 2>&1
   fi
   echo -e "${GREEN}  ✓ Порты проверены${NC}"
-
-  # Перезапуск Xray
-  echo -e "${CYAN}Шаг 6/6: Перезапуск Xray...${NC}"
-  safe_restart_xray
 
   echo ""
   echo -e "${GREEN}╔═══════════════════════════════════════════════════════════╗${NC}"

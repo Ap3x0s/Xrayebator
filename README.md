@@ -145,18 +145,19 @@ sudo xrayebator
 
 | Пункт | Когда использовать |
 | --- | --- |
-| `1) Создать HAPP-подписку по IP VPS` | Быстрый режим без домена. Xrayebator создаст multi-route профиль `happ` с 6 маршрутами и даст `https://<ip>/sub/<token>`. IP certificates у Let's Encrypt short-lived, renew должен работать. |
-| `2) Создать HAPP-подписку по домену` | Рекомендуется для постоянного использования. Xrayebator создаст multi-route профиль `happ` с 6 маршрутами и даст `https://sub.example.com/sub/<token>`. |
+| `1) Создать HAPP-подписку по IP VPS` | Быстрый режим без домена. Xrayebator создаст multi-route профиль `happ` с 7 маршрутами; HAPP получит 6 совместимых routes и URL `https://<ip>/sub/<token>`. IP certificates у Let's Encrypt short-lived, renew должен работать. |
+| `2) Создать HAPP-подписку по домену` | Рекомендуется для постоянного использования. Xrayebator создаст профиль с 7 маршрутами; HAPP получит 6 совместимых routes и URL `https://sub.example.com/sub/<token>`. |
 | `3) local-only debug` | Только для проверки на сервере или через SSH tunnel. Не работает напрямую с телефона. |
 
 4. Импортируйте показанный subscription URL или QR-код в HAPP.
 
-HAPP-flow автоматически создаёт или переиспользует multi-route профиль с набором маршрутов:
+HAPP-flow автоматически создаёт или переиспользует multi-route профиль с семью маршрутами:
 
 | Маршрут | Назначение |
 | --- | --- |
 | `xhttp-legacy` | HAPP-compatible XHTTP fallback, `decryption=none`, без PQ. |
 | `xhttp-pq` | XHTTP + VLESS post-quantum encryption `mlkem768x25519plus`. |
+| `tcp-mux` | TCP Reality без Vision-flow; отдельный совместимый fallback. |
 | `grpc` | gRPC Reality, чувствителен к HTTP/2/SNI. |
 | `tcp-vision` | TCP Reality с Vision-flow. |
 | `tcp-utls-firefox` | TCP Vision с fingerprint Firefox. |
@@ -182,7 +183,7 @@ https://<domain-or-ip>/sub/<32-hex-token>
 
 - HAPP получает plain-text список `vless://` routes, HAPP headers и опциональный `happ://routing/onadd/...`.
 - Порядок routes в subscription стабилен, но не является универсальным рейтингом: доступность транспорта зависит от клиента, версии Xray-core и конкретной сети.
-- Если есть `xhttp-legacy`, HAPP не получает PQ-XHTTP как XHTTP-кандидат.
+- Если есть `xhttp-legacy`, HAPP не получает PQ-XHTTP как XHTTP-кандидат: в profile JSON остаётся 7 routes, в HAPP subscription уходит 6.
 - v2rayNG/v2rayN получают классический base64 body без HAPP metadata.
 - Старые profile JSON без live inbound не показываются в меню подписки; старые URL возвращают `410 Gone`.
 
@@ -488,7 +489,7 @@ for test_file in validation/*.sh; do bash "$test_file" || exit; done
 shellcheck -S error xrayebator install.sh update.sh uninstall.sh
 ```
 
-В `validation/` находятся шесть статических/локальных regression-тестов. Они проверяют security policy, product defaults, cascade routing, HAPP handler, синхронность Xray-core updater и генерацию VLESS URL, но не заменяют установку на disposable VPS.
+В `validation/` находится набор статических и локальных regression-тестов. Они проверяют rollback операций и project update, миграции маршрутов, HAPP handler, cascade routing, синхронность Xray-core updater и генерацию VLESS URL, но не заменяют установку на disposable VPS.
 
 Запуск меню:
 
