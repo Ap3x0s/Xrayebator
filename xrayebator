@@ -1318,21 +1318,6 @@ _find_persistent_bbr_sources() {
   done
 }
 
-_restore_legacy_tcp_tuning_files() {
-  local backup_dir="$1"
-  local legacy_file="$2"
-  local sysctl_conf="$3"
-  local ok=true
-
-  if [[ -f "$backup_dir/99-xrayebator-tcp.conf" ]]; then
-    cp -a -- "$backup_dir/99-xrayebator-tcp.conf" "$legacy_file" || ok=false
-  fi
-  if [[ -f "$backup_dir/sysctl.conf" ]]; then
-    cp -a -- "$backup_dir/sysctl.conf" "$sysctl_conf" || ok=false
-  fi
-  [[ "$ok" == "true" ]]
-}
-
 # Одноразовая host-state migration для v3.0.
 # Удаляет только точные файлы/блоки, созданные старыми версиями Xrayebator,
 # немедленно уводит активный congestion control с BBR и не трогает чужие
@@ -1366,69 +1351,63 @@ migrate_remove_legacy_tcp_tuning_v3() {
   local target_cc=""
   local remaining_sources=""
   local strip_rc=0
+  local unsafe_config=0
 
   if [[ -e "$legacy_file" || -L "$legacy_file" ]]; then
     if [[ -L "$legacy_file" || ! -f "$legacy_file" ]] \
        || [[ "$(stat -c %u "$legacy_file" 2>/dev/null)" != "$expected_uid" ]] \
        || ! _is_known_legacy_tcp_tuning_file "$legacy_file"; then
       echo -e "${RED}  ✗ Неизвестный или изменённый файл оставлен без изменений: $legacy_file${NC}"
-      return 1
+      unsafe_config=1
+    else
+      mkdir -p "$XRAY_BACKUPS_DIR" || return 1
+      backup_dir=$(mktemp -d "$XRAY_BACKUPS_DIR/host-tuning-v3.XXXXXX") || return 1
+      chmod 0700 "$backup_dir"
+      cp -a -- "$legacy_file" "$backup_dir/99-xrayebator-tcp.conf" || return 1
+      rm -f -- "$legacy_file" || return 1
+      echo -e "${GREEN}  ✓ Удалён legacy sysctl.d-файл Xrayebator${NC}"
     fi
-    mkdir -p "$XRAY_BACKUPS_DIR" || return 1
-    backup_dir=$(mktemp -d "$XRAY_BACKUPS_DIR/host-tuning-v3.XXXXXX") || return 1
-    chmod 0700 "$backup_dir"
-    cp -a -- "$legacy_file" "$backup_dir/99-xrayebator-tcp.conf" || return 1
-    rm -f -- "$legacy_file" || return 1
-    echo -e "${GREEN}  ✓ Удалён legacy sysctl.d-файл Xrayebator${NC}"
   fi
 
   if [[ -e "$sysctl_conf" || -L "$sysctl_conf" ]]; then
     if [[ -L "$sysctl_conf" || ! -f "$sysctl_conf" ]] \
        || [[ "$(stat -c %u "$sysctl_conf" 2>/dev/null)" != "$expected_uid" ]]; then
-      [[ -n "$backup_dir" ]] && _restore_legacy_tcp_tuning_files "$backup_dir" "$legacy_file" "$sysctl_conf"
       echo -e "${RED}  ✗ Небезопасный системный конфиг оставлен без изменений: $sysctl_conf${NC}"
-      return 1
-    fi
-
-    candidate=$(mktemp "$(dirname "$sysctl_conf")/.xrayebator-sysctl.XXXXXX") || {
-      [[ -n "$backup_dir" ]] && _restore_legacy_tcp_tuning_files "$backup_dir" "$legacy_file" "$sysctl_conf"
-      return 1
-    }
-    _strip_legacy_tcp_tuning_block "$sysctl_conf" "$candidate" || strip_rc=$?
-    if [[ "$strip_rc" -eq 0 ]]; then
-      if [[ -z "$backup_dir" ]]; then
-        mkdir -p "$XRAY_BACKUPS_DIR" || { rm -f -- "$candidate"; return 1; }
-        backup_dir=$(mktemp -d "$XRAY_BACKUPS_DIR/host-tuning-v3.XXXXXX") || {
-          rm -f -- "$candidate"
-          return 1
-        }
-        chmod 0700 "$backup_dir"
-      fi
-      cp -a -- "$sysctl_conf" "$backup_dir/sysctl.conf" || {
-        rm -f -- "$candidate"
-        _restore_legacy_tcp_tuning_files "$backup_dir" "$legacy_file" "$sysctl_conf"
-        return 1
-      }
-      chmod --reference="$sysctl_conf" "$candidate" \
-        && chown --reference="$sysctl_conf" "$candidate" \
-        && mv -fT -- "$candidate" "$sysctl_conf" || {
-          rm -f -- "$candidate"
-          _restore_legacy_tcp_tuning_files "$backup_dir" "$legacy_file" "$sysctl_conf"
-          return 1
-        }
-      echo -e "${GREEN}  ✓ Удалён legacy-блок Xrayebator из sysctl.conf${NC}"
-    elif [[ "$strip_rc" -eq 1 ]]; then
-      rm -f -- "$candidate"
+      unsafe_config=1
     else
-      rm -f -- "$candidate"
-      [[ -n "$backup_dir" ]] && _restore_legacy_tcp_tuning_files "$backup_dir" "$legacy_file" "$sysctl_conf"
-      echo -e "${RED}  ✗ Legacy sysctl-блок изменён вручную; автоматическая очистка остановлена${NC}"
-      return 1
+      candidate=$(mktemp "$(dirname "$sysctl_conf")/.xrayebator-sysctl.XXXXXX") || return 1
+      _strip_legacy_tcp_tuning_block "$sysctl_conf" "$candidate" || strip_rc=$?
+      if [[ "$strip_rc" -eq 0 ]]; then
+        if [[ -z "$backup_dir" ]]; then
+          mkdir -p "$XRAY_BACKUPS_DIR" || { rm -f -- "$candidate"; return 1; }
+          backup_dir=$(mktemp -d "$XRAY_BACKUPS_DIR/host-tuning-v3.XXXXXX") || {
+            rm -f -- "$candidate"
+            return 1
+          }
+          chmod 0700 "$backup_dir"
+        fi
+        cp -a -- "$sysctl_conf" "$backup_dir/sysctl.conf" || {
+          rm -f -- "$candidate"
+          return 1
+        }
+        chmod --reference="$sysctl_conf" "$candidate" \
+          && chown --reference="$sysctl_conf" "$candidate" \
+          && mv -fT -- "$candidate" "$sysctl_conf" || {
+            rm -f -- "$candidate"
+            return 1
+          }
+        echo -e "${GREEN}  ✓ Удалён legacy-блок Xrayebator из sysctl.conf${NC}"
+      elif [[ "$strip_rc" -eq 1 ]]; then
+        rm -f -- "$candidate"
+      else
+        rm -f -- "$candidate"
+        unsafe_config=1
+        echo -e "${RED}  ✗ Legacy sysctl-блок изменён вручную; файл оставлен без изменений${NC}"
+      fi
     fi
   fi
 
   if [[ ! -r "$active_file" || ! -r "$available_file" ]]; then
-    [[ -n "$backup_dir" ]] && _restore_legacy_tcp_tuning_files "$backup_dir" "$legacy_file" "$sysctl_conf"
     echo -e "${RED}  ✗ Ядро не предоставляет congestion-control state${NC}"
     return 1
   fi
@@ -1441,19 +1420,18 @@ migrate_remove_legacy_tcp_tuning_v3() {
     elif [[ " $available_cc " == *" reno "* ]]; then
       target_cc="reno"
     else
-      [[ -n "$backup_dir" ]] && _restore_legacy_tcp_tuning_files "$backup_dir" "$legacy_file" "$sysctl_conf"
       echo -e "${RED}  ✗ Не найден безопасный congestion-control fallback (cubic/reno)${NC}"
       return 1
     fi
 
     if ! sysctl -q -w "net.ipv4.tcp_congestion_control=$target_cc"; then
-      [[ -n "$backup_dir" ]] && _restore_legacy_tcp_tuning_files "$backup_dir" "$legacy_file" "$sysctl_conf"
       echo -e "${RED}  ✗ Не удалось переключить congestion control на $target_cc${NC}"
+      [[ -n "$backup_dir" ]] \
+        && echo -e "${YELLOW}    Persistent-настройки удалены; backup: $backup_dir${NC}"
       return 1
     fi
     current_cc=$(<"$active_file")
     if [[ "$current_cc" == "bbr" ]]; then
-      [[ -n "$backup_dir" ]] && _restore_legacy_tcp_tuning_files "$backup_dir" "$legacy_file" "$sysctl_conf"
       echo -e "${RED}  ✗ Congestion control остался BBR после переключения${NC}"
       return 1
     fi
@@ -1465,6 +1443,11 @@ migrate_remove_legacy_tcp_tuning_v3() {
     echo -e "${RED}  ✗ BBR задан сторонним sysctl-конфигом; файл не изменён:${NC}"
     printf '%s\n' "$remaining_sources" | sed 's/^/    /'
     echo -e "${YELLOW}    Удалите настройку вручную; migration повторится при следующем запуске.${NC}"
+    return 1
+  fi
+
+  if [[ "$unsafe_config" -ne 0 ]]; then
+    echo -e "${YELLOW}  ⚠ Часть persistent-конфигов требует ручной проверки; marker не установлен.${NC}"
     return 1
   fi
 

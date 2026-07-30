@@ -43,6 +43,8 @@ When upgrading an installation created by an older release, v3.0 runs a one-time
 removes only exact Xrayebator-owned legacy tuning files/blocks and immediately changes an active BBR
 algorithm to `cubic` (or `reno` when `cubic` is unavailable). Foreign sysctl files are never edited:
 the migration reports them and retries on the next launch until the operator removes the setting.
+Removed project-owned files are backed up under `/usr/local/etc/xray/backups/` and are not restored
+when the live switch fails, so a reboot cannot re-enable the removed setting.
 
 The installer manages UFW itself: it installs the `ufw` package, enables it with `ufw --force enable`
 when inactive, then opens ports `22, 80, 443, 8443, 2053, 2083, 2087, 8080, 2096, 8880, 9443/tcp`

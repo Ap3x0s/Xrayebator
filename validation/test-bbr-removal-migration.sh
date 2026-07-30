@@ -112,6 +112,7 @@ if migrate_remove_legacy_tcp_tuning_v3 \
 fi
 [[ -f "$LEGACY_FILE" ]] || fail "modified legacy file was deleted"
 [[ ! -e "$MARKER" ]] || fail "failed migration created a marker"
+[[ "$(<"$ACTIVE_FILE")" == "cubic" ]] || fail "modified file case did not disable live BBR"
 
 echo "Checking foreign persistent BBR is reported but not deleted"
 rm -f "$LEGACY_FILE"
@@ -128,7 +129,7 @@ fi
 [[ -f "$TEST_ETC/sysctl.d/operator.conf" ]] || fail "foreign sysctl config was deleted"
 [[ ! -e "$MARKER" ]] || fail "foreign config case created a marker"
 
-echo "Checking live-switch failure restores owned persistent files"
+echo "Checking live-switch failure keeps owned persistent settings removed"
 rm -f "$TEST_ETC/sysctl.d/operator.conf"
 cat > "$LEGACY_FILE" <<'EOF'
 # Xrayebator minimal TCP tuning
@@ -144,7 +145,9 @@ if migrate_remove_legacy_tcp_tuning_v3 \
   "$SCAN_PATHS" "$EXPECTED_UID" >/dev/null 2>&1; then
   fail "migration ignored a failed live congestion-control switch"
 fi
-[[ -f "$LEGACY_FILE" ]] || fail "failed migration did not restore the owned sysctl.d file"
+[[ ! -e "$LEGACY_FILE" ]] || fail "failed live switch restored persistent BBR"
+compgen -G "$XRAY_BACKUPS_DIR/host-tuning-v3.*/99-xrayebator-tcp.conf" >/dev/null \
+  || fail "failed live switch did not preserve a backup"
 [[ ! -e "$MARKER" ]] || fail "failed live switch created a marker"
 
 if grep -Eiq \
