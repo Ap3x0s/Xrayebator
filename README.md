@@ -27,17 +27,17 @@ Xrayebator ставит Xray-core, создает Reality inbound'ы, генер
 - [x] XHTTP + VLESS post-quantum encryption `mlkem768x25519plus`.
 - [x] v2ray-compatible base64 subscription body для v2rayNG/v2rayN.
 - [x] Revoke подписки через смену `sub_token`.
-- [x] Смена SNI, fingerprint, port и advanced-настроек профиля.
+- [x] Смена SNI, fingerprint и port профиля.
 - [x] Bypass routing: выбранные домены можно отправлять напрямую, не через VPN.
 - [x] Каскадный режим: default VPN-трафик можно отправить через зарубежный VLESS Reality upstream.
 - [x] Self-steal заглушка: свой домен, TLS-заглушка nginx и шаблон HTML для Reality fallback.
 - [x] Автоматические миграции существующих профилей при запуске `xrayebator`.
-- [x] TCP BBR и расширенные geo-базы Loyalsoldier.
+- [x] `geoip.dat` и `geosite.dat` из SHA-256-проверенного Xray release package.
 - [ ] H2, WebSocket, SplitHTTP и Clash/mihomo subscriptions не заявлены как поддерживаемые.
 
 Что изменилось относительно старого `main`:
 
-- AdGuard Home меню удалено. Старые установки с AdGuard Home миграция очищает как deprecated.
+- AdGuard Home меню удалено. Xrayebator больше не устанавливает и не удаляет чужую инсталляцию AdGuard Home автоматически.
 - Старый список фиксированных портов неактуален: маршруты создаются на случайных высоких портах.
 - Старый режим "выбери один тип профиля" больше не основной: создание профиля сразу создает набор маршрутов.
 
@@ -49,10 +49,14 @@ Xrayebator ставит Xray-core, создает Reality inbound'ы, генер
 
 ### Операционная система
 
-- Debian 10+ (Buster, Bullseye, Bookworm, Trixie)
-- Ubuntu 20.04+ (Focal, Jammy, Noble)
+Поддерживаемая матрица для новых установок:
 
-> Лично мной все тестировалось в основном на Debian. На других системах работа не гарантируется.
+- Debian 12 (Bookworm) и Debian 13 (Trixie)
+- Ubuntu 22.04 LTS (Jammy) и Ubuntu 24.04 LTS (Noble)
+
+Debian 10, Debian 11 и Ubuntu 20.04 не входят в поддерживаемую матрицу.
+
+> Основная field-проверка проекта выполняется на Debian. Перед обновлением production-VPS сделайте snapshot: статические тесты репозитория не заменяют smoke-test конкретного образа провайдера.
 
 ### Ресурсы сервера
 
@@ -63,14 +67,13 @@ Xrayebator ставит Xray-core, создает Reality inbound'ы, генер
 
 ### Установка
 
-```bash
-wget -qO- https://raw.githubusercontent.com/howdeploy/Xrayebator/main/install.sh | sudo bash
-```
-
-или:
+Скачайте скрипт в текущий каталог, просмотрите его и только затем запустите локальный файл от root:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/howdeploy/Xrayebator/main/install.sh | sudo bash
+curl -fsSLo ./xrayebator-install.sh \
+  https://raw.githubusercontent.com/howdeploy/Xrayebator/main/install.sh
+less ./xrayebator-install.sh
+sudo bash ./xrayebator-install.sh
 ```
 
 После установки запускайте меню:
@@ -80,6 +83,12 @@ sudo xrayebator
 ```
 
 Внутри приложения под ключевыми пунктами есть пояснения, поэтому с типами маршрутов и режимами подписки можно ознакомиться прямо в терминале.
+
+### Сетевые настройки и firewall
+
+Xrayebator не меняет congestion control ядра и не включает BBR. Выбор CUBIC/BBR и системные `sysctl` остаются ответственностью оператора VPS.
+
+Installer и runtime-команды не меняют UFW или другой firewall. Они показывают необходимые порты, а правила остаются под управлением оператора и провайдера. Перед установкой убедитесь, что SSH разрешён действующей политикой firewall.
 
 ---
 
@@ -118,6 +127,8 @@ PubkeyAuthentication yes
 
 > Внимание: если потеряете SSH-ключи, не сможете зайти на сервер. Убедитесь, что вход по ключу работает, и только потом отключайте пароль.
 
+Xray работает от системного пользователя `xray` и получает только `CAP_NET_BIND_SERVICE`, необходимую для низких портов. `CAP_NET_ADMIN` сервису не выдаётся. Исполняемые скрипты принадлежат `root:root`; конфигурация, профили и состояние подписки доступны на чтение группе `xray` как `root:xray 0640`, а каталоги состояния имеют режим `0750`. Не ослабляйте эти права до `0644` и не передавайте весь `/usr/local/etc/xray` пользователю `xray`.
+
 ---
 
 ## Быстрый старт с HAPP
@@ -134,8 +145,8 @@ sudo xrayebator
 
 | Пункт | Когда использовать |
 | --- | --- |
-| `1) Создать HAPP-подписку по IP VPS` | Быстрый режим без домена. Xrayebator создаст multi-route профиль `happ` с 7 маршрутами и даст `https://<ip>/sub/<token>`. IP certificates у Let's Encrypt short-lived, renew должен работать. |
-| `2) Создать HAPP-подписку по домену` | Рекомендуется для постоянного использования. Xrayebator создаст multi-route профиль `happ` с 7 маршрутами и даст `https://sub.example.com/sub/<token>`. |
+| `1) Создать HAPP-подписку по IP VPS` | Быстрый режим без домена. Xrayebator создаст multi-route профиль `happ` с 6 маршрутами и даст `https://<ip>/sub/<token>`. IP certificates у Let's Encrypt short-lived, renew должен работать. |
+| `2) Создать HAPP-подписку по домену` | Рекомендуется для постоянного использования. Xrayebator создаст multi-route профиль `happ` с 6 маршрутами и даст `https://sub.example.com/sub/<token>`. |
 | `3) local-only debug` | Только для проверки на сервере или через SSH tunnel. Не работает напрямую с телефона. |
 
 4. Импортируйте показанный subscription URL или QR-код в HAPP.
@@ -146,14 +157,10 @@ HAPP-flow автоматически создаёт или переисполь�
 | --- | --- |
 | `xhttp-legacy` | HAPP-compatible XHTTP fallback, `decryption=none`, без PQ. |
 | `xhttp-pq` | XHTTP + VLESS post-quantum encryption `mlkem768x25519plus`. |
-| `tcp-mux` | TCP Reality без Vision-flow, запасной вариант. |
 | `grpc` | gRPC Reality, чувствителен к HTTP/2/SNI. |
-| `tcp-vision` | Основной быстрый маршрут для HAPP subscription. |
+| `tcp-vision` | TCP Reality с Vision-flow. |
 | `tcp-utls-firefox` | TCP Vision с fingerprint Firefox. |
 | `tcp-xudp` | TCP Vision + XUDP, узкий fallback для жестких мобильных сетей. |
-
-Базовый client fingerprint для новых и обновлённых профилей — `firefox`. Явно выбранные
-отпечатки, отличные от устаревшего `chrome`, при обновлении сохраняются.
 
 Для ручного контроля SNI, транспорта или отдельного маршрута используйте `1) Создать новый профиль`.
 
@@ -171,12 +178,10 @@ https://<domain-or-ip>/sub/<32-hex-token>
 
 Токен хранится в profile JSON как `sub_token`. Если токен скомпрометирован, используйте `Revoke` в меню подписки: старый URL перестанет работать.
 
-Название подписки в HAPP задаётся отдельно от имени профиля: `Подписка HAPP` → `Настройки HAPP` → `HAPP_SERVER_NAME`. Например, на разных VPS можно установить `Германия — Hetzner` и `Нидерланды — OVH`, даже если внутренний профиль на обоих серверах называется `happ`. При пустом значении сохраняется прежнее поведение — используется имя профиля.
-
 Поведение по клиентам:
 
 - HAPP получает plain-text список `vless://` routes, HAPP headers и опциональный `happ://routing/onadd/...`.
-- В HAPP subscription быстрые TCP/Vision маршруты идут перед XHTTP, чтобы сломанный XHTTP у клиента не становился дефолтным подключением.
+- Порядок routes в subscription стабилен, но не является универсальным рейтингом: доступность транспорта зависит от клиента, версии Xray-core и конкретной сети.
 - Если есть `xhttp-legacy`, HAPP не получает PQ-XHTTP как XHTTP-кандидат.
 - v2rayNG/v2rayN получают классический base64 body без HAPP metadata.
 - Старые profile JSON без live inbound не показываются в меню подписки; старые URL возвращают `410 Gone`.
@@ -221,15 +226,15 @@ URL подписки нельзя считать публичным. Он защ
 | `1` | Создать новый профиль вручную: single-route или multi-route. |
 | `2` | Удалить профиль и связанные inbound'ы. |
 | `3` | Показать данные подключения по профилю. |
-| `4` | Управление профилем: SNI, fingerprint, port, advanced. |
+| `4` | Управление профилем: SNI, fingerprint и port. |
 | `8` | Обновить отдельный профиль до PQ XHTTP. |
-| `9` | HAPP subscription: автоматически создать/переиспользовать 7-route профиль, public TLS, URL/QR/revoke. |
-| `10` | Обновить Xray-core. |
+| `9` | HAPP subscription: автоматически создать/переиспользовать 6-route профиль, public TLS, URL/QR/revoke. |
 | `11` | Bypass routing: домены напрямую, минуя VPN. |
 | `12` | Каскад / upstream-ноды: отправить default VPN-трафик через зарубежный VLESS Reality upstream. |
 | `13` | Собственный домен / self-steal заглушка: nginx TLS fallback на `127.0.0.1:9444` и шаблон сайта. |
+| `14` | Поднять outbound-сервер для использования VPS как зарубежной ноды каскада. |
 
-Смена SNI или порта перезапускает соответствующий серверный inbound. Fingerprint — клиентский параметр: он меняется атомарно только у выбранного маршрута без перезапуска Xray. После любого изменения принудительно обновите подписку в клиенте или заново получите raw route через "Подключиться по профилю".
+Любая смена SNI, fingerprint или порта требует обновить подписку в клиенте или заново получить raw route через "Подключиться по профилю".
 
 ### Bypass routing
 
@@ -245,25 +250,6 @@ Bypass routing добавляет правила в Xray routing, чтобы в�
 
 Меню интерактивное: стрелки двигают выбор, пробел включает/выключает группу, Enter применяет настройки.
 
-
-### Установка Xray-core при недоступном GitHub Releases
-
-Загрузчик повторяет запросы и поддерживает принудительный IPv4/HTTP proxy или SOCKS proxy:
-
-```bash
-XRAY_FORCE_IPV4=1 XRAY_DOWNLOAD_PROXY=socks5h://127.0.0.1:1080 bash install.sh
-```
-
-Также можно заранее скачать официальный ZIP и `.dgst`, после чего передать локальные пути. SHA-256 остаётся обязательным:
-
-```bash
-XRAY_LOCAL_ZIP=/tmp/Xray-linux-64.zip \
-XRAY_LOCAL_DGST=/tmp/Xray-linux-64.zip.dgst \
-XRAY_TCP_TUNING=none bash install.sh
-```
-
-`XRAY_TCP_TUNING` принимает `none` (по умолчанию), `bbr` или `extended`. Без явного выбора установщик не меняет системные TCP-параметры.
-
 ### Каскад / upstream-ноды
 
 Каскад — это серверный outbound/routing-режим, а не новый профиль клиента. Клиент продолжает подключаться к текущему VPS, а Xrayebator переключает default `tcp,udp` route на зарубежный upstream:
@@ -274,7 +260,7 @@ XRAY_TCP_TUNING=none bash install.sh
 
 Меню `12) Каскад / upstream-ноды` сохраняет параметры upstream в `/usr/local/etc/xray/upstreams/cascade.json`, добавляет outbound `cascade-upstream` и переключает только catch-all правило `network=tcp,udp`. Bypass-правила `domain -> direct` остаются выше catch-all и продолжают работать.
 
-Поддерживаемые upstream: VLESS Reality over TCP (включая Vision/XUDP) и XHTTP. Меню принимает готовую `vless://` ссылку и автоматически переносит transport-specific параметры. Если каскад уже активен, смена upstream атомарно пересобирает outbound/routing и перезапускает Xray; отдельно выключать и включать каскад больше не требуется.
+Поддерживаемый MVP upstream: VLESS Reality over TCP Vision/XUDP. Для включения нужны `address`, `port`, `uuid`, `publicKey`, `shortId`, `SNI`, `fingerprint`.
 
 Отключение каскада удаляет outbound `cascade-upstream` и возвращает catch-all route в `direct`. Все изменения идут через `backup_config`, `safe_jq_write` и `safe_restart_xray`.
 
@@ -365,7 +351,11 @@ sudo xrayebator-update
 sudo xrayebator-update main
 ```
 
-Обновить только Xray-core можно из главного меню через пункт `10`.
+Обновить только Xray-core можно отдельной командой:
+
+```bash
+sudo xrayebator update
+```
 
 Удалить Xrayebator и Xray:
 
@@ -373,11 +363,14 @@ sudo xrayebator-update main
 sudo xrayebator-uninstall
 ```
 
-Если установка есть, но нужно руками подтянуть свежий основной скрипт:
+Если установка есть, но нужно руками подтянуть свежий основной скрипт, сначала скачайте и проверьте его отдельно:
 
 ```bash
-sudo curl -fsSL https://raw.githubusercontent.com/howdeploy/Xrayebator/main/xrayebator -o /usr/local/bin/xrayebator
-sudo chmod +x /usr/local/bin/xrayebator
+curl -fsSLo ./xrayebator.new \
+  https://raw.githubusercontent.com/howdeploy/Xrayebator/main/xrayebator
+bash -n ./xrayebator.new
+less ./xrayebator.new
+sudo install -m 0755 -o root -g root ./xrayebator.new /usr/local/bin/xrayebator
 sudo xrayebator
 ```
 
@@ -425,13 +418,11 @@ jq -r '.routes[] | [.label,.transport,.port,(.pq_enabled // false)] | @tsv' /usr
 
 ### v2rayNG то подключается, то нет
 
-v2rayNG не является основным клиентом HAPP flow. Он получает v2ray-compatible body, но маршруты все равно зависят от поддержки конкретного транспорта и версии Xray-core внутри клиента. Начинайте с TCP routes, затем проверяйте gRPC/XHTTP отдельно.
+v2rayNG не является основным клиентом HAPP flow. Он получает v2ray-compatible body, но маршруты всё равно зависят от поддержки конкретного транспорта и версии Xray-core внутри клиента. Проверяйте маршруты по отдельности: универсального порядка «лучший → худший» нет.
 
-### После смены SNI или port старое подключение умерло
+### После смены SNI, port или fingerprint старое подключение умерло
 
 Это нормально. После таких изменений обновите подписку в клиенте или заново получите raw route.
-
-Смена fingerprint не перезапускает Xray и не затрагивает другие маршруты. Серверная подписка обновляется сразу по тому же URL, но HAPP нужно обновить принудительно или дождаться очередного автообновления.
 
 ### На сервере есть старые профили test3/test4, но они не работают
 
@@ -439,11 +430,11 @@ v2rayNG не является основным клиентом HAPP flow. Он 
 
 ### Сколько пользователей можно подключить?
 
-Неограниченно. Можно создавать профили для себя и близких. Один профиль теперь удобнее воспринимать как одну подписку с набором маршрутов, а не как один одиночный маршрут.
+Жёсткого лимита профилей в интерфейсе нет, но реальная ёмкость зависит от CPU, RAM, пропускной способности VPS, числа маршрутов и ограничений провайдера. Наблюдайте за нагрузкой и увеличивайте число пользователей постепенно. Один профиль удобнее воспринимать как одну подписку с набором маршрутов, а не как один одиночный маршрут.
 
 ### Можно ли использовать несколько профилей одновременно?
 
-Да. Создавайте сколько угодно профилей и добавляйте их в клиент. Разные подписки, SNI, порты и маршруты дают больше вариантов для обхода блокировок.
+Да. Можно создать несколько профилей и добавить их в клиент. Разные подписки, SNI, порты и маршруты дают больше вариантов для обхода блокировок, но используют общие ресурсы VPS.
 
 ### Подключение с клиента не работает
 
@@ -488,6 +479,16 @@ sudo systemctl restart sshd
 ---
 
 ## Полезные команды
+
+Проверка checkout перед отправкой изменений:
+
+```bash
+bash -n xrayebator install.sh update.sh uninstall.sh
+for test_file in validation/*.sh; do bash "$test_file" || exit; done
+shellcheck -S error xrayebator install.sh update.sh uninstall.sh
+```
+
+В `validation/` находятся шесть статических/локальных regression-тестов. Они проверяют security policy, product defaults, cascade routing, HAPP handler, синхронность Xray-core updater и генерацию VLESS URL, но не заменяют установку на disposable VPS.
 
 Запуск меню:
 
