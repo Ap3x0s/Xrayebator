@@ -5759,8 +5759,16 @@ create_profile_all_routes() {
   rollback_config=$(ls -t /usr/local/etc/xray/backups/config_*_create_profile_"$name".json 2>/dev/null | head -1)
 
   local created_ports=()
-  local route_line label transport sni fingerprint pq grpc xhttp
-  while IFS=$'\t' read -r label transport port sni fingerprint pq grpc xhttp; do
+  local route_index label transport sni fingerprint pq grpc xhttp
+  for ((route_index=0; route_index<route_count; route_index++)); do
+    label=$(jq -r --argjson i "$route_index" '.[$i].label' <<< "$routes_json")
+    transport=$(jq -r --argjson i "$route_index" '.[$i].transport' <<< "$routes_json")
+    port=$(jq -r --argjson i "$route_index" '.[$i].port' <<< "$routes_json")
+    sni=$(jq -r --argjson i "$route_index" '.[$i].sni' <<< "$routes_json")
+    fingerprint=$(jq -r --argjson i "$route_index" '.[$i].fingerprint' <<< "$routes_json")
+    pq=$(jq -r --argjson i "$route_index" '.[$i].pq_enabled // false' <<< "$routes_json")
+    grpc=$(jq -r --argjson i "$route_index" '.[$i].grpc_service_name // ""' <<< "$routes_json")
+    xhttp=$(jq -r --argjson i "$route_index" '.[$i].xhttp_path // ""' <<< "$routes_json")
     echo -e "${CYAN} → Маршрут ${label}: ${transport} :${port}${NC}"
     if ! add_inbound "$uuid" "$transport" "$port" "$sni" "$fingerprint" "$grpc" "$xhttp" "$pq"; then
       [[ -n "$rollback_config" ]] && cp "$rollback_config" "$CONFIG_FILE"
@@ -5777,7 +5785,7 @@ create_profile_all_routes() {
       return 1
     fi
     created_ports+=("$port")
-  done < <(jq -r '.[] | [.label,.transport,.port,.sni,.fingerprint,(.pq_enabled // false),(.grpc_service_name // ""),(.xhttp_path // "")] | @tsv' <<< "$routes_json")
+  done
 
   if ! safe_restart_xray; then
     rm -f "$PROFILES_DIR/$name.json"
