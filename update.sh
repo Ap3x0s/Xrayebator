@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ═══════════════════════════════════════════════════════════
-# XRAYEBATOR UPDATE SCRIPT v2.0
+# XRAYEBATOR UPDATE SCRIPT v3.0
 # Обновление Xrayebator до последней версии
 # GitHub: https://github.com/howdeploy/Xrayebator
 # ═══════════════════════════════════════════════════════════
@@ -20,7 +20,7 @@ GITHUB_USER="howdeploy"
 GITHUB_REPO="Xrayebator"
 
 # ═══════════════════════════════════════════════════════════
-# ADGUARD HOME CLEANUP (deprecated в v2.0 — Plan 8.3)
+# ADGUARD HOME CLEANUP (legacy deprecated component — Plan 8.3)
 # ═══════════════════════════════════════════════════════════
 # AdGuard Home убирается как deprecated. CRITICAL ORDERING:
 # DNS rollback ДО stop AdGuard, иначе возникает DNS black-hole window.
@@ -183,7 +183,7 @@ else
   echo -e "${CYAN}"
   echo '╔═══════════════════════════════════════════════════════════╗'
   echo '║                                                           ║'
-  echo '║              XRAYEBATOR UPDATE SCRIPT v2.0                ║'
+  echo '║              XRAYEBATOR UPDATE SCRIPT v3.0                ║'
   echo '║              Обновление & Смена версии                    ║'
   echo '║                                                           ║'
   echo '╚═══════════════════════════════════════════════════════════╝'
@@ -831,7 +831,7 @@ _cleanup_xray_backups() {
 # КОНЕЦ блока определений update_xray_core
 # ═══════════════════════════════════════════════════════════
 
-# Force-uninstall AdGuard Home (deprecated в v2.0) — должен выполниться ПЕРЕД DNS migration.
+# Force-uninstall legacy AdGuard Home — должен выполниться ПЕРЕД DNS migration.
 if ! _adguard_force_uninstall_if_present; then
   echo -e "${RED}✗ Update остановлен: Xray не принял DNS после удаления AdGuard${NC}"
   exit 1
@@ -884,35 +884,6 @@ if [[ -f "$CONFIG_FILE" ]]; then
     echo -e "${GREEN}  ✓ AdGuard DNS уже настроен${NC}"
   fi
 
-  # Миграция: блокировка QUIC (UDP/443) для эффективной блокировки рекламы
-  echo -e "${YELLOW}Проверка блокировки QUIC...${NC}"
-  if ! jq -e '.routing.rules[] | select(.network == "udp" and .port == 443)' "$CONFIG_FILE" > /dev/null 2>&1; then
-    echo -e "${CYAN}  → Добавление блокировки QUIC (UDP/443)${NC}"
-
-    # Добавляем правило блокировки QUIC перед последним правилом (direct)
-    QUIC_RULE='{"type": "field", "network": "udp", "port": 443, "outboundTag": "block"}'
-
-    TMP_FILE=$(mktemp /tmp/xray-cfg.XXXXXX) || {
-      echo -e "${YELLOW}  ⚠ mktemp failed (QUIC правило пропущено)${NC}"
-      true
-    }
-    if [[ -n "$TMP_FILE" ]] && jq --argjson rule "$QUIC_RULE" '
-      .routing.rules = [.routing.rules[:-1][], $rule, .routing.rules[-1]]
-    ' "$CONFIG_FILE" > "$TMP_FILE" 2>/dev/null \
-       && [[ -s "$TMP_FILE" ]] \
-       && xray run -test -config "$TMP_FILE" 2>&1 | grep -q "^Configuration OK\.$"; then
-      mv "$TMP_FILE" "$CONFIG_FILE"
-      # Restore mode/owner (mktemp создаёт с mode 600, mv наследует root)
-      chmod 644 "$CONFIG_FILE"
-      chown xray:xray "$CONFIG_FILE" 2>/dev/null || true
-      echo -e "${GREEN}  ✓ QUIC заблокирован (реклама не сможет обойти DNS)${NC}"
-    else
-      rm -f "$TMP_FILE"
-      echo -e "${YELLOW}  ⚠ Не удалось добавить правило QUIC (size-check или xray test failed, конфиг без изменений)${NC}"
-    fi
-  else
-    echo -e "${GREEN}  ✓ QUIC уже заблокирован${NC}"
-  fi
   echo ""
 fi
 

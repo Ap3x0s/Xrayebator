@@ -68,11 +68,20 @@ subscriptions do not serve those routes and the old token returns `410 Gone`.
 
 Causes in order:
 
-1. The client does not support the transport — start with the subscription URL or TCP routes.
-2. The SNI is unsuitable — check it with `sudo xrayebator probe-test` and replace it.
-3. The provider blocks the port — change the profile port.
-4. The fingerprint is detected — try `firefox` instead of `chrome`.
-5. The subscription is stale — confirm the route exists in the live `config.json`.
+1. HAPP is outdated — update to version `3.3.6` or newer, fully quit all old HAPP processes, start
+   exactly one current instance and refresh the subscription.
+2. A green route ping does not prove the main TUN works: HAPP checks routes with a separate
+   temporary Xray-core. On Linux run `ss -lntp | grep ':10808'`; empty output means the main core is
+   not listening, so fully restart HAPP.
+3. The client does not support the transport — start with the subscription URL or TCP routes.
+4. The SNI is unsuitable — check it with `sudo xrayebator probe-test` and replace it.
+5. The provider blocks the port — change the profile port.
+6. The fingerprint is detected — try `firefox` instead of `chrome`.
+7. The subscription is stale — confirm the route exists in the live `config.json`.
+
+Xrayebator 3.0 also removes the legacy project-installed UDP/443 block once. That rule could break
+Telegram while TCP route probes remained green. Operator routing rules with extra selectors are
+preserved.
 
 Keep 2-4 profiles ready so you can switch in an emergency.
 

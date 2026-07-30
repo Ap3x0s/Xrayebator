@@ -66,11 +66,18 @@ jq -r '.routes[] | [.label,.transport,.port,(.pq_enabled // false)] | @tsv' \
 
 按顺序排查：
 
-1. 客户端不支持该传输方式 —— 先用订阅链接或 TCP 线路。
-2. SNI 不合适 —— 用 `sudo xrayebator probe-test` 检查并更换。
-3. 服务商封锁了端口 —— 更换配置档端口。
-4. 指纹被识别 —— 尝试用 `firefox` 代替 `chrome`。
-5. 订阅已过期 —— 确认线路存在于运行中的 `config.json`。
+1. HAPP 版本过旧 —— 更新到 `3.3.6` 或更高版本，彻底退出所有旧 HAPP 进程，只启动一个
+   最新实例，然后刷新订阅。
+2. 绿色延迟并不能证明主 TUN 正常：HAPP 使用独立的临时 Xray-core 检测线路。在 Linux 上运行
+   `ss -lntp | grep ':10808'`；如果没有输出，说明主 core 没有监听，请彻底重启 HAPP。
+3. 客户端不支持该传输方式 —— 先用订阅链接或 TCP 线路。
+4. SNI 不合适 —— 用 `sudo xrayebator probe-test` 检查并更换。
+5. 服务商封锁了端口 —— 更换配置档端口。
+6. 指纹被识别 —— 尝试用 `firefox` 代替 `chrome`。
+7. 订阅已过期 —— 确认线路存在于运行中的 `config.json`。
+
+Xrayebator 3.0 还会一次性删除旧版本安装的 UDP/443 阻断规则。该规则可能在 TCP 线路检测仍为
+绿色时破坏 Telegram。带有额外匹配条件的运维人员自定义路由规则会被保留。
 
 建议常备 2-4 个配置档，便于紧急切换。
 

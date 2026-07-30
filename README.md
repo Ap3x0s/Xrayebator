@@ -26,7 +26,7 @@
 <p>
 <strong>One bash script turns a clean VPS into a personal VLESS Reality server.</strong><br>
 Xrayebator installs Xray-core, brings up Reality inbounds on random ports, builds a profile of seven
-routes and hands them to the client as a single HTTPS subscription link. Current line — 2.0.
+routes and hands them to the client as a single HTTPS subscription link. Current line — 3.0.
 </p>
 
 </div>
@@ -227,6 +227,11 @@ sudo bash ./xrayebator-install.sh
 4. Xrayebator creates the `happ` profile, brings up the inbounds, issues the certificate and prints
    the URL and a QR code.
 5. Import the subscription URL or QR into HAPP — not an individual `vless://` link.
+
+> **HAPP 3.3.6 or newer is required.** If Xrayebator routes have a green ping but connections do not
+> work, fully quit every old HAPP process, start exactly one current instance and refresh the
+> subscription. A green route ping uses a separate temporary Xray-core and does not prove that the
+> main TUN is healthy. On Linux, `ss -lntp | grep ':10808'` must show the main HAPP core listening.
 
 Use `1) Создать новый профиль` for manual control over SNI, transport or a single route.
 

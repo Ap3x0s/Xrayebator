@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ═══════════════════════════════════════════════════════════
-# XRAYEBATOR INSTALLER v2.0
+# XRAYEBATOR INSTALLER v3.0
 # Автоматическая установка Xray Reality VPN
 # GitHub: https://github.com/howdeploy/Xrayebator
 # ═══════════════════════════════════════════════════════════
@@ -39,7 +39,7 @@ clear
 echo -e "${CYAN}"
 echo '╔═══════════════════════════════════════════════════════════╗'
 echo '║                                                           ║'
-echo '║              XRAYEBATOR INSTALLER v2.0                   ║'
+echo '║              XRAYEBATOR INSTALLER v3.0                   ║'
 echo '║       Автоматическая установка Xray Reality VPN          ║'
 echo '║                                                           ║'
 echo '╚═══════════════════════════════════════════════════════════╝'
@@ -627,12 +627,6 @@ cat > "$CONFIG_FILE" << 'EOF'
       },
       {
         "type": "field",
-        "network": "udp",
-        "port": 443,
-        "outboundTag": "block"
-      },
-      {
-        "type": "field",
         "network": "tcp,udp",
         "outboundTag": "direct"
       }
@@ -816,6 +810,6 @@ echo -e "  ${GREEN}443/tcp${NC}  - HTTPS (основной)"
 echo -e "  ${GREEN}8443/tcp${NC} - Альтернативный порт"
 echo ""
 echo -e "${BLUE}GitHub:${NC} https://github.com/${GITHUB_USER}/${GITHUB_REPO}"
-echo -e "${BLUE}Версия:${NC} 2.0"
+echo -e "${BLUE}Версия:${NC} 3.0"
 echo ""
 echo -e "${MAGENTA}════════════════════════════════════════════════════════════${NC}"

@@ -26,7 +26,7 @@
 <p>
 <strong>一个 bash 脚本，把干净的 VPS 变成私人 VLESS Reality 服务器。</strong><br>
 Xrayebator 安装 Xray-core，在随机端口上建立 Reality 入站，创建包含七条线路的配置档，
-并通过一条 HTTPS 订阅链接交付给客户端。当前版本线为 2.0。
+并通过一条 HTTPS 订阅链接交付给客户端。当前版本线为 3.0。
 </p>
 
 </div>
@@ -219,6 +219,11 @@ sudo bash ./xrayebator-install.sh
 3. 选择发布模式：按 VPS IP 无需域名、启动快；按域名适合长期使用。
 4. Xrayebator 会创建 `happ` 配置档、建立入站、签发证书，并显示链接与二维码。
 5. 在 HAPP 中导入订阅链接或二维码，而不是单条 `vless://` 链接。
+
+> **需要 HAPP 3.3.6 或更高版本。** 如果 Xrayebator 线路显示绿色延迟，但连接仍不可用，
+> 请彻底退出所有旧的 HAPP 进程，只启动一个最新实例，然后刷新订阅。绿色延迟检测使用独立的
+> 临时 Xray-core，并不能证明主 TUN 正常。在 Linux 上，`ss -lntp | grep ':10808'`
+> 应当显示 HAPP 主 core 正在监听。
 
 如需手工控制 SNI、传输方式或单条线路，请使用 `1) Создать новый профиль`。
 

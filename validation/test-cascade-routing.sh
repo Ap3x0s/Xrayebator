@@ -17,7 +17,7 @@ cat > "$CONFIG_FILE" <<'JSON'
   "routing": {
     "rules": [
       {"type":"field","domain":["domain:example.ru"],"outboundTag":"direct"},
-      {"type":"field","network":"udp","port":443,"outboundTag":"block"},
+      {"type":"field","network":"udp","port":443,"inboundTag":["operator-custom"],"outboundTag":"block"},
       {"type":"field","network":"tcp,udp","outboundTag":"direct"},
       {"type":"field","network":"tcp,udp","outboundTag":"direct"}
     ]
@@ -106,15 +106,11 @@ jq --argjson outbound "$outbound_json" --argjson fragment "$fragment_json" --arg
     else
       {"type":"field","domain":["domain:" + $address],"outboundTag":"direct"}
     end;
-  def quic_block_rule:
-    {"type":"field","network":"udp","port":443,"outboundTag":"block"};
   def upstream_direct_match:
     (.outboundTag == "direct" and (
       (((.domain // []) | index("domain:" + $address)) != null) or
       (((.ip // []) | index($address)) != null)
     ));
-  def quic_block_match:
-    (.type == "field" and (.network // "") == "udp" and ((.port | tostring) == "443") and .outboundTag == "block");
   def catch_all:
     (.type == "field" and (.network // "") == "tcp,udp"
      and (.domain // null) == null and (.ip // null) == null and (.port // null) == null);
@@ -122,9 +118,9 @@ jq --argjson outbound "$outbound_json" --argjson fragment "$fragment_json" --arg
   .outbounds += [$fragment, $outbound] |
   .routing.rules = [
     .routing.rules[]?
-    | select((upstream_direct_match or quic_block_match or catch_all) | not)
+    | select((upstream_direct_match or catch_all) | not)
   ] |
-  .routing.rules = [upstream_direct_rule, quic_block_rule] + .routing.rules + [{"type":"field","network":"tcp,udp","outboundTag":"cascade-upstream"}]
+  .routing.rules = [upstream_direct_rule] + .routing.rules + [{"type":"field","network":"tcp,udp","outboundTag":"cascade-upstream"}]
 ' "$CONFIG_FILE" > "$WORKDIR/enabled.json"
 
 jq -e '.outbounds[] | select(.tag == "cascade-upstream" and .protocol == "vless")' "$WORKDIR/enabled.json" >/dev/null \
@@ -139,8 +135,8 @@ jq -e '.outbounds[] | select(.tag == "direct" and .settings.fragment.packets == 
   || fail "direct outbound was clobbered"
 jq -e '.routing.rules[0] | select(.outboundTag == "direct" and .ip[0] == "203.0.113.10")' "$WORKDIR/enabled.json" >/dev/null \
   || fail "upstream direct IP exception missing"
-jq -e '.routing.rules[1] | select(.network == "udp" and (.port|tostring) == "443" and .outboundTag == "block")' "$WORKDIR/enabled.json" >/dev/null \
-  || fail "udp/443 block rule missing before cascade catch-all"
+jq -e '.routing.rules[] | select(.network == "udp" and (.port|tostring) == "443" and .inboundTag == ["operator-custom"] and .outboundTag == "block")' "$WORKDIR/enabled.json" >/dev/null \
+  || fail "cascade enable removed or rewrote an operator-managed udp/443 rule"
 jq -e '.routing.rules[] | select(.network == "tcp,udp" and .outboundTag == "cascade-upstream")' "$WORKDIR/enabled.json" >/dev/null \
   || fail "catch-all was not switched to cascade"
 [[ "$(jq '[.routing.rules[] | select(.network == "tcp,udp" and (.domain // null) == null and (.ip // null) == null and (.port // null) == null)] | length' "$WORKDIR/enabled.json")" == "1" ]] \
@@ -149,13 +145,10 @@ jq -e '.routing.rules[] | select(.domain[0] == "domain:example.ru" and .outbound
   || fail "existing bypass direct rule was not preserved"
 
 jq '
-  def quic_block_match:
-    (.type == "field" and (.network // "") == "udp" and ((.port | tostring) == "443") and .outboundTag == "block");
   def catch_all:
     (.type == "field" and (.network // "") == "tcp,udp"
      and (.domain // null) == null and (.ip // null) == null and (.port // null) == null);
   .outbounds = ((.outbounds // []) | map(select(.tag != "cascade-upstream" and .tag != "cascade-fragment"))) |
-  .routing.rules = [.routing.rules[]? | select(quic_block_match | not)] |
   (.routing.rules[]? | select(catch_all) | .outboundTag) = "direct"
 ' "$WORKDIR/enabled.json" > "$WORKDIR/disabled.json"
 
@@ -165,7 +158,7 @@ jq '
   || fail "cascade fragment still present after disable"
 jq -e '.routing.rules[] | select(.network == "tcp,udp" and .outboundTag == "direct")' "$WORKDIR/disabled.json" >/dev/null \
   || fail "catch-all was not restored to direct"
-! jq -e '.routing.rules[] | select(.network == "udp" and (.port|tostring) == "443" and .outboundTag == "block")' "$WORKDIR/disabled.json" >/dev/null \
-  || fail "udp/443 block rule still present after disable"
+jq -e '.routing.rules[] | select(.network == "udp" and (.port|tostring) == "443" and .inboundTag == ["operator-custom"] and .outboundTag == "block")' "$WORKDIR/disabled.json" >/dev/null \
+  || fail "cascade disable removed an operator-managed udp/443 rule"
 
 echo "OK: cascade routing jq mutations"
