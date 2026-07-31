@@ -228,10 +228,18 @@ sudo bash ./xrayebator-install.sh
    the URL and a QR code.
 5. Import the subscription URL or QR into HAPP — not an individual `vless://` link.
 
+### FAQ: routes are green, but Telegram or other apps do not work
+
 > **HAPP 3.3.6 or newer is required.** If Xrayebator routes have a green ping but connections do not
 > work, fully quit every old HAPP process, start exactly one current instance and refresh the
 > subscription. A green route ping uses a separate temporary Xray-core and does not prove that the
 > main TUN is healthy. On Linux, `ss -lntp | grep ':10808'` must show the main HAPP core listening.
+
+Also check the active **Routing** profile in HAPP. Routing profiles left over from another paid VPN
+can override Xrayebator and send Telegram directly instead of through the VPS, even while route
+pings stay green. Disable third-party routing and use Global Proxy, or select
+`xrayebator-default` if that profile is present. In particular, avoid profiles with
+`globalProxy: false` and no explicit Telegram proxy rule.
 
 Use `1) Создать новый профиль` for manual control over SNI, transport or a single route.
 

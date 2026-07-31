@@ -220,10 +220,17 @@ sudo bash ./xrayebator-install.sh
 4. Xrayebator 会创建 `happ` 配置档、建立入站、签发证书，并显示链接与二维码。
 5. 在 HAPP 中导入订阅链接或二维码，而不是单条 `vless://` 链接。
 
+### FAQ：线路显示绿色，但 Telegram 或其他应用无法使用
+
 > **需要 HAPP 3.3.6 或更高版本。** 如果 Xrayebator 线路显示绿色延迟，但连接仍不可用，
 > 请彻底退出所有旧的 HAPP 进程，只启动一个最新实例，然后刷新订阅。绿色延迟检测使用独立的
 > 临时 Xray-core，并不能证明主 TUN 正常。在 Linux 上，`ss -lntp | grep ':10808'`
 > 应当显示 HAPP 主 core 正在监听。
+
+还要检查 HAPP 中当前启用的 **Routing** 配置。其他付费 VPN 遗留的路由配置可能覆盖
+Xrayebator，把 Telegram 直接发送而不经过 VPS，即使线路延迟仍显示绿色。请禁用第三方
+Routing 并使用 Global Proxy；如果存在 `xrayebator-default`，也可以选择该配置。
+尤其不要使用 `globalProxy: false` 且没有 Telegram 专用代理规则的配置。
 
 如需手工控制 SNI、传输方式或单条线路，请使用 `1) Создать новый профиль`。
 
