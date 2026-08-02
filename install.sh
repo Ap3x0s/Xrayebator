@@ -752,11 +752,18 @@ else
   echo -e "${YELLOW}⚠ uninstall.sh не загружен или невалиден${NC}"
   rm -f "$UNINSTALL_TMP"
 fi
-ln -sf "${SCRIPTS_DIR}/update.sh" /usr/local/bin/xrayebator-update 2>/dev/null
-ln -sf "${SCRIPTS_DIR}/uninstall.sh" /usr/local/bin/xrayebator-uninstall 2>/dev/null
+ln_created=0
+if [[ -f "${SCRIPTS_DIR}/update.sh" ]]; then
+  ln -sf "${SCRIPTS_DIR}/update.sh" /usr/local/bin/xrayebator-update 2>/dev/null
+  ln_created=$((ln_created+1))
+fi
+if [[ -f "${SCRIPTS_DIR}/uninstall.sh" ]]; then
+  ln -sf "${SCRIPTS_DIR}/uninstall.sh" /usr/local/bin/xrayebator-uninstall 2>/dev/null
+  ln_created=$((ln_created+1))
+fi
 echo "$GITHUB_BRANCH" > /usr/local/etc/xray/.current_branch
 chown xray:xray /usr/local/etc/xray/.current_branch 2>/dev/null || true
-echo -e "${GREEN}✓ Скрипты установлены${NC}\n"
+echo -e "${GREEN}✓ Скрипты установлены (${ln_created} shortcuts)${NC}\n"
 
 # Запуск Xray
 systemctl enable xray > /dev/null 2>&1
