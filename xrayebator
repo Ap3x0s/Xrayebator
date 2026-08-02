@@ -6177,7 +6177,7 @@ main_menu() {
     echo ""
     echo -e "${BLUE}╚════════════════════════════════════════╝${NC}"
     echo -n -e "${YELLOW}Выберите действие: ${NC}"
-    read choice
+    read choice || exit 0
     case $choice in
       1) create_profile_menu ;;
       2) delete_profile_menu ;;
@@ -9347,13 +9347,26 @@ if [[ "$XRAYEBATOR_SOURCED" -eq 0 ]]; then
     ""|menu)
       main_menu
       ;;
+    --help|-h|help)
+      echo -e "${CYAN}Xrayebator${NC} — менеджер Xray Reality VPN (обход DPI в РФ)"
+      echo ""
+      echo -e "${YELLOW}Использование:${NC}"
+      echo -e "  ${CYAN}sudo xrayebator${NC}                  — открыть интерактивное меню"
+      echo -e "  ${CYAN}sudo xrayebator update [branch]${NC}  — обновить Xray-core (main/dev/experimental)"
+      echo -e "  ${CYAN}sudo xrayebator quickstart --email EMAIL${NC}  — авторазвёртывание: подписка+IP-TLS+HAPP profile"
+      echo -e "  ${CYAN}sudo xrayebator happ-setup${NC}       — создать/переиспользовать HAPP multi-route профиль"
+      echo -e "  ${CYAN}sudo xrayebator probe-test${NC}       — проверить доступность SNI с VPS"
+      echo ""
+      echo -e "${YELLOW}Файлы:${NC}"
+      echo -e "  config:    /usr/local/etc/xray/config.json"
+      echo -e "  profiles:  /usr/local/etc/xray/profiles/"
+      echo -e "  backups:   /usr/local/etc/xray/backups/"
+      echo -e "  docs:      https://github.com/howdeploy/Xrayebator"
+      exit 0
+      ;;
     *)
       echo -e "${RED}✗ Неизвестная команда: $1${NC}"
-      echo -e "${YELLOW}Использование:${NC}"
-      echo -e "  ${CYAN}sudo xrayebator${NC}         — открыть меню"
-      echo -e "  ${CYAN}sudo xrayebator update${NC}  — обновить Xray-core"
-      echo -e "  ${CYAN}sudo xrayebator quickstart${NC}  — автоматическое развёртывание"
-      echo -e "  ${CYAN}sudo xrayebator probe-test${NC}  — проверить доступность SNI с VPS"
+      echo -e "${YELLOW}Подсказка:${NC} запустите ${CYAN}sudo xrayebator --help${NC}"
       exit 1
       ;;
   esac
