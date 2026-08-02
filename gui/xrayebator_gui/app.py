@@ -38,7 +38,12 @@ def main() -> int:
     app.setOrganizationName("xrayebator")
     # Не выходить из приложения при закрытии окна — живём в tray.
     app.setQuitOnLastWindowClosed(False)
-    apply_theme(app, mode="dark")
+    # HeroUI v3 theme: читаем сохранённый выбор пользователя (dark/light).
+    from PySide6.QtCore import QSettings
+    saved_theme = QSettings("xrayebator", "xrayebator-gui").value("theme", "dark")
+    if saved_theme not in ("dark", "light"):
+        saved_theme = "dark"
+    apply_theme(app, mode=saved_theme)
     icon = make_app_icon()
     app.setWindowIcon(icon)
 

@@ -282,6 +282,12 @@ class MainWindow(QMainWindow):
         self.tray_route_menu = menu.addMenu("Маршрут")
         self.tray_profile_menu = menu.addMenu("Профиль")
         menu.addSeparator()
+        # Theme toggle (HeroUI v3 ships both dark and light) — стиль жёстко прибит
+        # к QSS, поэтому переключение живое через apply_theme с сохранением выбора в QSettings.
+        self.theme_action = QAction("Тема: тёмная", self)
+        self.theme_action.triggered.connect(self._toggle_theme)
+        menu.addAction(self.theme_action)
+        menu.addSeparator()
         quit_action = QAction("Выйти", self)
         quit_action.triggered.connect(self._quit)
         menu.addAction(quit_action)
@@ -824,6 +830,28 @@ class MainWindow(QMainWindow):
         self.show()
         self.raise_()
         self.activateWindow()
+
+    def _toggle_theme(self) -> None:
+        """Toggle between HeroUI v3 dark/light themes, persist the choice."""
+        from PySide6.QtCore import QSettings
+        from PySide6.QtWidgets import QApplication
+        from .theme import apply_theme
+
+        settings = QSettings("xrayebator", "xrayebator-gui")
+        current = settings.value("theme", "dark")
+        new_theme = "light" if current == "dark" else "dark"
+        settings.setValue("theme", new_theme)
+
+        app = QApplication.instance()
+        if app is not None:
+            apply_theme(app, mode=new_theme)
+
+        self.theme_action.setText(
+            "Тема: тёмная" if new_theme == "dark" else "Тема: светлая"
+        )
+        self._append_log(
+            f"✓ Тема переключена на {'тёмную' if new_theme == 'dark' else 'светлую'}"
+        )
 
     def closeEvent(self, event: QCloseEvent) -> None:
         if self._quitting:
