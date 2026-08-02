@@ -259,7 +259,10 @@ class MainWindow(QMainWindow):
 
         self.log = QTextEdit()
         self.log.setReadOnly(True)
-        self.log.setMaximumBlockCount(5000)  # ограничение объёма истории
+        # QTextEdit не имеет setMaximumBlockCount (это только у QPlainTextEdit).
+        # Для обрезки истории переопределяем _append_log — срезка по верхнему блоку.
+        # Лимит: 5000 блоков ≈ 250 КБ текста. При переполнении — удаляем самый старый блок.
+        self._log_max_blocks = 5000
         self.log.setPlaceholderText("Здесь появятся этапы развёртывания и подключения.")
         layout.addWidget(self.log, 1)
 
@@ -287,7 +290,12 @@ class MainWindow(QMainWindow):
         self._refresh_tray_menus()
 
     def _append_log(self, text: str) -> None:
-        """Добавить строку в UI-лог с таймстампом и цветовой индикацией ошибки."""
+        """Добавить строку в UI-лог с таймстампом и цветовой индикацией ошибки.
+
+        Ограничение истории: QTextEdit не имеет setMaximumBlockCount (это метод
+        QPlainTextEdit). Делаем обрезку вручную: если блоков > лимита — удаляем
+        самый верхний через QTextCursor. Дёшево, O(1) на удаление.
+        """
         timestamp = datetime.now().strftime("%H:%M:%S")
         low = text.lower()
         # Цветовая маркировка: ошибки красным, предупреждения жёлтым, успех зелёным.
@@ -306,6 +314,16 @@ class MainWindow(QMainWindow):
             f'<span style="color:{color}">{escaped}</span>'
         )
         self.log.append(html)
+
+        # Manual cap: QTextEdit считает блоки через document().blockCount().
+        # Если лимит превышен — удаляем первый блок (самый старый лог).
+        doc = self.log.document()
+        if doc.blockCount() > self._log_max_blocks:
+            cursor = self.log.textCursor()
+            cursor.movePosition(cursor.MoveOperation.Start)
+            cursor.select(cursor.SelectionType.BlockUnderCursor)
+            cursor.removeSelectedText()
+            cursor.deleteChar()  # удалить пустую строку после блока
 
     def _reload_servers(self, select_id: Optional[str] = None) -> None:
         self.server_combo.blockSignals(True)
