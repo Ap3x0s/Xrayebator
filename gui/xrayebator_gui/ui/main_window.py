@@ -170,9 +170,11 @@ class MainWindow(QMainWindow):
         self.server_combo.currentIndexChanged.connect(self._server_changed)
         server_row.addWidget(self.server_combo, 1)
         self.add_server_button = QPushButton("Добавить VPS…")
+        self.add_server_button.setProperty("variant", "primary")
         self.add_server_button.clicked.connect(self._add_server)
         server_row.addWidget(self.add_server_button)
         self.remove_server_button = QPushButton("Удалить")
+        self.remove_server_button.setProperty("variant", "danger")
         self.remove_server_button.clicked.connect(self._remove_server)
         server_row.addWidget(self.remove_server_button)
         layout.addLayout(server_row)
@@ -196,6 +198,7 @@ class MainWindow(QMainWindow):
         self.mode_combo.setCurrentIndex(0 if self._tun_available else 1)
         mode_row.addWidget(self.mode_combo, 1)
         self.install_helper_button = QPushButton("Установить TUN helper…")
+        self.install_helper_button.setProperty("variant", "ghost")
         self.install_helper_button.setVisible(
             platform.system() == "Linux"
             and self._desktop_backend is not None
@@ -212,6 +215,7 @@ class MainWindow(QMainWindow):
         self.profile_combo.currentIndexChanged.connect(self._on_profile_selected)
         profile_row.addWidget(self.profile_combo, 1)
         self.profile_switch_button = QPushButton("Применить")
+        self.profile_switch_button.setProperty("variant", "ghost")
         self.profile_switch_button.clicked.connect(self._switch_profile)
         profile_row.addWidget(self.profile_switch_button)
         form.addRow("Профиль:", profile_row)
@@ -220,9 +224,11 @@ class MainWindow(QMainWindow):
         self.route_combo = QComboBox()
         route_row.addWidget(self.route_combo, 1)
         self.refresh_button = QPushButton("Обновить")
+        self.refresh_button.setProperty("variant", "ghost")
         self.refresh_button.clicked.connect(self._refresh_routes)
         route_row.addWidget(self.refresh_button)
         self.switch_button = QPushButton("Переключить")
+        self.switch_button.setProperty("variant", "ghost")
         self.switch_button.clicked.connect(self._switch_route)
         route_row.addWidget(self.switch_button)
         form.addRow("Маршрут:", route_row)
@@ -253,6 +259,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.busy_progress)
 
         self.connect_button = QPushButton("Подключить")
+        self.connect_button.setProperty("variant", "primary")
         self.connect_button.setMinimumHeight(52)
         self.connect_button.clicked.connect(self._toggle_connection)
         layout.addWidget(self.connect_button)
