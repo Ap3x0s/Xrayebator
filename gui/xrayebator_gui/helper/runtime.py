@@ -20,7 +20,10 @@ from ..core.xray import (
 from .linux_network import LinuxNetwork
 from .state import RouteStateStore
 
-CORE_BINARY = Path("/usr/lib/xrayebator-gui/xray")
+# Должен совпадать с INSTALL_ROOT в install-helper.sh — ядро ставится в /opt,
+# а systemd-unit передаёт --core explicitly, т.ч. это значение — только дефолт
+# для ручного запуска helper без --core.
+CORE_BINARY = Path("/opt/xrayebator-gui/xray")
 RUNTIME_DIR = Path("/run/xrayebator-gui")
 TUN_INTERFACE = "xrayebator0"
 OUTBOUND_MARK = 0x5852
