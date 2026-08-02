@@ -42,7 +42,7 @@ sudo bash ./xrayebator-install.sh
 
 <p>
 Debian 12/13 · Ubuntu 22.04/24.04 · 内存 512 MB 起 · 需要 <code>root</code> 或 <code>sudo</code><br>
-随后执行 <code>sudo xrayebator</code>，选择第 <code>9</code> 项，订阅即可就绪。
+随后执行 <code>sudo xrayebator</code>，选择第 <code>6</code> 项，订阅即可就绪。
 详情：<a href="#快速开始">快速开始</a>
 </p>
 

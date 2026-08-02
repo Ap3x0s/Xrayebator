@@ -42,7 +42,7 @@ sudo bash ./xrayebator-install.sh
 
 <p>
 Debian 12/13 · Ubuntu 22.04/24.04 · от 512 MB RAM · права <code>root</code> или <code>sudo</code><br>
-Дальше — <code>sudo xrayebator</code> → пункт <code>9</code> и подписка готова.
+Дальше — <code>sudo xrayebator</code> → пункт <code>6</code> и подписка готова.
 Подробности: <a href="#быстрый-старт">Быстрый старт</a>
 </p>
 
