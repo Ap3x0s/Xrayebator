@@ -29,9 +29,32 @@ SCRIPTS_DIR="/usr/local/etc/xray/scripts"
 PRIVATE_KEY_FILE="/usr/local/etc/xray/.private_key"
 PUBLIC_KEY_FILE="/usr/local/etc/xray/.public_key"
 
-# Проверка прав root
+# ═══ Префлайт проверки (DPI, OS, systemd) ═══
+# Без этого блока 30% реальных сбоев дают нечитаемые ошибки
+# (например, apt: command not found на CentOS как "bash: apt: command not found").
+if [[ -z "$BASH_VERSION" ]]; then
+  echo "Запустите через bash: curl ... | sudo bash" >&2
+  exit 1
+fi
+
 if [[ $EUID -ne 0 ]]; then
-  echo -e "${RED}✗ Требуются права root для установки${NC}"
+  echo -e "${RED}✗ Требуются права root для установки${NC}" >&2
+  echo -e "${YELLOW}Запустите:${NC} ${CYAN}sudo bash $0${NC}" >&2
+  exit 1
+fi
+
+# ОС: только Debian/Ubuntu (apt-based)
+if [[ ! -f /etc/debian_version ]] && ! command -v apt-get >/dev/null 2>&1; then
+  echo -e "${RED}✗ Xrayebator поддерживает только Debian/Ubuntu (apt-based)${NC}" >&2
+  [[ -f /etc/os-release ]] && head -3 /etc/os-release
+  echo -e "${CYAN}Для CentOS/RHEL используйте docker исходник или ручную установку Xray.${NC}" >&2
+  exit 1
+fi
+
+# systemd обязательно (без него systemctl упадут на OpenVZ/LXC/Docker)
+if ! command -v systemctl >/dev/null 2>&1 || [[ ! -d /run/systemd/system ]]; then
+  echo -e "${RED}✗ systemd не обнаружен (OpenVZ/LXC/Docker окружение)${NC}" >&2
+  echo -e "${YELLOW}Xrayebator требует systemd. Возьмите KVM-VPS.${NC}" >&2
   exit 1
 fi
 
@@ -49,14 +72,26 @@ sleep 2
 
 # [1/9] Установка зависимостей
 echo -e "${BLUE}[1/9]${NC} ${YELLOW}Установка необходимых пакетов...${NC}"
-apt update > /dev/null 2>&1
-apt install -y ca-certificates curl wget jq qrencode uuid-runtime ufw unzip openssl socat > /dev/null 2>&1
-if [[ $? -eq 0 ]]; then
-  echo -e "${GREEN}✓ Зависимости установлены${NC}\n"
-else
+
+# Диагностика DNS до apt: если резолв не работает, apt упадёт с непонятной ошибкой.
+if ! getent hosts archive.ubuntu.com >/dev/null 2>&1 && ! getent hosts security.ubuntu.com >/dev/null 2>&1; then
+  echo -e "${YELLOW}� DNS не резолвит Ubuntu archive — подменяю /etc/resolv.conf на 1.1.1.1${NC}"
+  cp /etc/resolv.conf /etc/resolv.conf.bak.xrayebator 2>/dev/null || true
+  printf 'nameserver 1.1.1.1\nnameserver 9.9.9.9\n' > /etc/resolv.conf
+fi
+
+echo -e "${CYAN}  → apt update...${NC}"
+if ! apt update 2>&1 | tail -5; then
+  echo -e "${RED}✗ apt update не прошёл. Проверьте /etc/resolv.conf:${NC}"
+  cat /etc/resolv.conf 2>/dev/null
+  echo -e "${YELLOW}Попробуйте: echo 'nameserver 1.1.1.1' > /etc/resolv.conf${NC}"
+  exit 1
+fi
+if ! apt install -y ca-certificates curl wget jq qrencode uuid-runtime ufw unzip openssl socat 2>&1 | tail -10; then
   echo -e "${RED}✗ Ошибка установки зависимостей${NC}"
   exit 1
 fi
+echo -e "${GREEN}✓ Зависимости установлены${NC}\n"
 
 # [2/9] Установка Xray-core (REQ-B03 single source of truth)
 echo -e "${BLUE}[2/9]${NC} ${YELLOW}Установка Xray-core...${NC}"
@@ -475,6 +510,12 @@ if [[ ! -x /usr/local/bin/xray ]]; then
   exit 1
 fi
 
+# Идемпотентность: повторный запуск install.sh НЕ должен перегенерировать ключи —
+# они уже могут использоваться существующими профилями.
+if [[ -s "$PRIVATE_KEY_FILE" && -s "$PUBLIC_KEY_FILE" ]]; then
+  echo -e "${CYAN}  → Ключи уже существуют, перегенерация пропущена${NC}\n"
+else
+
 KEYS_OUTPUT=$(/usr/local/bin/xray x25519 2>&1)
 KEYS_EXIT=$?
 
@@ -538,6 +579,8 @@ echo -e "${CYAN}  Public: ${PUBLIC_KEY:0:16}...${NC}\n"
 chown -R xray:xray /usr/local/etc/xray/
 chmod 600 "$PRIVATE_KEY_FILE"
 chmod 644 "$PUBLIC_KEY_FILE"
+
+fi  # end keys idempotency guard
 
 # ── VLESS Encryption keys (Phase 6 REQ-A01) ────────────────────
 # Генерация PQ decryption/encryption пары через xray vlessenc.
