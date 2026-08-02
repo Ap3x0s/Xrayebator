@@ -9052,7 +9052,11 @@ quickstart_command() {
   export DEBIAN_FRONTEND=noninteractive
   export XRAYEBATOR_NONINTERACTIVE=1
 
-  # 1. Миграции (без интерактивных промптов)
+  # 1. Миграции (без интерактивных промптов).
+  # Список может быть подмножеством main_menu, но КРИТИЧЕСКИЕ для quickstart
+  # миграции обязаны быть здесь — иначе на существующих VPS quickstart ломается
+  # (например, без mlkem_keys_generated не создастся PQ-маршрут).
+  # Синхронизация проверяется validation/test-quickstart-migration-parity.sh.
   echo "=== Миграции ===" >&2
   migrate_remove_legacy_tcp_tuning_v3 >/dev/null 2>&1 || true
   migrate_client_fingerprint_state_2026 >/dev/null 2>&1 || true
@@ -9064,6 +9068,15 @@ quickstart_command() {
   run_migration "transport_profile_metadata_migrated" "Transport profile metadata" migrate_transport_profile_metadata >/dev/null 2>&1 || true
   run_migration "config_optimized" "Config optimization (DNS/log)" migrate_config_optimization >/dev/null 2>&1 || true
   run_migration "xmux_explicit_2026" "Explicit xmux block" migrate_xmux_explicit_2026 >/dev/null 2>&1 || true
+  run_migration "mlkem_keys_generated" "PQ ключи VLESS Encryption" _migrate_mlkem_keys >/dev/null 2>&1 || true
+  run_migration "xhttp_default_2026" "XHTTP+PQ как дефолтный пресет" _migrate_xhttp_default_2026 >/dev/null 2>&1 || true
+  run_migration "subscription_tokens_2026" "Subscription tokens" _migrate_subscription_tokens_2026 >/dev/null 2>&1 || true
+  run_migration "happ_legacy_xhttp_route_2026" "HAPP legacy xhttp route" _migrate_happ_legacy_xhttp_route_2026 >/dev/null 2>&1 || true
+  run_migration "xhttp_route_path_repair_2026" "XHTTP path repair" _migrate_xhttp_route_path_repair_2026 >/dev/null 2>&1 || true
+  run_migration "dead_stealth_routes_pruned_2026" "Prune dead stealth routes" _migrate_dead_stealth_routes_2026 >/dev/null 2>&1 || true
+  run_migration "sni_list_2026" "SNI list 2026" _migrate_sni_list_2026 >/dev/null 2>&1 || true
+  run_migration "subhttp_multiroute_2026" "Subhttp multiroute handler" _migrate_subhttp_multiroute_2026 >/dev/null 2>&1 || true
+  run_migration "subhttp_client_compat_2026" "Subhttp client compat" _migrate_subhttp_client_compat_2026 >/dev/null 2>&1 || true
   fix_xray_permissions >/dev/null 2>&1 || true
 
   # 2. Subscription server (HAPP)
