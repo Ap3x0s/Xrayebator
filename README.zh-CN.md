@@ -36,6 +36,11 @@ curl -fsSLo ./xrayebator-install.sh \
   https://raw.githubusercontent.com/howdeploy/Xrayebator/main/install.sh
 less ./xrayebator-install.sh          # 运行前请先审阅脚本
 sudo bash ./xrayebator-install.sh
+
+# 步进控制（中断安全安装）：
+#   --check   查看 10 个安装步骤中哪些已完成
+#   --resume  从未完成的第一个步骤继续
+#   --fresh   清除标记并从头开始
 ```
 
 <div align="center">

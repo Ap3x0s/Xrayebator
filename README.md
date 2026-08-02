@@ -36,6 +36,11 @@ curl -fsSLo ./xrayebator-install.sh \
   https://raw.githubusercontent.com/howdeploy/Xrayebator/main/install.sh
 less ./xrayebator-install.sh          # review the script before running it
 sudo bash ./xrayebator-install.sh
+
+# Step-control flags (interrupt-safe install):
+#   --check   Show which of the 10 steps are already done
+#   --resume  Continue from the first unfinished step
+#   --fresh   Reset all markers and start from zero
 ```
 
 <div align="center">
