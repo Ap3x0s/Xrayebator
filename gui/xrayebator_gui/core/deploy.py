@@ -213,8 +213,10 @@ class Deployer:
                     f"Сервер вернул небезопасный временный путь: {staging_dir!r}"
                 )
             remote_dir = staging_dir
-            self.ssh.upload(install_sh, f"{remote_dir}/install.sh")
-            self.ssh.upload(xrayebator_bin, f"{remote_dir}/xrayebator")
+            # upload_text: bash-скрипты требуют LF (Windows-чекаут даёт CRLF —
+            # сырой sftp.put ломал бы shebang и синтаксис на сервере).
+            self.ssh.upload_text(install_sh, f"{remote_dir}/install.sh")
+            self.ssh.upload_text(xrayebator_bin, f"{remote_dir}/xrayebator")
             self._on_log("Файлы загружены в " + remote_dir)
 
             # 4. install.sh (долго)

@@ -210,6 +210,24 @@ class SSHClient:
         finally:
             sftp.close()
 
+    def upload_text(self, local_path: str | Path, remote_path: str) -> None:
+        """Загрузить текстовый файл через SFTP с нормализацией переводов строк в LF.
+
+        Bash на сервере не переваривает CRLF: `$'\\r': command not found`, сломанный
+        shebang (`#!/bin/bash\\r`), неработающие heredoc. Рабочая копия git на Windows
+        (core.autocrlf=true) содержит CRLF, поэтому здесь явно стрипаём `\\r`.
+        """
+        if self._client is None:
+            raise SSHError("SSHClient не подключён")
+        data = Path(local_path).read_bytes()
+        data = data.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+        sftp = self._client.open_sftp()
+        try:
+            with sftp.open(remote_path, "wb") as remote_file:
+                remote_file.write(data)
+        finally:
+            sftp.close()
+
     def close(self) -> None:
         if self._client is not None:
             self._client.close()

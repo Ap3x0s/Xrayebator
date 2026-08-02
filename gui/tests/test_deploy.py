@@ -57,6 +57,11 @@ class FakeSSH:
     def upload(self, local_path, remote_path):
         self.uploads.append((local_path, remote_path))
 
+    def upload_text(self, local_path, remote_path):
+        # deploy.py загружает bash-артефакты с LF-нормализацией; фиксируем
+        # использование текстового пути (а не сырого бинарного upload).
+        self.uploads.append((local_path, remote_path))
+
     def close(self):
         self.closed = True
 
