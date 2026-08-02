@@ -58,6 +58,83 @@ if ! command -v systemctl >/dev/null 2>&1 || [[ ! -d /run/systemd/system ]]; the
   exit 1
 fi
 
+c
+# === Install state machine: --check / --resume / --fresh ===
+STEP_DIR="/usr/local/etc/xray"
+STEP_ORDER=(1 2 3 35 4 5 6 7 8 9)
+declare -A STEP_LABELS=(
+  [1]="apt packages" [2]="Xray-core" [3]="systemd unit" [35]="GeoIP/GeoSite"
+  [4]="Directories" [5]="Reality + VLESS keys" [6]="Base config.json"
+  [7]="UFW firewall" [8]="sni_list + ascii_art" [9]="bin + start Xray"
+)
+_step_marker() { echo "${STEP_DIR}/.install_step_$1_ok"; }
+_step_done()  { [[ -f "$(_step_marker "$1")" ]]; }
+_step_mark()  { mkdir -p "$STEP_DIR" 2>/dev/null; touch "$(_step_marker "$1")"; }
+
+_first_pending_step() {
+  local s
+  for s in "${STEP_ORDER[@]}"; do
+    _step_done "$s" || { echo "$s"; return 0; }
+  done
+  return 1
+}
+
+INSTALL_MODE="auto"
+RESUME_FROM=""
+for _arg in "$@"; do
+  case "$_arg" in
+    --check)
+      echo "=== Xrayebator install status ==="
+      for s in "${STEP_ORDER[@]}"; do
+        if _step_done "$s"; then printf '  [OK]   [%s] %s\n' "$s" "${STEP_LABELS[$s]}"; else printf '  [TODO] [%s] %s\n' "$s" "${STEP_LABELS[$s]}"; fi
+      done
+      next=$(_first_pending_step || true)
+      if [[ -n "$next" ]]; then printf '\nNext step to resume: %s (%s)\n' "$next" "${STEP_LABELS[$next]}"; else printf '\nAll steps done.\n'; fi
+      exit 0
+      ;;
+    --resume)
+      INSTALL_MODE="resume"
+      next=$(_first_pending_step || true)
+      if [[ -z "$next" ]]; then echo "Nothing to install -- all steps done." >&2; exit 0; fi
+      RESUME_FROM="$next"
+      echo "Resume: continue from step $next (${STEP_LABELS[$next]})..." >&2
+      ;;
+    --fresh)
+      INSTALL_MODE="fresh"
+      rm -f "${STEP_DIR}"/.install_step_*_ok 2>/dev/null || true
+      RESUME_FROM=""
+      echo "Fresh: markers cleared, installing from scratch." >&2
+      ;;
+  esac
+done
+
+if [[ "$INSTALL_MODE" == "auto" ]]; then
+  next=$(_first_pending_step || true)
+  if [[ -z "$next" ]]; then
+    echo "All steps are already marked done."
+    echo "To reinstall from scratch: sudo bash install.sh --fresh"
+    exit 0
+  fi
+  if [[ "$next" != "1" ]]; then
+    RESUME_FROM="$next"
+    echo "Resuming from step $next (${STEP_LABELS[$next]})."
+    echo "(To start over: sudo bash install.sh --fresh)"
+    sleep 2
+  fi
+fi
+
+_should_run() {
+  [[ -z "${RESUME_FROM:-}" ]] && return 0
+  [[ "$1" == "${RESUME_FROM}" ]] && return 0
+  local target_idx="" me_idx="" i
+  for i in "${!STEP_ORDER[@]}"; do
+    [[ "${STEP_ORDER[i]}" == "${RESUME_FROM}" ]] && target_idx=$i
+    [[ "${STEP_ORDER[i]}" == "$1" ]] && me_idx=$i
+  done
+  [[ -n "$me_idx" && -n "$target_idx" ]] || return 0
+  [[ $me_idx -ge $target_idx ]]
+}
+
 clear
 echo -e "${CYAN}"
 echo '╔═══════════════════════════════════════════════════════════╗'
@@ -70,12 +147,14 @@ echo -e "${NC}\n"
 echo -e "${YELLOW}Начало установки...${NC}\n"
 sleep 2
 
+if _should_run 1; then
+
 # [1/9] Установка зависимостей
 echo -e "${BLUE}[1/9]${NC} ${YELLOW}Установка необходимых пакетов...${NC}"
 
 # Диагностика DNS до apt: если резолв не работает, apt упадёт с непонятной ошибкой.
 if ! getent hosts archive.ubuntu.com >/dev/null 2>&1 && ! getent hosts security.ubuntu.com >/dev/null 2>&1; then
-  echo -e "${YELLOW}� DNS не резолвит Ubuntu archive — подменяю /etc/resolv.conf на 1.1.1.1${NC}"
+  echo -e "${YELLOW}⚠ DNS не резолвит Ubuntu archive — подменяю /etc/resolv.conf на 1.1.1.1${NC}"
   cp /etc/resolv.conf /etc/resolv.conf.bak.xrayebator 2>/dev/null || true
   printf 'nameserver 1.1.1.1\nnameserver 9.9.9.9\n' > /etc/resolv.conf
 fi
@@ -92,6 +171,11 @@ if ! apt install -y ca-certificates curl wget jq qrencode uuid-runtime ufw unzip
   exit 1
 fi
 echo -e "${GREEN}✓ Зависимости установлены${NC}\n"
+
+_step_mark 1
+fi
+
+if _should_run 2; then
 
 # [2/9] Установка Xray-core (REQ-B03 single source of truth)
 echo -e "${BLUE}[2/9]${NC} ${YELLOW}Установка Xray-core...${NC}"
@@ -388,6 +472,11 @@ XRAY_VERSION=$(/usr/local/bin/xray version 2>/dev/null | head -1)
 echo -e "${GREEN}✓ Xray-core установлен${NC}"
 echo -e "${CYAN}  ${XRAY_VERSION}${NC}\n"
 
+_step_mark 2
+fi
+
+if _should_run 3; then
+
 # [3/9] Настройка Xray сервиса (non-root с capabilities)
 echo -e "${BLUE}[3/9]${NC} ${YELLOW}Настройка Xray сервиса...${NC}"
 
@@ -454,6 +543,11 @@ SVCEOF
 systemctl daemon-reload
 echo -e "${GREEN}✓ Сервис настроен (User=xray, CAP_NET_BIND_SERVICE)${NC}\n"
 
+_step_mark 3
+fi
+
+if _should_run 35; then
+
 # [3.5/10] Загрузка расширенных geo-баз (Loyalsoldier)
 echo -e "${BLUE}[3.5/10]${NC} ${YELLOW}Загрузка расширенных geo-баз...${NC}"
 XRAY_DAT_DIR="/usr/local/share/xray"
@@ -491,6 +585,11 @@ fi
 
 echo -e "${GREEN}✓ Geo-базы настроены (Loyalsoldier enhanced)${NC}\n"
 
+_step_mark 35
+fi
+
+if _should_run 4; then
+
 # [4/9] Создание структуры директорий
 echo -e "${BLUE}[4/9]${NC} ${YELLOW}Создание структуры директорий...${NC}"
 mkdir -p "$PROFILES_DIR"
@@ -500,6 +599,11 @@ mkdir -p /var/log/xray
 chown xray:xray /var/log/xray
 chown -R xray:xray /usr/local/etc/xray/
 echo -e "${GREEN}✓ Директории созданы${NC}\n"
+
+_step_mark 4
+fi
+
+if _should_run 5; then
 
 # [5/9] Генерация ключей Reality
 echo -e "${BLUE}[5/9]${NC} ${YELLOW}Генерация ключей Reality...${NC}"
@@ -634,6 +738,11 @@ chown xray:xray "$VLESS_DECRYPTION_FILE" "$VLESS_ENCRYPTION_FILE" 2>/dev/null ||
 echo -e "${GREEN}✓ VLESS Encryption ключи сгенерированы${NC}"
 echo -e "${CYAN}  decryption: ${VLESS_DECRYPTION:0:48}...${NC}"
 
+_step_mark 5
+fi
+
+if _should_run 6; then
+
 # [6/9] Создание базовой конфигурации
 echo -e "${BLUE}[6/9]${NC} ${YELLOW}Создание конфигурации Xray...${NC}"
 cat > "$CONFIG_FILE" << 'EOF'
@@ -710,6 +819,11 @@ chown xray:xray /usr/local/etc/xray/.config_optimized
 chmod 644 "$CONFIG_FILE"
 echo -e "${GREEN}✓ Конфигурация создана${NC}\n"
 
+_step_mark 6
+fi
+
+if _should_run 7; then
+
 # [7/9] Настройка Firewall
 echo -e "${BLUE}[7/9]${NC} ${YELLOW}Настройка firewall...${NC}"
 if ! ufw status | grep -q "Status: active"; then
@@ -727,6 +841,11 @@ done
 ufw reload > /dev/null 2>&1
 echo -e "${GREEN}✓ Firewall настроен${NC}"
 echo -e "${CYAN}  Открытые порты: 443, 2053, 2096, 8080, 8443, 8880, 9443${NC}\n"
+
+_step_mark 7
+fi
+
+if _should_run 8; then
 
 # [8/9] Загрузка данных
 echo -e "${BLUE}[8/9]${NC} ${YELLOW}Загрузка данных приложения...${NC}"
@@ -755,6 +874,11 @@ if [[ -s "${DATA_DIR}/ascii_art.txt" ]]; then
 else
   echo -e "${CYAN}✓ ASCII арт недоступен (не критично)${NC}\n"
 fi
+
+_step_mark 8
+fi
+
+if _should_run 9; then
 
 # [9/9] Установка приложения
 echo -e "${BLUE}[9/9]${NC} ${YELLOW}Установка управляющего приложения...${NC}"
@@ -863,3 +987,7 @@ echo -e "${BLUE}GitHub:${NC} https://github.com/${GITHUB_USER}/${GITHUB_REPO}"
 echo -e "${BLUE}Версия:${NC} 3.0"
 echo ""
 echo -e "${MAGENTA}════════════════════════════════════════════════════════════${NC}"
+
+
+_step_mark 9
+fi
