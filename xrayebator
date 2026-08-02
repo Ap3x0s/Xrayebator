@@ -2142,6 +2142,8 @@ migrate_config_optimization() {
   # backup_config удалён: централизован в run_migration (Phase 4 refactor, REQ-D07)
 
   local changed=false
+  local query_strategy
+  query_strategy=$(_ipv6_query_strategy)
 
   local current_dns=$(jq -r '.dns.servers[0] // ""' "$CONFIG_FILE" 2>/dev/null)
   if [[ "$current_dns" == "127.0.0.1" ]]; then
@@ -2150,12 +2152,12 @@ migrate_config_optimization() {
     echo -e "${GREEN}  ✓ DNS уже оптимизирован${NC}"
   else
     echo -e "${YELLOW}  → DNS: миграция на DoH Local${NC}"
-    if safe_jq_write '.dns = {
+    if safe_jq_write --arg qs "$query_strategy" '.dns = {
       "servers": [
         "https+local://1.1.1.1/dns-query",
         "localhost"
       ],
-      "queryStrategy": "UseIPv4",
+      "queryStrategy": $qs,
       "disableCache": false
     }' "$CONFIG_FILE"; then
       echo -e "${GREEN}  ✓ DNS переведён на DoH Local${NC}"
@@ -2166,14 +2168,14 @@ migrate_config_optimization() {
   fi
 
   local freedom_strategy=$(jq -r '.outbounds[] | select(.protocol == "freedom") | .settings.domainStrategy // "none"' "$CONFIG_FILE" 2>/dev/null)
-  if [[ "$freedom_strategy" == "UseIPv4" ]]; then
-    echo -e "${GREEN}  ✓ Freedom уже использует UseIPv4${NC}"
+  if [[ "$freedom_strategy" == "$query_strategy" ]]; then
+    echo -e "${GREEN}  ✓ Freedom уже использует $query_strategy${NC}"
   else
-    echo -e "${YELLOW}  → Freedom: добавляю UseIPv4${NC}"
-    if safe_jq_write '
-      (.outbounds[] | select(.protocol == "freedom")).settings.domainStrategy = "UseIPv4"
+    echo -e "${YELLOW}  → Freedom: добавляю $query_strategy${NC}"
+    if safe_jq_write --arg qs "$query_strategy" '
+      (.outbounds[] | select(.protocol == "freedom")).settings.domainStrategy = $qs
     ' "$CONFIG_FILE"; then
-      echo -e "${GREEN}  ✓ Freedom переведён на UseIPv4${NC}"
+      echo -e "${GREEN}  ✓ Freedom переведён на $query_strategy${NC}"
       changed=true
     else
       echo -e "${RED}  ✗ Ошибка обновления Freedom outbound${NC}"
@@ -8984,14 +8986,16 @@ uninstall_adguard_home() {
   # При ошибке валидации точный backup возвращает полностью рабочее состояние.
   echo -e "${CYAN}Шаг 1/5: Переключение Xray DNS на DoH Local...${NC}"
   local rollback_config=""
+  local query_strategy
+  query_strategy=$(_ipv6_query_strategy)
   if [[ ! -f "$CONFIG_FILE" ]] ||
      ! backup_config "adguard_dns_restore" rollback_config ||
-     ! safe_jq_write '.dns = {
+     ! safe_jq_write --arg qs "$query_strategy" '.dns = {
        "servers": [
          "https+local://1.1.1.1/dns-query",
          "localhost"
        ],
-       "queryStrategy": "UseIPv4",
+       "queryStrategy": $qs,
        "disableCache": false
      }' "$CONFIG_FILE"; then
     [[ -n "$rollback_config" ]] && _restore_config_backup "$rollback_config" || true
