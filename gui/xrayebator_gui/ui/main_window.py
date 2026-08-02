@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import platform
+import traceback
+from datetime import datetime
 from typing import Callable, Optional
 
 from PySide6.QtCore import QObject, QThread, Signal, Slot
@@ -14,6 +16,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMessageBox,
+    QProgressBar,
     QPushButton,
     QSystemTrayIcon,
     QTextEdit,
@@ -56,7 +59,9 @@ class OperationThread(QThread):
         try:
             result = self._operation()
         except Exception as exc:  # noqa: BLE001 - surface operation error to UI
-            self.failed.emit(str(exc))
+            # Добавляем traceback, иначе невозможно отладить «exception из фона».
+            message = f"{exc}\n\n{traceback.format_exc()}"
+            self.failed.emit(message)
             return
         self.succeeded.emit(result)
 
@@ -75,6 +80,20 @@ _STATE_LABELS = {
     ConnectionState.DISCONNECTING: "Отключение…",
     ConnectionState.RECOVERING: "Восстановление предыдущего маршрута…",
     ConnectionState.ERROR: "Ошибка",
+}
+
+# Цветовая маркировка состояния — иначе «Подключено» и «Ошибка» визуально
+# неразличимы.
+_STATE_COLORS = {
+    ConnectionState.DISCONNECTED: "#a0a0a0",
+    ConnectionState.PREPARING: "#e5c07b",
+    ConnectionState.CONNECTING: "#e5c07b",
+    ConnectionState.VERIFYING: "#61afef",
+    ConnectionState.CONNECTED: "#98c379",
+    ConnectionState.SWITCHING: "#e5c07b",
+    ConnectionState.DISCONNECTING: "#e5c07b",
+    ConnectionState.RECOVERING: "#e5c07b",
+    ConnectionState.ERROR: "#e06c75",
 }
 
 _BUSY_STATES = {
@@ -214,12 +233,24 @@ class MainWindow(QMainWindow):
         status_font = self.status_label.font()
         status_font.setBold(True)
         self.status_label.setFont(status_font)
+        self.status_label.setWordWrap(True)
         status_row.addWidget(self.status_label)
         status_row.addStretch()
         self.ip_label = QLabel("")
         self.ip_label.setStyleSheet("color: #a0a0a0")
+        self.ip_label.setWordWrap(True)
         status_row.addWidget(self.ip_label)
         layout.addLayout(status_row)
+
+        # Индетерминированный прогресс-бар: показывается когда идёт операция
+        # (подключение, переключение, отключение, recover). Без него UI выглядит
+        # «зависшим» на долгих шагах деплоя (install.sh, quickstart по 5+ минут).
+        self.busy_progress = QProgressBar()
+        self.busy_progress.setRange(0, 0)  # marquee
+        self.busy_progress.setTextVisible(False)
+        self.busy_progress.setMaximumHeight(4)
+        self.busy_progress.setVisible(False)
+        layout.addWidget(self.busy_progress)
 
         self.connect_button = QPushButton("Подключить")
         self.connect_button.setMinimumHeight(52)
@@ -228,6 +259,7 @@ class MainWindow(QMainWindow):
 
         self.log = QTextEdit()
         self.log.setReadOnly(True)
+        self.log.setMaximumBlockCount(5000)  # ограничение объёма истории
         self.log.setPlaceholderText("Здесь появятся этапы развёртывания и подключения.")
         layout.addWidget(self.log, 1)
 
@@ -255,7 +287,24 @@ class MainWindow(QMainWindow):
         self._refresh_tray_menus()
 
     def _append_log(self, text: str) -> None:
-        self.log.append(text)
+        """Добавить строку в UI-лог с таймстампом и цветовой индикацией ошибки."""
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        low = text.lower()
+        # Цветовая маркировка: ошибки красным, предупреждения жёлтым, успех зелёным.
+        if "✗" in text or "ошибка" in low or "failed" in low or "traceback" in low:
+            color = "#e06c75"
+        elif "⚠" in text or "warning" in low or "предупред" in low:
+            color = "#e5c07b"
+        elif "✓" in text or "ok" in low or "подключено" in low or "заверш" in low:
+            color = "#98c379"
+        else:
+            color = "#abb2bf"
+        from PySide6.QtGui import QTextCursor
+        html = (
+            f'<span style="color:#4b5263">[{timestamp}]</span> '
+            f'<span style="color:{color}">{text}</span>'
+        )
+        self.log.appendHtml(html)
 
     def _reload_servers(self, select_id: Optional[str] = None) -> None:
         self.server_combo.blockSignals(True)
@@ -467,8 +516,12 @@ class MainWindow(QMainWindow):
         self._reload_servers(select_id=server["id"])
 
     def _deployment_failed(self, message: str) -> None:
-        self._append_log(f"Развёртывание не удалось: {message}")
-        QMessageBox.critical(self, "Ошибка развёртывания", message)
+        # Фильтруем возможные секреты (токены подписок, vless://) из сообщения об ошибке.
+        from ..core.deploy import redact_log_line
+
+        safe_message = redact_log_line(message)
+        self._append_log(f"Развёртывание не удалось: {safe_message}")
+        QMessageBox.critical(self, "Ошибка развёртывания", safe_message)
 
     def _deployment_thread_finished(self) -> None:
         self._deploy_thread = None
@@ -480,11 +533,27 @@ class MainWindow(QMainWindow):
         server = self._selected_server()
         if not server:
             return
+        # Предупредить, если сейчас идёт активное соединение через этот сервер,
+        # иначе после удаления маршрут потеряет свой сервер и поломает работу.
+        route = self._controller.snapshot.route
+        connected_here = (
+            self._controller.snapshot.state == ConnectionState.CONNECTED
+            and route is not None
+            and route.address == server.get("host")
+            and route.port == server.get("port", 443)
+        )
+        warning_extra = (
+            "\n\n⚠ ВНИМАНИЕ: вы сейчас подключены через этот сервер! "
+            "Он будет отключён и удалён."
+            if connected_here
+            else ""
+        )
         answer = QMessageBox.question(
             self,
             "Удалить сервер?",
             f"Удалить {server.get('name') or server.get('host')} из приложения?\n"
-            "Конфигурация VPS изменена не будет.",
+            "Конфигурация VPS изменена не будет."
+            + warning_extra,
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
@@ -494,6 +563,8 @@ class MainWindow(QMainWindow):
     @Slot()
     def _toggle_connection(self) -> None:
         state = self._controller.snapshot.state
+        # мгновенная критическая секция: до любого длинного кода помечаем UI как busy,
+        # чтобы двойной клик не мог запустить второй OperationThread.
         if state in _BUSY_STATES or self._operation is not None:
             return
         if state == ConnectionState.CONNECTED:
@@ -514,6 +585,9 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def _switch_route(self) -> None:
+        # Guard до QMessageBox: молча игнорируем клики во время другой операции.
+        if self._operation is not None or self._controller.snapshot.state in _BUSY_STATES:
+            return
         route = self._selected_route()
         if route is None:
             return
@@ -531,6 +605,8 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def _switch_profile(self) -> None:
+        if self._operation is not None or self._controller.snapshot.state in _BUSY_STATES:
+            return
         if self._controller.snapshot.state != ConnectionState.CONNECTED:
             return
         profile = self._selected_profile()
@@ -666,16 +742,24 @@ class MainWindow(QMainWindow):
     @Slot(object)
     def _on_snapshot(self, snapshot: ConnectionSnapshot) -> None:
         label = _STATE_LABELS[snapshot.state]
+        color = _STATE_COLORS[snapshot.state]
         self.status_label.setText(label)
+        self.status_label.setStyleSheet(
+            f"color: {color}; font-weight: bold"
+        )
         self.ip_label.setText(
             f"Внешний IP: {snapshot.external_ip}" if snapshot.external_ip else ""
         )
         connected = snapshot.state == ConnectionState.CONNECTED
-        busy = snapshot.state in _BUSY_STATES
+        busy = snapshot.state in _BUSY_STATES or self._operation is not None
+        # Прогресс-бар виден на всех промежуточных стадиях, чтобы UI не выглядел зависшим.
+        self.busy_progress.setVisible(busy)
         if snapshot.route is not None and (busy or snapshot.error):
             for index, route in enumerate(self._routes):
                 if route.raw == snapshot.route.raw:
+                    self.route_combo.blockSignals(True)
                     self.route_combo.setCurrentIndex(index)
+                    self.route_combo.blockSignals(False)
                     break
         if snapshot.routing_profile is not None and (busy or snapshot.error):
             for index in range(self.profile_combo.count()):
@@ -706,10 +790,8 @@ class MainWindow(QMainWindow):
             )
         self.tray.setToolTip(f"Xrayebator — {label.lower()}{target}")
         self._refresh_tray_menus()
-        if snapshot.error and snapshot.state == ConnectionState.ERROR:
-            self.status_label.setToolTip(snapshot.error)
-        else:
-            self.status_label.setToolTip("")
+        # Показывать ошибку всегда, если она есть (не только в ERROR-статусе).
+        self.status_label.setToolTip(snapshot.error or "")
 
     @Slot(QSystemTrayIcon.ActivationReason)
     def _tray_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
@@ -739,14 +821,53 @@ class MainWindow(QMainWindow):
 
     def _quit(self) -> None:
         self._quitting = True
-        if self._controller.snapshot.state != ConnectionState.DISCONNECTED:
-            try:
-                self._controller.disconnect()
-            except Exception as exc:  # cleanup error is shown but quit remains possible
-                QMessageBox.warning(self, "Ошибка отключения", str(exc))
-        self.tray.hide()
-        from PySide6.QtWidgets import QApplication
+        disconnect_needed = (
+            self._controller.snapshot.state != ConnectionState.DISCONNECTED
+        )
+        # _controller.disconnect() может занять 1-5 сек (proxy.restore + xray stop).
+        # Выполняем его в OperationThread — главный поток не должен зависать.
+        if disconnect_needed and hasattr(self, "_quit_thread_guard"):
+            return  # уже в процессе
+        try:
+            from PySide6.QtWidgets import QApplication
 
-        application = QApplication.instance()
-        if application is not None:
-            application.quit()
+            app = QApplication.instance()
+
+            if disconnect_needed:
+                self._quit_thread_guard = True
+                self.tray.setToolTip("Xrayebator — отключение перед выходом…")
+
+                def _do_quit():
+                    try:
+                        self._controller.disconnect()
+                    except Exception:
+                        pass
+                    finally:
+                        self.tray.hide()
+                        if app is not None:
+                            app.quit()
+
+                worker = OperationThread(
+                    _do_quit,
+                    parent=None,
+                )
+                worker.succeeded.connect(lambda *_: None)
+                worker.failed.connect(lambda *_: None)
+                worker.start()
+                # Храним ссылку чтобы GC не удалил до завершения
+                self._quit_worker = worker  # noqa: SLF001
+            else:
+                self.tray.hide()
+                if app is not None:
+                    app.quit()
+        except Exception:
+            # fail-safe: даже если что-то пошло не так, выйти
+            self.tray.hide()
+            try:
+                from PySide6.QtWidgets import QApplication
+
+                app = QApplication.instance()
+                if app is not None:
+                    app.quit()
+            except Exception:
+                pass
