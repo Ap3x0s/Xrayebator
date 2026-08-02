@@ -42,6 +42,26 @@ TCP_CC_AVAILABLE_FILE="/proc/sys/net/ipv4/tcp_available_congestion_control"
 HOST_TUNING_MIGRATION_MARKER="/usr/local/etc/xray/.host_tcp_tuning_removed_v3"
 SYSCTL_SCAN_PATHS="/etc/sysctl.conf:/etc/sysctl.d:/usr/lib/sysctl.d:/lib/sysctl.d"
 
+# ═══ Детекция IPv6-only VPS (shared helper) ═══
+# Миррорит install.sh/update.sh helpers.
+_detect_ipv6_only() {
+  if ip -4 addr show scope global 2>/dev/null | grep -q 'inet '; then
+    return 1
+  fi
+  if ip route get 1.1.1.1 2>/dev/null | grep -q .; then
+    return 1
+  fi
+  return 0
+}
+
+_ipv6_query_strategy() {
+  if _detect_ipv6_only; then
+    echo "UseIP"
+  else
+    echo "UseIPv4"
+  fi
+}
+
 # Хардкод-список SNI из первого shipped sni_list.txt. Используется миграциями:
 # всё, чего нет в этом наборе, считается user-custom и не трогается.
 # При расширении default list этот legacy-набор обновляется отдельно.
