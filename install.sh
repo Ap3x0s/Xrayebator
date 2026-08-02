@@ -29,6 +29,33 @@ SCRIPTS_DIR="/usr/local/etc/xray/scripts"
 PRIVATE_KEY_FILE="/usr/local/etc/xray/.private_key"
 PUBLIC_KEY_FILE="/usr/local/etc/xray/.public_key"
 
+# ═══ Детекция IPv6-only VPS (shared helper) ═══
+# Используется при выборе dns.queryStrategy/freedom.domainStrategy.
+# На IPv6-only VPS Xray не сможет резолвить A-records через UseIPv4 →
+# весь клиентский трафик встанет. Проверяем наличие global-scope IPv4
+# address или маршрута до IPv4-адреса; если ни одного нет → UseIP.
+#
+# Использование: if _detect_ipv6_only; then queryStrategy="UseIP"; fi
+_detect_ipv6_only() {
+  if ip -4 addr show scope global 2>/dev/null | grep -q 'inet '; then
+    return 1
+  fi
+  if ip route get 1.1.1.1 2>/dev/null | grep -q .; then
+    return 1
+  fi
+  return 0
+}
+
+# Возвращает строку для Xray dns.queryStrategy / freedom.domainStrategy.
+# Использование: QUERY_STRATEGY=$(_ipv6_query_strategy)
+_ipv6_query_strategy() {
+  if _detect_ipv6_only; then
+    echo "UseIP"
+  else
+    echo "UseIPv4"
+  fi
+}
+
 # ═══ Префлайт проверки (DPI, OS, systemd) ═══
 # Без этого блока 30% реальных сбоев дают нечитаемые ошибки
 # (например, apt: command not found на CentOS как "bash: apt: command not found").
@@ -759,12 +786,9 @@ echo -e "${BLUE}[6/9]${NC} ${YELLOW}Создание конфигурации Xr
 
 # IPv6-only детекция: на VPS без публичного IPv4 указываем queryStrategy/domainStrategy
 # как UseIP (иначе Xray не сможет резолвить AAAA и клиентский трафик встанет).
-QUERY_STRATEGY="UseIPv4"
-FREEDOM_STRATEGY="UseIPv4"
-if ! ip -4 addr show scope global 2>/dev/null | grep -q 'inet ' \
-   && ! ip route get 1.1.1.1 2>/dev/null | grep -q .; then
-  QUERY_STRATEGY="UseIP"
-  FREEDOM_STRATEGY="UseIP"
+QUERY_STRATEGY=$(_ipv6_query_strategy)
+FREEDOM_STRATEGY=$(_ipv6_query_strategy)
+if _detect_ipv6_only; then
   echo -e "${CYAN}  IPv4 не обнаружен — DNS/outbound strategy = UseIP (IPv6-compatible)${NC}"
 fi
 

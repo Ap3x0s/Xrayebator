@@ -19,6 +19,33 @@ NC='\033[0m'
 GITHUB_USER="howdeploy"
 GITHUB_REPO="Xrayebator"
 
+# ═══ Детекция IPv6-only VPS (shared helper) ═══
+# Используется при выборе dns.queryStrategy/freedom.domainStrategy.
+# На IPv6-only VPS Xray не сможет резолвить A-records через UseIPv4 →
+# весь клиентский трафик встанет. Проверяем наличие global-scope IPv4
+# address или маршрута до IPv4-адреса; если ни одного нет → UseIP.
+#
+# Использование: if _detect_ipv6_only; then queryStrategy="UseIP"; fi
+_detect_ipv6_only() {
+  if ip -4 addr show scope global 2>/dev/null | grep -q 'inet '; then
+    return 1
+  fi
+  if ip route get 1.1.1.1 2>/dev/null | grep -q .; then
+    return 1
+  fi
+  return 0
+}
+
+# Возвращает строку для Xray dns.queryStrategy / freedom.domainStrategy.
+# Использование: QUERY_STRATEGY=$(_ipv6_query_strategy)
+_ipv6_query_strategy() {
+  if _detect_ipv6_only; then
+    echo "UseIP"
+  else
+    echo "UseIPv4"
+  fi
+}
+
 # ═══════════════════════════════════════════════════════════
 # ADGUARD HOME CLEANUP (legacy deprecated component — Plan 8.3)
 # ═══════════════════════════════════════════════════════════
@@ -42,11 +69,8 @@ _adguard_force_uninstall_if_present() {
   if [[ -f "$cfg" ]]; then
     echo -e "${CYAN}Шаг 1/5: Восстановление Xray DNS (до остановки AdGuard)...${NC}"
     # IPv6-only: если нет публичного IPv4, Xray не резолвит A-records через UseIPv4.
-    local query_strategy="UseIPv4"
-    if ! ip -4 addr show scope global 2>/dev/null | grep -q 'inet ' \
-       && ! ip route get 1.1.1.1 2>/dev/null | grep -q .; then
-      query_strategy="UseIP"
-    fi
+    local query_strategy
+    query_strategy=$(_ipv6_query_strategy)
     local _tmp
     _tmp=$(mktemp /tmp/xray-cfg.XXXXXX) || {
       echo -e "${RED}  mktemp failed — DNS rollback пропущен${NC}"
@@ -881,11 +905,8 @@ if [[ -f "$CONFIG_FILE" ]]; then
     echo -e "${CYAN}  → Миграция на DoH Local${NC}"
 
     # IPv6-only: если нет публичного IPv4, Xray не резолвит A-records через UseIPv4.
-    QUERY_STRATEGY="UseIPv4"
-    if ! ip -4 addr show scope global 2>/dev/null | grep -q 'inet ' \
-       && ! ip route get 1.1.1.1 2>/dev/null | grep -q .; then
-      QUERY_STRATEGY="UseIP"
-    fi
+    local query_strategy
+    query_strategy=$(_ipv6_query_strategy)
 
     # Создаём новую конфигурацию DNS
     NEW_DNS=$(cat <<DNSEOF
@@ -894,7 +915,7 @@ if [[ -f "$CONFIG_FILE" ]]; then
     "https+local://1.1.1.1/dns-query",
     "localhost"
   ],
-  "queryStrategy": "${QUERY_STRATEGY}",
+  "queryStrategy": "${query_strategy}",
   "disableCache": false
 }
 DNSEOF
