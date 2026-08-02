@@ -444,6 +444,13 @@ class MainWindow(QMainWindow):
         self._start_operation(install_linux_helper, succeeded, failed)
 
     def _deployment_finished(self, values: dict, result: dict) -> None:
+        subscription_url = result.get("subscription_url")
+        if not subscription_url:
+            self._append_log(
+                "quickstart не вернул subscription_url — устаревший сервер? "
+                "Сервер не добавлен, проверьте /usr/local/etc/xray/profiles/."
+            )
+            return
         server = self._store.add(
             name=values["host"],
             host=values["host"],
@@ -452,7 +459,7 @@ class MainWindow(QMainWindow):
             auth_type=values["auth_type"],
             password=values["password"],
             key_path=values["key_path"],
-            subscription_url=result["subscription_url"],
+            subscription_url=subscription_url,
             profile=result.get("profile", "happ"),
         )
         self._append_log("Сервер добавлен, subscription получена и сохранена.")
