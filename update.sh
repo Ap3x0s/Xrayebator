@@ -41,17 +41,23 @@ _adguard_force_uninstall_if_present() {
   local cfg="${CONFIG_FILE:-/usr/local/etc/xray/config.json}"
   if [[ -f "$cfg" ]]; then
     echo -e "${CYAN}Шаг 1/5: Восстановление Xray DNS (до остановки AdGuard)...${NC}"
+    # IPv6-only: если нет публичного IPv4, Xray не резолвит A-records через UseIPv4.
+    local query_strategy="UseIPv4"
+    if ! ip -4 addr show scope global 2>/dev/null | grep -q 'inet ' \
+       && ! ip route get 1.1.1.1 2>/dev/null | grep -q .; then
+      query_strategy="UseIP"
+    fi
     local _tmp
     _tmp=$(mktemp /tmp/xray-cfg.XXXXXX) || {
       echo -e "${RED}  mktemp failed — DNS rollback пропущен${NC}"
       _tmp=""
     }
-    if [[ -n "$_tmp" ]] && jq '.dns = {
+    if [[ -n "$_tmp" ]] && jq --arg qs "$query_strategy" '.dns = {
       "servers": [
         "https+local://1.1.1.1/dns-query",
         "localhost"
       ],
-      "queryStrategy": "UseIPv4",
+      "queryStrategy": $qs,
       "disableCache": false
     }' "$cfg" > "$_tmp" 2>/dev/null \
        && [[ -s "$_tmp" ]] \
@@ -874,15 +880,25 @@ if [[ -f "$CONFIG_FILE" ]]; then
   elif ! grep -q "dns.adguard-dns.com" "$CONFIG_FILE" 2>/dev/null; then
     echo -e "${CYAN}  → Миграция на DoH Local${NC}"
 
+    # IPv6-only: если нет публичного IPv4, Xray не резолвит A-records через UseIPv4.
+    QUERY_STRATEGY="UseIPv4"
+    if ! ip -4 addr show scope global 2>/dev/null | grep -q 'inet ' \
+       && ! ip route get 1.1.1.1 2>/dev/null | grep -q .; then
+      QUERY_STRATEGY="UseIP"
+    fi
+
     # Создаём новую конфигурацию DNS
-    NEW_DNS='{
-      "servers": [
-        "https+local://1.1.1.1/dns-query",
-        "localhost"
-      ],
-      "queryStrategy": "UseIPv4",
-      "disableCache": false
-    }'
+    NEW_DNS=$(cat <<DNSEOF
+{
+  "servers": [
+    "https+local://1.1.1.1/dns-query",
+    "localhost"
+  ],
+  "queryStrategy": "${QUERY_STRATEGY}",
+  "disableCache": false
+}
+DNSEOF
+)
 
     # Обновляем DNS секцию в конфиге
     TMP_FILE=$(mktemp /tmp/xray-cfg.XXXXXX) || {

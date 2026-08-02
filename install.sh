@@ -745,7 +745,19 @@ if _should_run 6; then
 
 # [6/9] Создание базовой конфигурации
 echo -e "${BLUE}[6/9]${NC} ${YELLOW}Создание конфигурации Xray...${NC}"
-cat > "$CONFIG_FILE" << 'EOF'
+
+# IPv6-only детекция: на VPS без публичного IPv4 указываем queryStrategy/domainStrategy
+# как UseIP (иначе Xray не сможет резолвить AAAA и клиентский трафик встанет).
+QUERY_STRATEGY="UseIPv4"
+FREEDOM_STRATEGY="UseIPv4"
+if ! ip -4 addr show scope global 2>/dev/null | grep -q 'inet ' \
+   && ! ip route get 1.1.1.1 2>/dev/null | grep -q .; then
+  QUERY_STRATEGY="UseIP"
+  FREEDOM_STRATEGY="UseIP"
+  echo -e "${CYAN}  IPv4 не обнаружен — DNS/outbound strategy = UseIP (IPv6-compatible)${NC}"
+fi
+
+cat > "$CONFIG_FILE" << EOF
 {
   "log": {
     "loglevel": "warning",
@@ -756,7 +768,7 @@ cat > "$CONFIG_FILE" << 'EOF'
       "https+local://1.1.1.1/dns-query",
       "localhost"
     ],
-    "queryStrategy": "UseIPv4",
+    "queryStrategy": "${QUERY_STRATEGY}",
     "disableCache": false
   },
   "routing": {
@@ -789,7 +801,7 @@ cat > "$CONFIG_FILE" << 'EOF'
     {
       "protocol": "freedom",
       "settings": {
-        "domainStrategy": "UseIPv4"
+        "domainStrategy": "${FREEDOM_STRATEGY}"
       },
       "tag": "direct"
     },
