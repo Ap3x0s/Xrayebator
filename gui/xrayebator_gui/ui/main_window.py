@@ -162,7 +162,7 @@ class MainWindow(QMainWindow):
         subtitle = QLabel(
             "Разверните собственный сервер, выберите маршрут и подключитесь."
         )
-        subtitle.setStyleSheet("color: #a0a0a0")
+        subtitle.setProperty("muted", True)
         layout.addWidget(subtitle)
 
         server_row = QHBoxLayout()
@@ -243,7 +243,7 @@ class MainWindow(QMainWindow):
         status_row.addWidget(self.status_label)
         status_row.addStretch()
         self.ip_label = QLabel("")
-        self.ip_label.setStyleSheet("color: #a0a0a0")
+        self.ip_label.setProperty("muted", True)
         self.ip_label.setWordWrap(True)
         status_row.addWidget(self.ip_label)
         layout.addLayout(status_row)

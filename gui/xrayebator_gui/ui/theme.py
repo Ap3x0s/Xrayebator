@@ -296,7 +296,7 @@ QLabel {{
     background: transparent;
     color: {t.foreground};
 }}
-QLabel[muted="true"] {{
+QLabel[muted="true"], QLabel[muted="1"] {{
     color: {t.muted};
 }}
 
