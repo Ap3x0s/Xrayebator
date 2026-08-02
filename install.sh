@@ -693,6 +693,16 @@ echo -e "${BLUE}[5b/10]${NC} ${YELLOW}Генерация VLESS Encryption клю
 VLESS_DECRYPTION_FILE="/usr/local/etc/xray/.vless_decryption"
 VLESS_ENCRYPTION_FILE="/usr/local/etc/xray/.vless_encryption"
 
+# Идемпотентность: как Reality keys (:618), повторный запуск / --resume / --fresh
+# НЕ должен перегенерировать ключи — иначе все существующие PQ-профили клиентов
+# становятся orphaned (их encryption string больше не соответствует серверному decryption).
+if [[ -s "$VLESS_DECRYPTION_FILE" && -s "$VLESS_ENCRYPTION_FILE" ]] \
+   && grep -q '^mlkem768x25519plus\.' "$VLESS_DECRYPTION_FILE" 2>/dev/null; then
+  echo -e "${CYAN}  → VLESS Encryption ключи уже существуют, перегенерация пропущена${NC}\n"
+  _step_mark 5
+  # продолжаем к следующему шагу (step 6 обрабатывается следующим if-блоком)
+else
+
 VLESSENC_OUTPUT=$(/usr/local/bin/xray vlessenc 2>&1)
 VLESSENC_EXIT=$?
 
@@ -736,6 +746,8 @@ chown xray:xray "$VLESS_DECRYPTION_FILE" "$VLESS_ENCRYPTION_FILE" 2>/dev/null ||
 
 echo -e "${GREEN}✓ VLESS Encryption ключи сгенерированы${NC}"
 echo -e "${CYAN}  decryption: ${VLESS_DECRYPTION:0:48}...${NC}"
+
+fi  # end VLESS keys idempotency guard
 
 _step_mark 5
 fi
