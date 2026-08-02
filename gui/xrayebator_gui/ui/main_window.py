@@ -291,7 +291,11 @@ class MainWindow(QMainWindow):
         menu.addSeparator()
         # Theme toggle (HeroUI v3 ships both dark and light) — стиль жёстко прибит
         # к QSS, поэтому переключение живое через apply_theme с сохранением выбора в QSettings.
-        self.theme_action = QAction("Тема: тёмная", self)
+        from PySide6.QtCore import QSettings as _QS
+        _saved = _QS("xrayebator", "xrayebator-gui").value("theme", "dark")
+        self.theme_action = QAction(
+            "Тема: тёмная" if _saved == "dark" else "Тема: светлая", self
+        )
         self.theme_action.triggered.connect(self._toggle_theme)
         menu.addAction(self.theme_action)
         menu.addSeparator()
