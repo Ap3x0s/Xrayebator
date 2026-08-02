@@ -3716,7 +3716,7 @@ _default_sni_for_transport() {
     *)
       local from_list
       from_list=$(grep -v '^#' "$SNI_LIST" 2>/dev/null | grep -v '^[[:space:]]*$' | head -n 1 | cut -d'|' -f1)
-      [[ -z "$from_list" ]] && from_list="www.ozon.ru"
+      [[ -z "$from_list" ]] && from_list="www.google.com"
       echo "$from_list"
       ;;
   esac
@@ -9034,6 +9034,249 @@ uninstall_adguard_home() {
 }
 
 # CLI dispatch (Phase 5, REQ-B02). Subcommand-style.
+quickstart_command() {
+  local email=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --email) email="$2"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+
+  if [[ -z "$email" ]] || ! [[ "$email" =~ ^[^@]+@[^@]+\.[^@]+$ ]]; then
+    echo '{"ok":false,"error":"Некорректный email (нужен для Let'\''s Encrypt)"}'
+    return 1
+  fi
+
+  export TERM=dumb
+  export DEBIAN_FRONTEND=noninteractive
+  export XRAYEBATOR_NONINTERACTIVE=1
+
+  # 1. Миграции (без интерактивных промптов)
+  echo "=== Миграции ===" >&2
+  migrate_remove_legacy_tcp_tuning_v3 >/dev/null 2>&1 || true
+  migrate_client_fingerprint_state_2026 >/dev/null 2>&1 || true
+  run_migration "xhttp_migrated" "XHTTP host/SNI sync" migrate_xhttp_profiles >/dev/null 2>&1 || true
+  run_migration "routing_v132_migrated" "Routing default direct rule" migrate_routing_config >/dev/null 2>&1 || true
+  run_migration "legacy_udp443_block_removed_v3" "Remove legacy UDP/443 block" migrate_legacy_managed_udp443_block_v3 >/dev/null 2>&1 || true
+  run_migration "xhttp_mode_migrated" "XHTTP mode stream auto" migrate_xhttp_mode >/dev/null 2>&1 || true
+  run_migration "xhttp_extra_restored" "XHTTP extra anti-DPI restore" migrate_xhttp_extra_restore >/dev/null 2>&1 || true
+  run_migration "transport_profile_metadata_migrated" "Transport profile metadata" migrate_transport_profile_metadata >/dev/null 2>&1 || true
+  run_migration "config_optimized" "Config optimization (DNS/log)" migrate_config_optimization >/dev/null 2>&1 || true
+  run_migration "xmux_explicit_2026" "Explicit xmux block" migrate_xmux_explicit_2026 >/dev/null 2>&1 || true
+  fix_xray_permissions >/dev/null 2>&1 || true
+
+  # 2. Subscription server (HAPP)
+  echo "=== Subscription server ===" >&2
+  if ! install_subscription_server >/dev/null 2>&1; then
+    echo '{"ok":false,"error":"Не удалось установить subscription server"}'
+    return 1
+  fi
+  echo "  Subscription server установлен" >&2
+
+  # 3. nginx + TLS
+  echo "=== nginx + TLS ===" >&2
+
+  local server_ip
+  server_ip=$(get_server_ip)
+  if [[ -z "$server_ip" ]] || ! [[ "$server_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo '{"ok":false,"error":"Не удалось определить публичный IPv4 VPS"}'
+    return 1
+  fi
+
+  # Установить nginx если нет
+  if ! command -v nginx &>/dev/null; then
+    echo "  -> Установка nginx..." >&2
+    timeout 120 apt-get install -y nginx >/dev/null 2>&1 || {
+      echo '{"ok":false,"error":"apt-get install nginx failed"}'
+      return 1
+    }
+  fi
+
+  # Certbot: сначала snap (поддерживает --ip-address)
+  local certbot_bin=""
+  if command -v /snap/bin/certbot &>/dev/null && /snap/bin/certbot --help all 2>/dev/null | grep -q "\-\-ip-address"; then
+    certbot_bin="/snap/bin/certbot"
+  elif command -v certbot &>/dev/null && certbot --help all 2>/dev/null | grep -q "\-\-ip-address"; then
+    certbot_bin="$(command -v certbot)"
+  fi
+  if [[ -z "$certbot_bin" ]]; then
+    echo "  -> Установка certbot через snap..." >&2
+    timeout 120 apt-get install -y snapd >/dev/null 2>&1 || true
+    systemctl enable --now snapd.socket >/dev/null 2>&1 || true
+    export PATH="/snap/bin:$PATH"
+    if command -v snap &>/dev/null; then
+      timeout 300 snap install core 2>/dev/null || true
+      timeout 300 snap install --classic certbot 2>/dev/null || true
+      if command -v /snap/bin/certbot &>/dev/null && /snap/bin/certbot --help all 2>/dev/null | grep -q "\-\-ip-address"; then
+        certbot_bin="/snap/bin/certbot"
+      fi
+    fi
+  fi
+  if [[ -z "$certbot_bin" ]]; then
+    echo '{"ok":false,"error":"Certbot с --ip-address не найден"}'
+    return 1
+  fi
+  echo "  Certbot: $certbot_bin" >&2
+
+  # Webroot для ACME
+  local webroot="/var/www/xrayebator-ip-acme"
+  mkdir -p "$webroot/.well-known/acme-challenge"
+  chmod -R 755 "$webroot"
+
+  # Nginx HTTP config для certbot
+  cat > /etc/nginx/sites-available/xrayebator-sub << NGINXHTTP
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${server_ip};
+    location ^~ /.well-known/acme-challenge/ {
+        root ${webroot};
+        default_type text/plain;
+    }
+    location / {
+        return 404;
+    }
+}
+NGINXHTTP
+  ln -sf /etc/nginx/sites-available/xrayebator-sub /etc/nginx/sites-enabled/xrayebator-sub
+  rm -f /etc/nginx/sites-enabled/default
+  nginx -t >/dev/null 2>&1 || { echo '{"ok":false,"error":"nginx -t failed"}'; return 1; }
+  systemctl enable --now nginx >/dev/null 2>&1 || true
+  systemctl reload nginx >/dev/null 2>&1 || true
+
+  # Открыть порты
+  if command -v ufw &>/dev/null && ufw status | grep -q "Status: active"; then
+    ufw allow 80/tcp >/dev/null 2>&1 || true
+    ufw allow 443/tcp >/dev/null 2>&1 || true
+    ufw allow 8443/tcp >/dev/null 2>&1 || true
+    ufw reload >/dev/null 2>&1 || true
+  fi
+
+  # Получить TLS сертификат
+  echo "  -> Получение TLS сертификата..." >&2
+  if ! "$certbot_bin" certonly \
+      --cert-name "$server_ip" \
+      --preferred-profile shortlived \
+      --webroot --webroot-path "$webroot" \
+      --ip-address "$server_ip" \
+      --non-interactive --agree-tos \
+      -m "$email" \
+      --deploy-hook "systemctl reload nginx" \
+      >/tmp/certbot-ip.log 2>&1; then
+    echo '{"ok":false,"error":"certbot failed. Log: /tmp/certbot-ip.log"}'
+    return 1
+  fi
+  echo "  TLS сертификат получен" >&2
+
+  # Nginx HTTPS config (проксирует на subscription server, порт 8443 — Xray на 443)
+  cat > /etc/nginx/sites-available/xrayebator-sub << NGINXHTTPS
+limit_req_zone \$binary_remote_addr zone=xrayebator_sub:10m rate=30r/m;
+
+server {
+    listen 8443 ssl http2;
+    listen [::]:8443 ssl http2;
+    server_name ${server_ip};
+    ssl_certificate /etc/letsencrypt/live/${server_ip}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${server_ip}/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    location / {
+        limit_req zone=xrayebator_sub burst=5 nodelay;
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+    location ^~ /.well-known/acme-challenge/ {
+        root ${webroot};
+        default_type text/plain;
+    }
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${server_ip};
+    return 301 https://\$host\$request_uri;
+}
+NGINXHTTPS
+  nginx -t >/dev/null 2>&1 || { echo '{"ok":false,"error":"nginx HTTPS config failed"}'; return 1; }
+  systemctl reload nginx >/dev/null 2>&1 || true
+
+  # 4. Создание профиля
+  echo "=== Профиль ===" >&2
+
+  # Определяем порт для Xray (Xray на 443, nginx на 8443)
+  # HAPP требует multi-route профиль (schema_version 3, routes[] с 7 маршрутами,
+  # включая xhttp-legacy). _happ_ensure_default_multiroute_profile — единый источник
+  # истины: создаёт профиль при отсутствии или возвращает существующий.
+  # Создание одиночного профиля здесь ломало HAPP ("route not shown / country n/a").
+  echo "  Обеспечиваю multi-route HAPP профиль..." >&2
+  if ! _happ_ensure_default_multiroute_profile >/dev/null 2>&1; then
+    echo '{"ok":false,"error":"Не удалось создать HAPP multi-route профиль"}'
+    return 1
+  fi
+  local profile_file="$PROFILES_DIR/${HAPP_DEFAULT_PROFILE}.json"
+
+  # Перезапустить Xray (подхватить новые инбаунды маршрутов)
+  safe_restart_xray >/dev/null 2>&1 || true
+
+  # Убедиться что subscription handler отвечает
+  _subscription_ensure_handler_running >/dev/null 2>&1 || true
+
+  # 5. Результат
+  local result_uuid result_sub_token route_count
+  result_uuid=$(jq -r '.uuid' "$profile_file")
+  result_sub_token=$(jq -r '.sub_token' "$profile_file")
+  route_count=$(jq -r '(.routes // []) | length' "$profile_file" 2>/dev/null || echo 0)
+
+  local subscription_url="https://${server_ip}:8443/sub/${result_sub_token}"
+
+  echo "{\"ok\":true,\"subscription_url\":\"${subscription_url}\",\"base_url\":\"https://${server_ip}\",\"profile\":\"${HAPP_DEFAULT_PROFILE}\",\"routes\":${route_count}}"
+  return 0
+}
+
+happ_setup_command() {
+  export TERM=dumb
+  export DEBIAN_FRONTEND=noninteractive
+  export XRAYEBATOR_NONINTERACTIVE=1
+
+  # 1. Убедиться, что subscription server установлен и запущен
+  echo '=== Subscription server ===' >&2
+  if [[ ! -f /usr/local/etc/xray/.subscription_installed ]]; then
+    if ! install_subscription_server >/dev/null 2>&1; then
+      echo '{"ok":false,"error":"Не удалось установить subscription server"}'
+      return 1
+    fi
+  fi
+  if ! _subscription_restart_service; then
+    echo '{"ok":false,"error":"Не удалось запустить xrayebator-sub.service"}'
+    return 1
+  fi
+
+  # 2. Создать/найти multi-route профиль (7 маршрутов)
+  echo '=== HAPP multi-route профиль ===' >&2
+  if ! _happ_ensure_default_multiroute_profile; then
+    echo '{"ok":false,"error":"Не удалось создать HAPP multi-route профиль"}'
+    return 1
+  fi
+  local _profile_name="$HAPP_DEFAULT_PROFILE"
+  local _token
+  _token=$(jq -r '.sub_token' "$PROFILES_DIR/$_profile_name.json")
+
+  # 3. База URL подписки
+  local _base
+  _base=$(_subscription_base_url)
+
+  local _route_count
+  _route_count=$(jq -r '(.routes // []) | length' "$PROFILES_DIR/$_profile_name.json")
+
+  echo "{\"ok\":true,\"profile\":\"$_profile_name\",\"routes\":$_route_count,\"subscription_url\":\"${_base}/sub/${_token}\"}"
+  return 0
+}
+
 # Без аргументов → interactive main_menu (legacy behaviour).
 # При source-режиме (Phase 7, REQ-C10) dispatch пропускается — sourcing-скрипт сам решает,
 # что делать с определёнными функциями.
@@ -9042,6 +9285,14 @@ if [[ "$XRAYEBATOR_SOURCED" -eq 0 ]]; then
     update)
       shift
       update_command "$@"
+      ;;
+    quickstart)
+      shift
+      quickstart_command "$@"
+      ;;
+    happ-setup)
+      shift
+      happ_setup_command "$@"
       ;;
     probe-test)
       shift
@@ -9055,6 +9306,7 @@ if [[ "$XRAYEBATOR_SOURCED" -eq 0 ]]; then
       echo -e "${YELLOW}Использование:${NC}"
       echo -e "  ${CYAN}sudo xrayebator${NC}         — открыть меню"
       echo -e "  ${CYAN}sudo xrayebator update${NC}  — обновить Xray-core"
+      echo -e "  ${CYAN}sudo xrayebator quickstart${NC}  — автоматическое развёртывание"
       echo -e "  ${CYAN}sudo xrayebator probe-test${NC}  — проверить доступность SNI с VPS"
       exit 1
       ;;
