@@ -39,33 +39,60 @@ if [[ "$confirmation" != "yes" ]]; then
 fi
 
 echo ""
-echo -e "${BLUE}[1/6]${NC} ${YELLOW}Остановка сервиса Xray...${NC}"
+echo -e "${BLUE}[1/7]${NC} ${YELLOW}Остановка сервисов (Xray + HAPP subscription)...${NC}"
 systemctl stop xray > /dev/null 2>&1
 systemctl disable xray > /dev/null 2>&1
-echo -e "${GREEN}✓ Сервис остановлен${NC}\n"
+systemctl stop xrayebator-sub.service > /dev/null 2>&1
+systemctl disable xrayebator-sub.service > /dev/null 2>&1
+echo -e "${GREEN}✓ Сервисы остановлены${NC}\n"
 
-echo -e "${BLUE}[2/6]${NC} ${YELLOW}Удаление Xray-core...${NC}"
-bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ remove > /dev/null 2>&1
-echo -e "${GREEN}✓ Xray-core удален${NC}\n"
+echo -e "${BLUE}[2/7]${NC} ${YELLOW}Удаление Xray-core...${NC}"
+if bash -c "$(curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ remove > /dev/null 2>&1; then
+    echo -e "${GREEN}✓ Xray-core удален (по штатному скрипту XTLS)${NC}\n"
+else
+    echo -e "${YELLOW}⚠ Официальный скрипт XTLS не сработал (сеть?) — удаляю бинарь вручную${NC}\n"
+fi
+# Явная зачистка на случай, если скрипт XTLS не отработал
+rm -f /usr/local/bin/xray
+rm -rf /usr/local/share/xray
 
-echo -e "${BLUE}[3/6]${NC} ${YELLOW}Удаление конфигураций и профилей...${NC}"
+echo -e "${BLUE}[3/7]${NC} ${YELLOW}Удаление конфигураций и профилей...${NC}"
 rm -rf /usr/local/etc/xray
-echo -e "${GREEN}✓ Конфигурации удалены${NC}\n"
+rm -rf /var/log/xray
+echo -e "${GREEN}✓ Конфигурации и логи удалены${NC}\n"
 
-echo -e "${BLUE}[4/6]${NC} ${YELLOW}Удаление приложения xrayebator...${NC}"
+echo -e "${BLUE}[4/7]${NC} ${YELLOW}Удаление приложений (xrayebator, update/uninstall, subscription)...${NC}"
 rm -f /usr/local/bin/xrayebator
-echo -e "${GREEN}✓ Приложение удалено${NC}\n"
+rm -f /usr/local/bin/xrayebator-update
+rm -f /usr/local/bin/xrayebator-uninstall
+rm -f /usr/local/bin/subhttp.sh
+echo -e "${GREEN}✓ Приложения удалены${NC}\n"
 
-echo -e "${BLUE}[5/6]${NC} ${YELLOW}Очистка systemd...${NC}"
+echo -e "${BLUE}[5/7]${NC} ${YELLOW}Очистка systemd (юниты + drop-in)...${NC}"
 rm -f /etc/systemd/system/xray.service
 rm -f /etc/systemd/system/xray@.service
+rm -rf /etc/systemd/system/xray.service.d
+rm -f /etc/systemd/system/xrayebator-sub.service
 systemctl daemon-reload > /dev/null 2>&1
 echo -e "${GREEN}✓ Systemd очищен${NC}\n"
 
-echo -e "${BLUE}[6/6]${NC} ${YELLOW}Очистка логов...${NC}"
-journalctl --rotate > /dev/null 2>&1
-journalctl --vacuum-time=1s > /dev/null 2>&1
-echo -e "${GREEN}✓ Логи очищены${NC}\n"
+echo -e "${BLUE}[6/7]${NC} ${YELLOW}Очистка firewall и пользователя...${NC}"
+if command -v ufw > /dev/null 2>&1; then
+    for p in 443/tcp 8443/tcp 8080/tcp 9443/tcp 9444/tcp; do
+        ufw delete allow "$p" > /dev/null 2>&1 || true
+    done
+fi
+if id xray > /dev/null 2>&1; then
+    userdel xray > /dev/null 2>&1 || true
+fi
+echo -e "${GREEN}✓ Firewall и пользователь очищены${NC}\n"
+
+echo -e "${BLUE}[7/7]${NC} ${YELLOW}Очистка журналов Xray...${NC}"
+# НЕ очищаем весь системный журнал (journalctl --vacuum-time=1s затирал бы
+# логи ВСЕХ сервисов) — только артефакты нашего юнита.
+journalctl --flush > /dev/null 2>&1
+journalctl --rotate --vacuum-time=1s -u xray > /dev/null 2>&1
+echo -e "${GREEN}✓ Журналы Xray очищены${NC}\n"
 
 clear
 echo -e "${GREEN}"
