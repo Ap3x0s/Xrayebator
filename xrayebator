@@ -9245,9 +9245,18 @@ NGINXHTTPS
   result_sub_token=$(jq -r '.sub_token' "$profile_file")
   route_count=$(jq -r '(.routes // []) | length' "$profile_file" 2>/dev/null || echo 0)
 
-  local subscription_url="https://${server_ip}:8443/sub/${result_sub_token}"
+  # URL строим через canonical helper — без хардкода порта.
+  # Если ранее был ip_tls на :443 или домен на :443, URL корректно опустит порт.
+  local base subscription_url
+  base=$(_subscription_base_url)
+  # Если .subscription_* markers не созданы (возможно при раннем вызове),
+  # fallback на текущий server_ip + 8443 для обратной совместимости.
+  if [[ -z "$base" ]] || [[ "$base" == *"127.0.0.1:8080"* && ! -f "/usr/local/etc/xray/.subscription_domain" && ! -f "/usr/local/etc/xray/.subscription_port" ]]; then
+    base="https://${server_ip}:8443"
+  fi
+  subscription_url="${base}/sub/${result_sub_token}"
 
-  echo "{\"ok\":true,\"subscription_url\":\"${subscription_url}\",\"base_url\":\"https://${server_ip}\",\"profile\":\"${HAPP_DEFAULT_PROFILE}\",\"routes\":${route_count}}"
+  echo "{\"ok\":true,\"subscription_url\":\"${subscription_url}\",\"base_url\":\"${base}\",\"profile\":\"${HAPP_DEFAULT_PROFILE}\",\"routes\":${route_count}}"
   return 0
 }
 
