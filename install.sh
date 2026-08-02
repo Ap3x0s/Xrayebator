@@ -58,7 +58,6 @@ if ! command -v systemctl >/dev/null 2>&1 || [[ ! -d /run/systemd/system ]]; the
   exit 1
 fi
 
-c
 # === Install state machine: --check / --resume / --fresh ===
 STEP_DIR="/usr/local/etc/xray"
 STEP_ORDER=(1 2 3 35 4 5 6 7 8 9)
