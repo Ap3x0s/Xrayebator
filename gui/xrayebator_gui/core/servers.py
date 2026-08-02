@@ -101,7 +101,13 @@ class ServerStore:
         servers.append(server)
         self._save(servers)
         if password:
-            keyring.set_password(KEYRING_SERVICE, server["id"], password)
+            # keyring может быть недоступен (headless Linux, нет D-Bus secret
+            # service). Сервер уже дописан в JSON — не роняем весь add(), лучше
+            # просто не запомнить пароль (клиент попросит его снова при подключении).
+            try:
+                keyring.set_password(KEYRING_SERVICE, server["id"], password)
+            except keyring.errors.KeyringError:
+                pass
         return server
 
     def remove(self, server_id: str) -> None:
