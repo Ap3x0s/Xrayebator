@@ -78,11 +78,30 @@ _adguard_force_uninstall_if_present() {
   echo -e "${GREEN}  Файлы удалены${NC}"
 
   echo -e "${CYAN}Шаг 4/5: Восстановление systemd-resolved...${NC}"
-  if [[ -L /etc/resolv.conf ]] || [[ -f /etc/resolv.conf ]]; then
-    ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf 2>/dev/null || true
-  fi
+  # AdGuard Home перенастраивал resolv.conf на localhost (127.0.0.1:53).
+  # Восстанавливаем стандартный stub-resolv.conf ТОЛЬКО если:
+  #   (a) systemd-resolved будет запущен (иначе stub — dangling symlink → DNS сломан),
+  #   (b) stub-файл реально существует,
+  #   (c) текущий resolv.conf выглядит как AdGuard-managed (symlink или 127.0.0.1).
+  # Не трогаем управляемые вручную статические resolv.conf.
   systemctl restart systemd-resolved 2>/dev/null || true
-  echo -e "${GREEN}  systemd-resolved перезапущен${NC}"
+  local stub="/run/systemd/resolve/stub-resolv.conf"
+  if systemctl is-active --quiet systemd-resolved 2>/dev/null && [[ -f "$stub" ]]; then
+    local replace=0
+    if [[ -L /etc/resolv.conf ]]; then
+      replace=1
+    elif [[ -f /etc/resolv.conf ]] && grep -qE '^\s*nameserver\s+127\.' /etc/resolv.conf 2>/dev/null; then
+      replace=1
+    fi
+    if [[ "$replace" -eq 1 ]]; then
+      ln -sf "$stub" /etc/resolv.conf 2>/dev/null || true
+      echo -e "${GREEN}  resolv.conf восстановлен на systemd-resolved stub${NC}"
+    else
+      echo -e "${YELLOW}  resolv.conf выглядит пользовательским — не трогаю${NC}"
+    fi
+  else
+    echo -e "${YELLOW}  systemd-resolved неактивен — resolv.conf не меняю${NC}"
+  fi
 
   echo -e "${CYAN}Шаг 5/5: UFW cleanup (порт 53)...${NC}"
   if command -v ufw &>/dev/null; then
@@ -303,7 +322,7 @@ if [[ "$GITHUB_BRANCH" != "main" ]] && [[ ! -f "$UPDATE_SESSION_FILE.warned" ]];
 
   if [[ ! "$confirm_install" =~ ^[yYдД]$ ]]; then
     echo -e "${CYAN}✓ Отменено${NC}"
-    rm -f "$UPDATE_SESSION_FILE"
+    rm -f "$UPDATE_SESSION_FILE" "$UPDATE_SESSION_FILE.warned"
     exit 0
   fi
 
@@ -314,7 +333,9 @@ fi
 
 # Резервная копия текущих настроек
 echo -e "${YELLOW}Создание резервной копии...${NC}"
-BACKUP_DIR="/usr/local/etc/xray/backup_$(date +%Y%m%d_%H%M%S)"
+# Единая директория бэкапов с xrayebator (XRAY_BACKUPS_DIR=/usr/local/etc/xray/backups).
+# Отдельный /usr/local/etc/xray/backup_<ts> рос вечно и не подчинялся ротации backup_config().
+BACKUP_DIR="/usr/local/etc/xray/backups/update_$(date +%Y%m%d_%H%M%S)"
 if ! mkdir -p "$BACKUP_DIR"; then
   echo -e "${RED}✗ Не удалось создать каталог резервной копии${NC}"
   exit 1
