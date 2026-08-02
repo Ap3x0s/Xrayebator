@@ -7,3 +7,26 @@ xrayebator.backup_*
 # локальные ресерч-ноты (не публичные, личный контекст)
 RESEARCH_REPORT.md
 ресерч задание.txt
+
+# Собранные desktop-бинарники (именной артефакт билда CI — добавлен вручную при подготовке релиза)
+# НЕ коммитим: exe/dmg это результат сборки на GitHub Actions, не исходник
+Xrayebator-*.exe
+Xrayebator-*.exe.sha256
+Xrayebator-*.dmg
+Xrayebator-*.dmg.sha256
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+
+# локальные инструменты разработчика (pytest/ruff кэши, IDE)
+.pytest_cache/
+.ruff_cache/
+.vscode/
+.idea/
+*.swp
+*.swo
