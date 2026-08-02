@@ -299,12 +299,13 @@ class MainWindow(QMainWindow):
             color = "#98c379"
         else:
             color = "#abb2bf"
-        from PySide6.QtGui import QTextCursor
+        import html as html_mod
+        escaped = html_mod.escape(text)
         html = (
             f'<span style="color:#4b5263">[{timestamp}]</span> '
-            f'<span style="color:{color}">{text}</span>'
+            f'<span style="color:{color}">{escaped}</span>'
         )
-        self.log.appendHtml(html)
+        self.log.append(html)
 
     def _reload_servers(self, select_id: Optional[str] = None) -> None:
         self.server_combo.blockSignals(True)
