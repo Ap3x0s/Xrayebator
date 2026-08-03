@@ -229,20 +229,17 @@ QComboBox::down-arrow {{
     width: 12px;
     height: 8px;
 }}
-QComboBox QAbstractItemView {{
+/* On Windows Qt uses a QComboBoxPrivateContainer frame around QListView
+   of the popup, which inherits native Vista style and ignores our radii.
+   We patch it via setWindowFlags in code (see below); the QSS just needs
+   QListView rules below which the QListView_qss hack injects. */
+QListView {{
     background-color: {t.surface};
     color: {t.foreground};
     border: {t.BORDER_WIDTH}px solid {t.border};
     border-radius: {ThemeTokens.RADIUS_MD}px;
-    selection-background-color: {t.accent};
-    selection-color: {t.accent_foreground};
     outline: none;
     padding: 4px;
-}}
-QComboBox QAbstractItemView::item {{
-    padding: 6px 10px;
-    border-radius: {ThemeTokens.RADIUS_SM}px;
-    min-height: 24px;
 }}
 """
 
@@ -391,11 +388,19 @@ def build_qss(t: ThemeTokens) -> str:
 
 
 def apply_theme(app: "QApplication", mode: Literal["dark", "light"] = "dark") -> None:  # noqa: F821
-    """Apply HeroUI v3 QSS theme to the application."""
+    """Apply HeroUI v3 QSS theme to the application.
+
+    Also installs a global QComboBox popup-style fix: on Windows Qt uses
+    QWindowsVistaStyle for the popup frame, which ignores QSS border-radius
+    and paints sharp corners. We patch every QComboBox at creation time to
+    set view.setStyleSheet() directly + force the container frame transparent.
+    """
     tokens = ThemeTokens.dark() if mode == "dark" else ThemeTokens.light()
     app.setStyleSheet(build_qss(tokens))
 
-    # Palette must match QSS for native widgets (menus, messageboxes).
+    # Palette essential for native-rendered widgets (menus, tooltips,
+    # QMessageBox body). Without it Qt uses Windows native palette which
+    # stays light on Windows — clashing with our dark QSS.
     from PySide6.QtGui import QColor, QPalette
     p = QPalette()
     p.setColor(QPalette.ColorRole.Window, QColor(tokens.background))
@@ -412,3 +417,87 @@ def apply_theme(app: "QApplication", mode: Literal["dark", "light"] = "dark") ->
     p.setColor(QPalette.ColorRole.PlaceholderText, QColor(tokens.muted))
     p.setColor(QPalette.ColorRole.Link, QColor(tokens.accent))
     app.setPalette(p)
+
+    # Workaround for Qt-Windows popup sharp corners.
+    # We install an event filter on qApp that intercepts QEvent.Type.Polish
+    # for QComboBox and forcefully styles the internal QListView / container
+    # with rounded borders matching HeroUI radius_md.
+    from PySide6.QtCore import QEvent, QObject
+    from PySide6.QtWidgets import QAbstractItemView, QComboBox, QListView
+
+    app._heroui_tokens = tokens  # type: ignore[attr-defined]
+
+    class _ComboPopupFixer(QObject):
+        def eventFilter(self, obj: QObject, event: QEvent) -> bool:  # noqa: N802
+            if event.type() == QEvent.Type.Polish and isinstance(obj, QComboBox):
+                try:
+                    _fix_combo_popup(obj, tokens)
+                except Exception:
+                    pass
+            return False
+
+    # Keep reference to prevent GC deleting the filter
+    app._heroui_popup_fixer = _ComboPopupFixer(app)  # type: ignore[attr-defined]
+    app.installEventFilter(app._heroui_popup_fixer)  # type: ignore[attr-defined]
+
+    # Also-fix any QComboBox that has already been created (e.g. in forms
+    # constructed before apply_theme ran).
+    for widget in app.allWidgets():
+        if isinstance(widget, QComboBox):
+            try:
+                _fix_combo_popup(widget, tokens)
+            except Exception:
+                pass
+
+
+def _fix_combo_popup(combo: "QComboBox", tokens: ThemeTokens) -> None:
+    """Force rounded popup corners on a single QComboBox.
+
+    Qt on Windows wraps the QListView popup in QComboBoxPrivateContainer
+    with native frame. Frame's border-radius is ignored — we need to:
+      1. Give the QListView itself rounded corners via direct styleSheet
+      2. Tell the underlying container to be a frameless popup
+    """
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QAbstractItemView, QListView
+
+    # 1) Style the view directly (works on all platforms)
+    view = combo.view()
+    if isinstance(view, QListView):
+        view.setStyleSheet(f"""
+            QListView {{
+                background-color: {tokens.surface};
+                color: {tokens.foreground};
+                border: 1px solid {tokens.border};
+                border-radius: {ThemeTokens.RADIUS_MD}px;
+                outline: none;
+                padding: 4px;
+            }}
+            QListView::item {{
+                padding: 6px 10px;
+                border-radius: {ThemeTokens.RADIUS_SM}px;
+                min-height: 24px;
+            }}
+            QListView::item:selected {{
+                background-color: {tokens.accent};
+                color: {tokens.accent_foreground};
+            }}
+            QListView::item:hover:!selected {{
+                background-color: {tokens.surface_tertiary};
+            }}
+        """)
+
+    # 2) Force container popup to use our style, not native
+    # The popup container is accessible via combo.view().parentWidget()
+    # (QComboBoxPrivateContainer). Setting Qt.FramelessWindowHint removes
+    # the native border so our rounded QListView shows through.
+    parent = view.parentWidget() if view is not None else None
+    if parent is not None and parent.windowFlags() & Qt.WindowType.Popup:
+        parent.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        # Frameless removes the sharp-corner native frame; the panel then
+        # gets its background from the styled QListView inside.
+        parent.setWindowFlags(
+            parent.windowFlags()
+            | Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.NoDropShadowWindowHint
+        )

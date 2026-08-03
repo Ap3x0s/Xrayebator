@@ -7,7 +7,7 @@ import traceback
 from datetime import datetime
 from typing import Callable, Optional
 
-from PySide6.QtCore import QObject, QThread, Signal, Slot
+from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot
 from PySide6.QtGui import QAction, QCloseEvent, QIcon
 from PySide6.QtWidgets import (
     QComboBox,
@@ -224,6 +224,8 @@ class MainWindow(QMainWindow):
         )
         self.install_helper_button.clicked.connect(self._install_tun_helper)
         mode_row.addWidget(self.install_helper_button)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight)
         form.addRow("Режим:", mode_row)
 
         profile_row = QHBoxLayout()
