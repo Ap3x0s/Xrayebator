@@ -144,6 +144,20 @@ class MainWindow(QMainWindow):
         self._build_tray(icon)
         self._reload_servers()
         self._on_snapshot(self._controller.snapshot)
+        # Центрируем окно при первом запуске — если у пользователя несколько
+        # мониторов и один из них выключен, окно могло "ушло" на невидимый
+        # экран и выглядит как «приложение не запустилось».
+        self._center_on_screen()
+
+    def _center_on_screen(self) -> None:
+        """Разместить окно по центру primary screen, рядом с активной позицией."""
+        from PySide6.QtGui import QGuiApplication
+        screen = QGuiApplication.primaryScreen()
+        if screen is None:
+            return
+        frame = self.frameGeometry()
+        frame.moveCenter(screen.availableGeometry().center())
+        self.move(frame.topLeft())
 
     def _build_ui(self) -> None:
         root = QWidget()
