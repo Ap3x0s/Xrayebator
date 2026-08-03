@@ -186,6 +186,18 @@ QLineEdit:focus, QComboBox:focus, QSpinBox:focus {{
     border: {t.FOCUS_RING_WIDTH}px solid {t.focus_ring};
     padding: 7px 11px;
 }}
+QLineEdit[error="true"], QLineEdit[error="1"] {{
+    border: {t.BORDER_WIDTH}px solid {t.danger};
+}}
+QLineEdit[error="true"]:focus, QLineEdit[error="1"]:focus {{
+    border: {t.FOCUS_RING_WIDTH}px solid {t.danger};
+    padding: 7px 11px;
+}}
+QLabel#fieldError {{
+    color: {t.danger};
+    font-size: 11px;
+    padding: 0 4px;
+}}
 QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled {{
     background-color: {t.surface};
     color: {t.muted};
