@@ -182,6 +182,10 @@ class MainWindow(QMainWindow):
         server_row = QHBoxLayout()
         self.server_combo = QComboBox()
         self.server_combo.currentIndexChanged.connect(self._server_changed)
+        # Empty-state placeholder — без него combo выглядит пустым куском
+        # поля и не очевидно, что он вообще есть и для чего.
+        self.server_combo.setPlaceholderText("Выберите сервер или добавьте —")
+        self.server_combo.setCurrentIndex(-1)  # placeholder показывается при -1
         server_row.addWidget(self.server_combo, 1)
         self.add_server_button = QPushButton("Добавить VPS…")
         self.add_server_button.setProperty("variant", "primary")
@@ -385,6 +389,12 @@ class MainWindow(QMainWindow):
                 if data and data.get("id") == select_id:
                     self.server_combo.setCurrentIndex(index)
                     break
+        else:
+            # Если серверов нет — placeholder уже виден (currentIndex=-1).
+            # Если серверы есть и combo ещё пустой (только что loaded) —
+            # выбираем первый, чтобы не оставалось placeholder-глюка.
+            if self.server_combo.count() > 0 and self.server_combo.currentIndex() < 0:
+                self.server_combo.setCurrentIndex(0)
         self._refresh_tray_menus()
         self._server_changed()
 
