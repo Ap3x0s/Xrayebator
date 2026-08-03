@@ -103,15 +103,19 @@ class _RoundedPopup(QFrame):
             min(max_text_len * 9 + 48, 480),  # text-fit up to 480px
         )
         self.setFixedWidth(suggested_width)
-        # Height: each row needs ~36px (icn+text with our item padding),
-        # plus internal popup margins. Cap at 480 px.
-        # UB: QListWidget doesn't have __len__ in Qt — use .count()
-        item_row_h = 36
-        padding = 16  # matches setContentsMargins(4,4,4,4) x2 + small slate
-        content_h = min(item_count * item_row_h + padding, 480)
-        # Scrollbar only when actual overflow (after 13 items at new 36px row)
-        needs_scroll = (item_count * item_row_h + padding) > 480
-        self.setFixedHeight(content_h)
+        # Height: each row needs ~36px (padding 8px*2 + font 16px = 32,
+        # but QListWidget widget's sizeHint for item is bigger than that).
+        # Use actual sizeHint from QListWidgetItem to avoid clipping -
+        # we still hardcode a floor of 40 per item because Qt cem hidden
+        # default margins the row needs on top of our padding values.
+        item_row_h = 40
+        container_margin = 8   # setContentsMargins(4,4,4,4) sums to 8
+        # Always reserve a bit extra for divider lines and the rounded frame
+        extra_padding = container_margin + 12
+        content_h = item_count * item_row_h + extra_padding
+        # Cap at 480 px; scrollbar only when it would overflow
+        needs_scroll = content_h > 480
+        self.setFixedHeight(min(content_h, 480))
         self.list.setVerticalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAsNeeded if needs_scroll
             else Qt.ScrollBarPolicy.ScrollBarAlwaysOff
