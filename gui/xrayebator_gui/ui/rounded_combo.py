@@ -93,11 +93,19 @@ class _RoundedPopup(QFrame):
     def popup_at(self, pos: QPoint, width: int) -> None:
         # Width matches the button; position slightly below with gap
         self.setFixedWidth(width)
-        # Fit height to items, capped at 280
+        # Fit height to items — full list, no scrolling unless truly huge.
         # NB: QListWidget doesn't have __len__ in Qt — use .count()
         item_count = self.list.count()
-        content_h = min(item_count * 36 + 16, 280)
+        # Cap only if content is absurd (e.g. >15 routes — not the norm).
+        max_height_px = 480  # rough screen cap before scrolling kicks in
+        content_h = min(item_count * 36 + 16, max_height_px)
         self.setFixedHeight(content_h)
+        # No scrollbars until we hit the cap.
+        self.list.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+            if item_count * 36 + 16 > max_height_px
+            else Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
         # 4px gap so popup doesn't touch the combo bottom edge
         pos.setY(pos.y() + 4)
         self.move(pos)
