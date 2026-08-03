@@ -214,6 +214,7 @@ class MainWindow(QMainWindow):
             "Системный proxy (текущий MVP)", ConnectionMode.SYSTEM_PROXY
         )
         self.mode_combo.setCurrentIndex(0 if self._tun_available else 1)
+        self.mode_combo.setMinimumHeight(38)
         mode_row.addWidget(self.mode_combo, 1)
         self.install_helper_button = QPushButton("Установить TUN helper…")
         self.install_helper_button.setProperty("variant", "ghost")
@@ -229,10 +230,16 @@ class MainWindow(QMainWindow):
         form.addRow("Режим:", mode_row)
 
         profile_row = QHBoxLayout()
+        profile_row.setSpacing(8)
+        # Отступы 0 чтобы поле занимало ровно ту же высоту, что и другие поля формы.
+        profile_row.setContentsMargins(0, 0, 0, 0)
         self.profile_combo = QComboBox()
         for profile in RoutingProfile:
             self.profile_combo.addItem(profile.label, profile)
         self.profile_combo.currentIndexChanged.connect(self._on_profile_selected)
+        # Форсируем этот комбо выравнивание по базовой линии поля ввода
+        # чтобы он не 'висел' над sibling controls.
+        self.profile_combo.setMinimumHeight(38)
         profile_row.addWidget(self.profile_combo, 1)
         self.profile_switch_button = QPushButton("Применить")
         self.profile_switch_button.setProperty("variant", "ghost")
@@ -241,7 +248,10 @@ class MainWindow(QMainWindow):
         form.addRow("Профиль:", profile_row)
 
         route_row = QHBoxLayout()
+        route_row.setSpacing(8)
+        route_row.setContentsMargins(0, 0, 0, 0)
         self.route_combo = QComboBox()
+        self.route_combo.setMinimumHeight(38)
         route_row.addWidget(self.route_combo, 1)
         self.refresh_button = QPushButton("Обновить")
         self.refresh_button.setProperty("variant", "ghost")
