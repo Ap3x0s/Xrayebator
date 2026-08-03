@@ -1,79 +1,72 @@
-"""Inter font loading.
+"""Inter font loading (static weights, not variable font).
 
-Источник истины для UI-шрифта. Использует системный Inter если он установлен
-(бесплатно), иначе подгружает bundled InterVariable.ttf (v4.1, 859 KB, SIL
-Open Font License).
+Variable font (InterVariable.ttf) renders condensed on Windows because Qt picks
+the wrong instance from the 'opsz' axis — we ship two static TTFs instead:
+Inter-Regular.ttf and Inter-Medium.ttf (v4.1, SIL Open Font License).
 
-Отличие от подхода «зашить ttf в ресурсы и всегда его использовать»:
-- Если у пользователя уже есть Inter (например, macOS Sonoma+ или
-  установлен через `fonts-inter` на Linux) — Qt его найдёт через fontconfig,
-  мы не дублируем загрузку.
-- Если нет — Qt загружает наш bundled asset.
+Strategy:
+1. If the system already has Inter installed (macOS, fonts-inter on Linux,
+   user-installed on Windows) — use it, skip bundled files entirely.
+2. Else load both bundled TTFs via QFontDatabase; Qt merges them into a
+   single "Inter" family with weights 400 (Regular) and 500 (Medium).
+3. If neither is available, FONT_STACK falls through to system sans.
 
 Public API:
-    ensure_inter_font(app) -> str — возвращает family name, который использовать.
-                                    "Inter" или "Inter Variable" или fallback.
-    FONT_STACK — QSS-ready font-family string («Inter», «Inter Variable», system-ui, ...)
+    ensure_inter_font(app) -> str — resolved family name ("Inter" or "")
+    FONT_STACK — QSS-ready font-family stack for UI text
+    MONO_STACK — QSS-ready monospace stack for the log widget
 """
 from __future__ import annotations
 
 import sys
-from importlib import resources
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from PySide6.QtWidgets import QApplication
 
+_BUNDLED_FONTS = ("Inter-Regular.ttf", "Inter-Medium.ttf")
 
-def _bundled_font_path() -> Path:
-    """Путь к bundled Inter Variable ttf внутри package.
 
-    Работает и в dev-режиме (через Path), и в PyInstaller bundle
-    (через sys._MEIPASS - один файл).
-    """
+def _fonts_dir() -> Path:
+    """Bundled fonts dir — works in dev checkout and PyInstaller onefile."""
     if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
-        # PyInstaller onefile/onedir — assets развёрнуты во временный каталог.
-        return Path(sys._MEIPASS) / "xrayebator_gui" / "assets" / "fonts" / "InterVariable.ttf"
-    # Dev mode: этот файл в xrayebator_gui/ui/fonts.py, шрифт — в xrayebator_gui/assets/fonts/.
-    return Path(__file__).parent.parent / "assets" / "fonts" / "InterVariable.ttf"
+        return Path(sys._MEIPASS) / "xrayebator_gui" / "assets" / "fonts"
+    # this file lives at xrayebator_gui/ui/fonts.py → assets are one level up
+    return Path(__file__).parent.parent / "assets" / "fonts"
 
 
 def ensure_inter_font(app: "QApplication") -> str:
-    """Загружает Inter если он не доступен системно.
+    """Load Inter into QFontDatabase unless the system provides it.
 
-    Возвращает family name, который работает. Если Inter не найден ни в
-    системе, ни в bundled-файле → возвращает fallbacks, QSS должен быть
-    готов.
+    Returns the family name Qt reports for Inter (usually "Inter"), or
+    "" if neither system install nor bundled files are available — in
+    which case FONT_STACK degrades to system sans gracefully.
     """
     from PySide6.QtGui import QFontDatabase
 
-    db = QFontDatabase
-    # Системный Inter — имя в базе может быть "Inter" или "Inter Variable".
-    families = set(db.families())
+    families = set(QFontDatabase.families())
     if "Inter" in families:
         return "Inter"
-    if "Inter Variable" in families:
-        return "Inter Variable"
 
-    # Пробуем загрузить bundled файл
-    bundled = _bundled_font_path()
-    if bundled.is_file():
-        font_id = db.addApplicationFont(str(bundled))
-        if font_id != -1:
-            loaded = db.applicationFontFamilies(font_id)
-            if loaded:
-                return loaded[0]
-            return "Inter Variable"
+    fonts_dir = _fonts_dir()
+    loaded_family = ""
+    for filename in _BUNDLED_FONTS:
+        path = fonts_dir / filename
+        if not path.is_file():
+            continue
+        font_id = QFontDatabase.addApplicationFont(str(path))
+        if font_id == -1:
+            continue
+        loaded = QFontDatabase.applicationFontFamilies(font_id)
+        if loaded and not loaded_family:
+            loaded_family = loaded[0]
 
-    # Fallback — без Inter, возвращаем маркер «шрифт не доступен»
-    return ""
+    return loaded_family
 
 
-# Итоговый CSS font-family stack. Qt принимает список через запятую.
-# Порядок: наш загруженный Inter → системный Inter → Inter Variable →
-# общие системные → sans-serif. QSS font-family принимает quoted family names.
-FONT_STACK = '"Inter", "Inter Variable", "Segoe UI", "SF Pro Text", "Helvetica Neue", sans-serif'
+# Итоговый CSS font-family stack. QSS font-family принимает quoted list.
+FONT_STACK = '"Inter", "Segoe UI", "SF Pro Text", "Helvetica Neue", sans-serif'
 
-# Моноширинный — для логов. Qt не имеет Inter Mono, поэтому системный mono.
+# Моноширинный — для логов.
 MONO_STACK = '"Cascadia Code", "JetBrains Mono", "Fira Code", Consolas, Menlo, monospace'
