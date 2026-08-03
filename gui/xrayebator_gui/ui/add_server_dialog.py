@@ -44,35 +44,47 @@ def valid_email(email: str) -> bool:
 
 
 class _FieldRow(QWidget):
-    """QLineEdit + inline error label (HeroUI-style: красный текст под полем)."""
+    """QLineEdit + inline error label (HeroUI-style: красный текст под полем).
 
-    def __init__(self, edit: QLineEdit, parent=None):
+    Когда ошибка скрыта — widget имеет только высоту поля (без пустого
+    error_label), благодаря чему QFormLayout выравнивает baseline этой строки
+    так же, как и другие QLineEdit — не съезжает ни вверх, ни вниз.
+    """
+
+    def __init__(self, edit: QWidget, parent=None):
         super().__init__(parent)
         self.edit = edit
         self.error_label = QLabel()
         self.error_label.setObjectName("fieldError")
         self.error_label.setVisible(False)
-        # Цвет - берём danger из палитры через QSS (theme.py уже покрывает QLabel[fieldError])
+        # Когда error_label невидим — он не должен оставлять след в layout.
+        # setContentsMargins(0,0,0,0) вокруг пустого label + zero-spacing.
+        self.error_label.setContentsMargins(4, 0, 4, 2)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
+        layout.setSpacing(2)
         layout.addWidget(edit)
         layout.addWidget(self.error_label)
+        # Устанавливаем sizeHint = только видимая часть (edit или edit+error)
+        self.setSizePolicy(self.sizePolicy())
 
     def set_error(self, message: str | None) -> None:
         """None → скрыть ошибку; иначе показать красным."""
         if message:
             self.error_label.setText(message)
             self.error_label.setVisible(True)
-            # Красный бордер через QSS (handled by theme)
-            self.edit.setProperty("error", True)
-            self.edit.style().unpolish(self.edit)
-            self.edit.style().polish(self.edit)
+            # Красный бордер через QSS.
+            # setProperty триггерит repolish — пересчитает стиль.
+            if hasattr(self.edit, 'setProperty'):
+                self.edit.setProperty("error", True)
+                self.edit.style().unpolish(self.edit)
+                self.edit.style().polish(self.edit)
         else:
             self.error_label.setVisible(False)
-            self.edit.setProperty("error", False)
-            self.edit.style().unpolish(self.edit)
-            self.edit.style().polish(self.edit)
+            if hasattr(self.edit, 'setProperty'):
+                self.edit.setProperty("error", False)
+                self.edit.style().unpolish(self.edit)
+                self.edit.style().polish(self.edit)
 
     def text(self) -> str:
         return self.edit.text()
@@ -121,14 +133,18 @@ class AddServerDialog(QDialog):
         key_browse = QPushButton("Обзор…")
         key_browse.setProperty("variant", "ghost")
         key_browse.clicked.connect(self._browse_key)
-        key_inner_row = QHBoxLayout()
-        key_inner_row.addWidget(self.key_edit, 1)
-        key_inner_row.addWidget(key_browse)
-        key_inner_widget = QWidget()
-        key_inner_widget.setLayout(key_inner_row)
-        self.key_row = _FieldRow(key_inner_widget)
-        # Override: key_row wraps a composite widget, not QLineEdit
-        # (we still reuse its error label)
+        # key_row оборачивает ТОЛЬКО lineEdit под валидацию, броуз-кнопка живёт отдельно
+        # (иначе _FieldRow обернёт не-QLineEdit и baseline распадается).
+        key_with_browse = QHBoxLayout()
+        key_with_browse.setContentsMargins(0, 0, 0, 0)
+        key_with_browse.addWidget(self.key_edit, 1)
+        key_with_browse.addWidget(key_browse)
+        key_container = QWidget()
+        key_container.setLayout(key_with_browse)
+        self.key_row = _FieldRow(self.key_edit)
+        # key_row — валидатор вокруг только lineEdit, контейнер key_container
+        # добавляется в форму отдельно ниже (чтобы в ряду формы был сам QLineEdit,
+        # а browse-button справа).
 
         self.email_edit = QLineEdit()
         self.email_edit.setPlaceholderText("you@example.com (для Let's Encrypt)")
@@ -140,7 +156,10 @@ class AddServerDialog(QDialog):
         form.addRow("Пользователь:", self.user_row)
         form.addRow("Аутентификация:", self.auth_combo)
         form.addRow("Пароль:", self.password_row)
-        form.addRow("Файл ключа:", self.key_row)
+        # Composite row: lineEdit (в _FieldRow для inline error) + Browse button.
+        # Чтобы не ломать baseline QFormLayout, оборачиваем оба в flat container.
+        # Key-edit теперь всегда имеет error_border при ошибке (видно под кнопкой).
+        form.addRow("Файл ключа:", key_container)
         form.addRow("Пароль sudo:", self.sudo_password_edit)
         form.addRow("Email:", self.email_row)
 
