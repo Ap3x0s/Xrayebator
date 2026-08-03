@@ -288,6 +288,18 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.log, 1)
 
     def _build_tray(self, icon: QIcon) -> None:
+        # Диагностический режим: без tray icon (некоторые Windows-билды
+        # запрещают tray от unsigned exe — падает весь event loop).
+        import os as _os
+        if _os.environ.get("XRAYEBATOR_NO_TRAY"):
+            self.tray = None
+            self.tray_toggle_action = None
+            self.tray_server_menu = None
+            self.tray_route_menu = None
+            self.tray_profile_menu = None
+            self.theme_action = None
+            return
+
         self.tray = QSystemTrayIcon(icon, self)
         self.tray.setToolTip("Xrayebator — отключено")
         self.tray.activated.connect(self._tray_activated)
@@ -702,7 +714,14 @@ class MainWindow(QMainWindow):
             self._refresh_tray_menus()
 
     def _refresh_tray_menus(self) -> None:
-        if not hasattr(self, "tray_server_menu"):
+        # Guard: в diagnostic режиме (XRAYEBATOR_NO_TRAY) или если tray
+        # не создался — пропускаем манипуляции с меню.
+        if (
+            self.tray is None
+            or self.tray_server_menu is None
+            or self.tray_route_menu is None
+            or self.tray_profile_menu is None
+        ):
             return
         self.tray_server_menu.clear()
         for index in range(self.server_combo.count()):
@@ -846,7 +865,8 @@ class MainWindow(QMainWindow):
                 f"\n{snapshot.route.remark or snapshot.route.label}"
                 f" · {snapshot.routing_profile.label}"
             )
-        self.tray.setToolTip(f"Xrayebator — {label.lower()}{target}")
+        if self.tray is not None:
+            self.tray.setToolTip(f"Xrayebator — {label.lower()}{target}")
         self._refresh_tray_menus()
         # Показывать ошибку всегда, если она есть (не только в ERROR-статусе).
         self.status_label.setToolTip(snapshot.error or "")
@@ -892,12 +912,13 @@ class MainWindow(QMainWindow):
             return
         event.ignore()
         self.hide()
-        self.tray.showMessage(
-            "Xrayebator",
-            "Приложение продолжает работать в системном трее.",
-            QSystemTrayIcon.MessageIcon.Information,
-            2500,
-        )
+        if self.tray is not None:
+            self.tray.showMessage(
+                "Xrayebator",
+                "Приложение продолжает работать в системном трее.",
+                QSystemTrayIcon.MessageIcon.Information,
+                2500,
+            )
 
     def _quit(self) -> None:
         self._quitting = True
@@ -915,7 +936,8 @@ class MainWindow(QMainWindow):
 
             if disconnect_needed:
                 self._quit_thread_guard = True
-                self.tray.setToolTip("Xrayebator — отключение перед выходом…")
+                if self.tray is not None:
+                    self.tray.setToolTip("Xrayebator — отключение перед выходом…")
 
                 def _do_quit():
                     try:
@@ -923,7 +945,8 @@ class MainWindow(QMainWindow):
                     except Exception:
                         pass
                     finally:
-                        self.tray.hide()
+                        if self.tray is not None:
+                            self.tray.hide()
                         if app is not None:
                             app.quit()
 
@@ -937,12 +960,14 @@ class MainWindow(QMainWindow):
                 # Храним ссылку чтобы GC не удалил до завершения
                 self._quit_worker = worker  # noqa: SLF001
             else:
-                self.tray.hide()
+                if self.tray is not None:
+                    self.tray.hide()
                 if app is not None:
                     app.quit()
         except Exception:
             # fail-safe: даже если что-то пошло не так, выйти
-            self.tray.hide()
+            if self.tray is not None:
+                self.tray.hide()
             try:
                 from PySide6.QtWidgets import QApplication
 
