@@ -94,7 +94,9 @@ class _RoundedPopup(QFrame):
         # Width matches the button; position slightly below with gap
         self.setFixedWidth(width)
         # Fit height to items, capped at 280
-        content_h = min(len(self.list) * 36 + 16, 280)
+        # NB: QListWidget doesn't have __len__ in Qt — use .count()
+        item_count = self.list.count()
+        content_h = min(item_count * 36 + 16, 280)
         self.setFixedHeight(content_h)
         # 4px gap so popup doesn't touch the combo bottom edge
         pos.setY(pos.y() + 4)
