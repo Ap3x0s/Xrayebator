@@ -38,6 +38,10 @@ def main() -> int:
     app.setOrganizationName("xrayebator")
     # Не выходить из приложения при закрытии окна — живём в tray.
     app.setQuitOnLastWindowClosed(False)
+    # Inter Variable: подгружаем bundled font если системного нет.
+    # Должно быть ДО apply_theme, чтобы QSS попадал на уже зарегистрированный шрифт.
+    from .ui.fonts import ensure_inter_font
+    ensure_inter_font(app)
     # HeroUI v3 theme: читаем сохранённый выбор пользователя (dark/light).
     from PySide6.QtCore import QSettings
     saved_theme = QSettings("xrayebator", "xrayebator-gui").value("theme", "dark")

@@ -13,6 +13,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+from .fonts import FONT_STACK, MONO_STACK
+
 
 @dataclass(frozen=True)
 class ThemeTokens:
@@ -107,6 +109,7 @@ QPushButton {{
     border: {t.BORDER_WIDTH}px solid {t.border};
     border-radius: {ThemeTokens.RADIUS_MD}px;
     padding: 8px 16px;
+    font-family: {FONT_STACK};
     font-weight: 500;
     min-height: 24px;
 }}
@@ -171,6 +174,7 @@ QLineEdit, QComboBox, QSpinBox {{
     border: {t.BORDER_WIDTH}px solid transparent;
     border-radius: {ThemeTokens.RADIUS_XL}px;
     padding: 8px 12px;
+    font-family: {FONT_STACK};
     selection-background-color: {t.accent};
     selection-color: {t.accent_foreground};
 }}
@@ -228,7 +232,7 @@ QTextEdit, QPlainTextEdit {{
     border: {t.BORDER_WIDTH}px solid {t.border};
     border-radius: {ThemeTokens.RADIUS_MD}px;
     padding: 8px;
-    font-family: "Cascadia Code", "JetBrains Mono", "Fira Code", Consolas, monospace;
+    font-family: {MONO_STACK};
     font-size: 12px;
 }}
 
@@ -291,12 +295,14 @@ def _qss_misc(t: ThemeTokens) -> str:
 QMainWindow, QWidget {{
     background-color: {t.background};
     color: {t.foreground};
+    font-family: {FONT_STACK};
+    font-size: 13px;
 }}
 QLabel {{
     background: transparent;
     color: {t.foreground};
 }}
-QLabel[muted="true"], QLabel[muted="1"] {{
+QLabel[muted="true"] {{
     color: {t.muted};
 }}
 
@@ -306,6 +312,7 @@ QMenu {{
     border: {t.BORDER_WIDTH}px solid {t.border};
     border-radius: {ThemeTokens.RADIUS_MD}px;
     padding: 6px;
+    font-family: {FONT_STACK};
 }}
 QMenu::item {{
     padding: 6px 24px 6px 12px;
@@ -327,6 +334,7 @@ QToolTip {{
     border: {t.BORDER_WIDTH}px solid {t.border};
     border-radius: {ThemeTokens.RADIUS_SM}px;
     padding: 6px 10px;
+    font-family: {FONT_STACK};
 }}
 
 QMessageBox {{
