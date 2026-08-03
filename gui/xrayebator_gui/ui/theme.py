@@ -179,23 +179,35 @@ QPushButton[variant="ghost"]:hover {{
 def _qss_input(t: ThemeTokens) -> str:
     """HeroUI Input: rounded-xl (field-radius), no border by default, focus ring via border."""
     return f"""
-QLineEdit, QComboBox, QSpinBox {{
+QComboBox {{
+    /* WA_StyledBackground поставится отдельно через _fix_combo_popup —
+       здесь мы описываем визуал, который нативный frame увидит после bypass. */
     background-color: {t.surface_secondary};
     color: {t.foreground};
     border: {t.BORDER_WIDTH}px solid transparent;
     border-radius: {ThemeTokens.RADIUS_XL}px;
     padding: 8px 12px;
+    padding-right: 32px;  /* место под стрелку */
     font-family: {FONT_STACK};
     selection-background-color: {t.accent};
     selection-color: {t.accent_foreground};
 }}
-QLineEdit:hover, QComboBox:hover, QSpinBox:hover {{
+QLineEdit:hover, QSpinBox:hover {{
     background-color: {t.surface_tertiary};
 }}
-QLineEdit:focus, QComboBox:focus, QSpinBox:focus {{
+QLineEdit:focus, QSpinBox:focus {{
     background-color: {t.surface_secondary};
     border: {t.FOCUS_RING_WIDTH}px solid {t.focus_ring};
     padding: 7px 11px;
+}}
+QComboBox:hover {{
+    background-color: {t.surface_tertiary};
+}}
+QComboBox:focus {{
+    background-color: {t.surface_secondary};
+    border: {t.FOCUS_RING_WIDTH}px solid {t.focus_ring};
+    padding: 7px 11px;
+    padding-right: 31px;
 }}
 QLineEdit[error="true"], QLineEdit[error="1"] {{
     border: {t.BORDER_WIDTH}px solid {t.danger};
@@ -212,6 +224,9 @@ QLabel#fieldError {{
 QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled {{
     background-color: {t.surface};
     color: {t.muted};
+}}
+QComboBox::drop-down:disabled {{
+    background-color: transparent;
 }}
 QLineEdit::placeholder {{
     color: {t.muted};
@@ -451,17 +466,25 @@ def apply_theme(app: "QApplication", mode: Literal["dark", "light"] = "dark") ->
 
 
 def _fix_combo_popup(combo: "QComboBox", tokens: ThemeTokens) -> None:
-    """Force rounded popup corners on a single QComboBox.
+    """Force rounded popup corners + rounded outer frame on a single QComboBox.
 
-    Qt on Windows wraps the QListView popup in QComboBoxPrivateContainer
-    with native frame. Frame's border-radius is ignored — we need to:
-      1. Give the QListView itself rounded corners via direct styleSheet
-      2. Tell the underlying container to be a frameless popup
+    Qt on Windows renders QComboBox's outer frame through QWindowsVistaStyle
+    (square corners ignoring QSS border-radius). Setting
+    WA_StyledBackground + a style sheet on the combo itself tells Qt to use
+    our CSS-like path, dropping the native frame paint.
+
+    For its Qt.FramelessWindowHint-modified popup, the interior QListView is
+    already styled; we additionally give the owning container a transparent
+    background so its edges disappear.
     """
     from PySide6.QtCore import Qt
-    from PySide6.QtWidgets import QAbstractItemView, QListView
+    from PySide6.QtWidgets import QListView
 
-    # 1) Style the view directly (works on all platforms)
+    # 1) Tell Qt to paint the widget frame from the QSS, not the OS theme.
+    combo.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+
+    # 2) Style the popup view directly (works on all platforms), and give
+    #    the wrapping container a fully transparent background paint.
     view = combo.view()
     if isinstance(view, QListView):
         view.setStyleSheet(f"""
@@ -487,13 +510,16 @@ def _fix_combo_popup(combo: "QComboBox", tokens: ThemeTokens) -> None:
             }}
         """)
 
-    # 2) Force container popup to use our style, not native
-    # The popup container is accessible via combo.view().parentWidget()
-    # (QComboBoxPrivateContainer). Setting Qt.FramelessWindowHint removes
-    # the native border so our rounded QListView shows through.
     parent = view.parentWidget() if view is not None else None
     if parent is not None and parent.windowFlags() & Qt.WindowType.Popup:
         parent.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        parent.setStyleSheet(f"""
+            QComboBoxPrivateContainer {{
+                background-color: {tokens.surface};
+                border: 1px solid {tokens.border};
+                border-radius: {ThemeTokens.RADIUS_MD}px;
+            }}
+        """)
         # Frameless removes the sharp-corner native frame; the panel then
         # gets its background from the styled QListView inside.
         parent.setWindowFlags(
