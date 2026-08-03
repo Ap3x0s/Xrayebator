@@ -217,10 +217,7 @@ QLineEdit::placeholder {{
     color: {t.muted};
 }}
 
-/* QComboBox dropdown: loading the bundled SVG arrow as `image:` — Qt QSS
-   does NOT support the CSS border-triangle trick, the previous attempt
-   produced a white square. The SVG is tinted to the muted tone so it blends
-   into the field surface. */
+/* QComboBox dropdown: data-URI PNG, plugin-free safe. */
 QComboBox::drop-down {{
     border: none;
     width: 28px;
@@ -228,11 +225,9 @@ QComboBox::drop-down {{
     subcontrol-position: center right;
 }}
 QComboBox::down-arrow {{
-    image: url("{_icon_url('combo-arrow.svg')}");
-    width: 10px;
-    height: 6px;
-    subcontrol-origin: padding;
-    subcontrol-position: center;
+    image: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAYCAYAAACIhL/AAAAACXBIWXMAAA9hAAAPYQGoP6dpAAAAl0lEQVRIie3Ouw3CMABAwWNK6kyCmcR1tqShQATH3yQS8itfdcxm13b7HjGuAY/zKeC5LPfwOTZALkNucCSAnI78iWMHyGnIJI4MkMORuzgKgByGzOIoBDIcWYSjAsgwZDGOSiDdyCocDUCakdU4GoFUI5twdAApRjbj6ASSRXbhGAAkiezGMQjIBjkEN7wY1/CGzmZ/0wviOU/eRnQqcAAAAABJRU5ErkJggg==");
+    width: 12px;
+    height: 8px;
 }}
 QComboBox QAbstractItemView {{
     background-color: {t.surface};
