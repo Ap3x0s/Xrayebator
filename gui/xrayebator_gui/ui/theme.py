@@ -482,6 +482,11 @@ def _fix_combo_popup(combo: "QComboBox", tokens: ThemeTokens) -> None:
 
     # 1) Tell Qt to paint the widget frame from the QSS, not the OS theme.
     combo.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+    # Force repaint — without this the native frame can stay if the widget
+    # was already polished before this attribute was set.
+    combo.style().unpolish(combo)
+    combo.style().polish(combo)
+    combo.update()
 
     # 2) Style the popup view directly (works on all platforms), and give
     #    the wrapping container a fully transparent background paint.
@@ -497,9 +502,9 @@ def _fix_combo_popup(combo: "QComboBox", tokens: ThemeTokens) -> None:
                 padding: 4px;
             }}
             QListView::item {{
-                padding: 6px 10px;
+                padding: 8px 12px;
                 border-radius: {ThemeTokens.RADIUS_SM}px;
-                min-height: 24px;
+                min-height: 28px;
             }}
             QListView::item:selected {{
                 background-color: {tokens.accent};
@@ -513,17 +518,22 @@ def _fix_combo_popup(combo: "QComboBox", tokens: ThemeTokens) -> None:
     parent = view.parentWidget() if view is not None else None
     if parent is not None and parent.windowFlags() & Qt.WindowType.Popup:
         parent.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        # Padding inside the container — makes room so the rounded QListView
+        # doesn't hug the right/bottom edges of the popup frame.
         parent.setStyleSheet(f"""
             QComboBoxPrivateContainer {{
                 background-color: {tokens.surface};
                 border: 1px solid {tokens.border};
-                border-radius: {ThemeTokens.RADIUS_MD}px;
+                border-radius: {ThemeTokens.RADIUS_MD + 2}px;
+                padding: 4px;
             }}
         """)
-        # Frameless removes the sharp-corner native frame; the panel then
-        # gets its background from the styled QListView inside.
+        # Frameless to remove native border; drop shadow REMOVED — Qt on
+        # Windows creates the shadow as part of the native frame, so when
+        # FramelessWindowHint is set, Qt auto-disables the shadow too. We
+        # then re-enable it explicitly so the popup still reads as floating.
         parent.setWindowFlags(
             parent.windowFlags()
             | Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.NoDropShadowWindowHint
         )
+        parent.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
