@@ -10,10 +10,21 @@ Public API:
 """
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal
 
 from .fonts import FONT_STACK, MONO_STACK
+
+
+def _icon_url(name: str) -> str:
+    """Absolute file:// URL for a bundled icon asset (works on Windows paths with spaces)."""
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        path = Path(sys._MEIPASS) / "xrayebator_gui" / "assets" / "icons" / name
+    else:
+        path = Path(__file__).parent.parent / "assets" / "icons" / name
+    return "file:///" + path.as_posix()
 
 
 @dataclass(frozen=True)
@@ -206,17 +217,22 @@ QLineEdit::placeholder {{
     color: {t.muted};
 }}
 
-/* QComboBox dropdown */
+/* QComboBox dropdown: loading the bundled SVG arrow as `image:` — Qt QSS
+   does NOT support the CSS border-triangle trick, the previous attempt
+   produced a white square. The SVG is tinted to the muted tone so it blends
+   into the field surface. */
 QComboBox::drop-down {{
     border: none;
-    width: 24px;
+    width: 28px;
+    subcontrol-origin: padding;
+    subcontrol-position: center right;
 }}
 QComboBox::down-arrow {{
-    image: none;
-    border-left: 4px solid transparent;
-    border-right: 4px solid transparent;
-    border-top: 5px solid {t.muted};
-    margin-right: 8px;
+    image: url("{_icon_url('combo-arrow.svg')}");
+    width: 10px;
+    height: 6px;
+    subcontrol-origin: padding;
+    subcontrol-position: center;
 }}
 QComboBox QAbstractItemView {{
     background-color: {t.surface};
@@ -231,6 +247,7 @@ QComboBox QAbstractItemView {{
 QComboBox QAbstractItemView::item {{
     padding: 6px 10px;
     border-radius: {ThemeTokens.RADIUS_SM}px;
+    min-height: 24px;
 }}
 """
 
