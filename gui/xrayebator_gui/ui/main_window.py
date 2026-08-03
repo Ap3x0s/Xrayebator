@@ -405,7 +405,11 @@ class MainWindow(QMainWindow):
             return
 
         self.route_combo.clear()
-        self.route_combo.addItem("Загрузка подписки…")
+        # Skeleton-style placeholder: ellipsis + spinner в кнопке,
+        # чтобы было видно, что идёт сеть, не UI завис.
+        self.route_combo.addItem("⏳ Загрузка подписки…")
+        self.refresh_button.setEnabled(False)
+        self.refresh_button.setText("…")
         self._set_operation_busy(True)
 
         should_probe = self._controller.snapshot.state != ConnectionState.CONNECTED
@@ -444,6 +448,8 @@ class MainWindow(QMainWindow):
             self.route_combo.setCurrentIndex(routes.index(default))
         self._append_log(f"Подписка обновлена: {len(routes)} маршрутов")
         self._refresh_tray_menus()
+        self.refresh_button.setEnabled(True)
+        self.refresh_button.setText("Обновить")
         self._set_operation_busy(False)
         self._on_snapshot(self._controller.snapshot)
 
@@ -455,6 +461,8 @@ class MainWindow(QMainWindow):
         self.route_combo.addItem("Не удалось загрузить маршруты")
         self._append_log(f"Ошибка подписки: {message}")
         self._refresh_tray_menus()
+        self.refresh_button.setEnabled(True)
+        self.refresh_button.setText("Обновить")
         self._set_operation_busy(False)
         QMessageBox.warning(self, "Ошибка подписки", message)
         self._on_snapshot(self._controller.snapshot)
