@@ -405,13 +405,44 @@ def build_qss(t: ThemeTokens) -> str:
 def apply_theme(app: "QApplication", mode: Literal["dark", "light"] = "dark") -> None:  # noqa: F821
     """Apply HeroUI v3 QSS theme to the application.
 
-    Also installs a global QComboBox popup-style fix: on Windows Qt uses
-    QWindowsVistaStyle for the popup frame, which ignores QSS border-radius
-    and paints sharp corners. We patch every QComboBox at creation time to
-    set view.setStyleSheet() directly + force the container frame transparent.
+    On Windows we replace every stock QComboBox with a custom RoundedComboBox
+    that has full QSS control over both the closed state (rounded outer frame)
+    and the popup (rounded frame + item spacing). Native Qt styling cannot
+    deliver the border-radius reliably on Windows + widget themes, so we do it
+    manually with a QListWidget hosted inside a styled QFrame popup.
     """
     tokens = ThemeTokens.dark() if mode == "dark" else ThemeTokens.light()
     app.setStyleSheet(build_qss(tokens))
+
+    # Register the custom combo factory — every QComboBox gets proxy-wrapped.
+    from PySide6.QtCore import QEvent, QObject
+    from PySide6.QtWidgets import QComboBox
+
+    app._heroui_tokens = tokens  # type: ignore[attr-defined]
+
+    class _PopupFixer(QObject):
+        def eventFilter(self, obj: QObject, event: QEvent) -> bool:  # noqa: N802
+            if event.type() == QEvent.Type.Polish and isinstance(obj, QComboBox):
+                try:
+                    from .rounded_combo import wrap_combo  # lazy import to avoid cycle
+                    wrap_combo(obj, tokens)
+                except Exception:
+                    pass
+            return False
+
+    app._heroui_popup_fixer = _PopupFixer(app)  # type: ignore[attr-defined]
+    app.installEventFilter(app._heroui_popup_fixer)  # type: ignore[attr-defined]
+
+    # Also fix any QComboBox that was already polished (manual construction
+    # before apply_theme ran).
+    from PySide6.QtWidgets import QComboBox
+    for widget in app.allWidgets():
+        if isinstance(widget, QComboBox):
+            try:
+                from .rounded_combo import wrap_combo
+                wrap_combo(widget, tokens)
+            except Exception:
+                pass
 
     # Palette essential for native-rendered widgets (menus, tooltips,
     # QMessageBox body). Without it Qt uses Windows native palette which
@@ -432,108 +463,3 @@ def apply_theme(app: "QApplication", mode: Literal["dark", "light"] = "dark") ->
     p.setColor(QPalette.ColorRole.PlaceholderText, QColor(tokens.muted))
     p.setColor(QPalette.ColorRole.Link, QColor(tokens.accent))
     app.setPalette(p)
-
-    # Workaround for Qt-Windows popup sharp corners.
-    # We install an event filter on qApp that intercepts QEvent.Type.Polish
-    # for QComboBox and forcefully styles the internal QListView / container
-    # with rounded borders matching HeroUI radius_md.
-    from PySide6.QtCore import QEvent, QObject
-    from PySide6.QtWidgets import QAbstractItemView, QComboBox, QListView
-
-    app._heroui_tokens = tokens  # type: ignore[attr-defined]
-
-    class _ComboPopupFixer(QObject):
-        def eventFilter(self, obj: QObject, event: QEvent) -> bool:  # noqa: N802
-            if event.type() == QEvent.Type.Polish and isinstance(obj, QComboBox):
-                try:
-                    _fix_combo_popup(obj, tokens)
-                except Exception:
-                    pass
-            return False
-
-    # Keep reference to prevent GC deleting the filter
-    app._heroui_popup_fixer = _ComboPopupFixer(app)  # type: ignore[attr-defined]
-    app.installEventFilter(app._heroui_popup_fixer)  # type: ignore[attr-defined]
-
-    # Also-fix any QComboBox that has already been created (e.g. in forms
-    # constructed before apply_theme ran).
-    for widget in app.allWidgets():
-        if isinstance(widget, QComboBox):
-            try:
-                _fix_combo_popup(widget, tokens)
-            except Exception:
-                pass
-
-
-def _fix_combo_popup(combo: "QComboBox", tokens: ThemeTokens) -> None:
-    """Force rounded popup corners + rounded outer frame on a single QComboBox.
-
-    Qt on Windows renders QComboBox's outer frame through QWindowsVistaStyle
-    (square corners ignoring QSS border-radius). Setting
-    WA_StyledBackground + a style sheet on the combo itself tells Qt to use
-    our CSS-like path, dropping the native frame paint.
-
-    For its Qt.FramelessWindowHint-modified popup, the interior QListView is
-    already styled; we additionally give the owning container a transparent
-    background so its edges disappear.
-    """
-    from PySide6.QtCore import Qt
-    from PySide6.QtWidgets import QListView
-
-    # 1) Tell Qt to paint the widget frame from the QSS, not the OS theme.
-    combo.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-    # Force repaint — without this the native frame can stay if the widget
-    # was already polished before this attribute was set.
-    combo.style().unpolish(combo)
-    combo.style().polish(combo)
-    combo.update()
-
-    # 2) Style the popup view directly (works on all platforms), and give
-    #    the wrapping container a fully transparent background paint.
-    view = combo.view()
-    if isinstance(view, QListView):
-        view.setStyleSheet(f"""
-            QListView {{
-                background-color: {tokens.surface};
-                color: {tokens.foreground};
-                border: 1px solid {tokens.border};
-                border-radius: {ThemeTokens.RADIUS_MD}px;
-                outline: none;
-                padding: 4px;
-            }}
-            QListView::item {{
-                padding: 8px 12px;
-                border-radius: {ThemeTokens.RADIUS_SM}px;
-                min-height: 28px;
-            }}
-            QListView::item:selected {{
-                background-color: {tokens.accent};
-                color: {tokens.accent_foreground};
-            }}
-            QListView::item:hover:!selected {{
-                background-color: {tokens.surface_tertiary};
-            }}
-        """)
-
-    parent = view.parentWidget() if view is not None else None
-    if parent is not None and parent.windowFlags() & Qt.WindowType.Popup:
-        parent.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        # Padding inside the container — makes room so the rounded QListView
-        # doesn't hug the right/bottom edges of the popup frame.
-        parent.setStyleSheet(f"""
-            QComboBoxPrivateContainer {{
-                background-color: {tokens.surface};
-                border: 1px solid {tokens.border};
-                border-radius: {ThemeTokens.RADIUS_MD + 2}px;
-                padding: 4px;
-            }}
-        """)
-        # Frameless to remove native border; drop shadow REMOVED — Qt on
-        # Windows creates the shadow as part of the native frame, so when
-        # FramelessWindowHint is set, Qt auto-disables the shadow too. We
-        # then re-enable it explicitly so the popup still reads as floating.
-        parent.setWindowFlags(
-            parent.windowFlags()
-            | Qt.WindowType.FramelessWindowHint
-        )
-        parent.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)

@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QWidget,
     QMenu,
 )
+from .rounded_combo import RoundedComboBox
 
 from ..core.connection import (
     ConnectionController,
@@ -180,7 +181,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(subtitle)
 
         server_row = QHBoxLayout()
-        self.server_combo = QComboBox()
+        self.server_combo = RoundedComboBox()
         self.server_combo.currentIndexChanged.connect(self._server_changed)
         # Empty-state placeholder — без него combo выглядит пустым куском
         # поля и не очевидно, что он вообще есть и для чего.
@@ -199,7 +200,7 @@ class MainWindow(QMainWindow):
 
         form = QFormLayout()
         mode_row = QHBoxLayout()
-        self.mode_combo = QComboBox()
+        self.mode_combo = RoundedComboBox()
         if self._tun_available:
             tun_label = "TUN (native Xray)"
         elif platform.system() == "Linux":
@@ -233,7 +234,7 @@ class MainWindow(QMainWindow):
         profile_row.setSpacing(8)
         # Отступы 0 чтобы поле занимало ровно ту же высоту, что и другие поля формы.
         profile_row.setContentsMargins(0, 0, 0, 0)
-        self.profile_combo = QComboBox()
+        self.profile_combo = RoundedComboBox()
         for profile in RoutingProfile:
             self.profile_combo.addItem(profile.label, profile)
         self.profile_combo.currentIndexChanged.connect(self._on_profile_selected)
@@ -250,7 +251,7 @@ class MainWindow(QMainWindow):
         route_row = QHBoxLayout()
         route_row.setSpacing(8)
         route_row.setContentsMargins(0, 0, 0, 0)
-        self.route_combo = QComboBox()
+        self.route_combo = RoundedComboBox()
         self.route_combo.setMinimumHeight(38)
         route_row.addWidget(self.route_combo, 1)
         self.refresh_button = QPushButton("Обновить")
