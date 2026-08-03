@@ -91,19 +91,29 @@ class _RoundedPopup(QFrame):
             QListWidgetItem(label, self.list)
 
     def popup_at(self, pos: QPoint, width: int) -> None:
-        # Width matches the button; position slightly below with gap
-        self.setFixedWidth(width)
-        # Fit height to items — full list, no scrolling unless truly huge.
-        # NB: QListWidget doesn't have __len__ in Qt — use .count()
+        # Wider than the button: text shouldn't clip. HeroUI menus are
+        # typically wider than their parent trigger.
         item_count = self.list.count()
-        # Cap only if content is absurd (e.g. >15 routes — not the norm).
-        max_height_px = 480  # rough screen cap before scrolling kicks in
-        content_h = min(item_count * 36 + 16, max_height_px)
+        # Pick a width big enough that "xhttp-legacy (Vision + uTLS)" also fits
+        max_text_len = max((len(self._combo._items[i][0]) for i in range(item_count)), default=0)
+        # Rough estimate: 8px per char for our font, + padding + arrow room
+        suggested_width = max(
+            width,                    # never narrower than the trigger button
+            200,                       # sane minimum
+            min(max_text_len * 9 + 48, 480),  # text-fit up to 480px
+        )
+        self.setFixedWidth(suggested_width)
+        # Height: each row needs ~36px (icn+text with our item padding),
+        # plus internal popup margins. Cap at 480 px.
+        # UB: QListWidget doesn't have __len__ in Qt — use .count()
+        item_row_h = 36
+        padding = 16  # matches setContentsMargins(4,4,4,4) x2 + small slate
+        content_h = min(item_count * item_row_h + padding, 480)
+        # Scrollbar only when actual overflow (after 13 items at new 36px row)
+        needs_scroll = (item_count * item_row_h + padding) > 480
         self.setFixedHeight(content_h)
-        # No scrollbars until we hit the cap.
         self.list.setVerticalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAsNeeded
-            if item_count * 36 + 16 > max_height_px
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded if needs_scroll
             else Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
         # 4px gap so popup doesn't touch the combo bottom edge
