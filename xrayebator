@@ -9116,8 +9116,14 @@ quickstart_command() {
 
   local server_ip
   server_ip=$(get_server_ip)
-  if [[ -z "$server_ip" ]] || ! [[ "$server_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    echo '{"ok":false,"error":"Не удалось определить публичный IPv4 VPS"}'
+  # Accept either IPv4 (dotted-quad) or IPv6 (hex groups, possibly with ::compression).
+  # Regex distinguishes at least the most common forms:
+  #   IPv4:  1.2.3.4
+  #   IPv6:  2001:db8::1, ::1, fe80::a, etc.
+  local ipv4_re='^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'
+  local ipv6_re='^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}$'
+  if [[ -z "$server_ip" ]] || ! [[ "$server_ip" =~ $ipv4_re || "$server_ip" =~ $ipv6_re ]]; then
+    echo '{"ok":false,"error":"Не удалось определить публичный IP VPS (ни IPv4, ни IPv6)"}'
     return 1
   fi
 
