@@ -132,7 +132,6 @@ QPushButton:pressed {{
 }}
 QPushButton:focus {{
     border: {t.FOCUS_RING_WIDTH}px solid {t.focus_ring};
-    padding: 7px 15px;  /* compensate for extra 1px border */
 }}
 QPushButton:disabled {{
     background-color: {t.surface};
@@ -195,10 +194,12 @@ QComboBox {{
 QLineEdit:hover, QSpinBox:hover {{
     background-color: {t.surface_tertiary};
 }}
+/* Uniform padding on focus — the ring is drawn OUTSIDE the widget,
+   so we keep padding the same as unfocused state. Previously
+   padding 7px/11px caused text to shift when focusing. */
 QLineEdit:focus, QSpinBox:focus {{
     background-color: {t.surface_secondary};
     border: {t.FOCUS_RING_WIDTH}px solid {t.focus_ring};
-    padding: 7px 11px;
 }}
 QComboBox:hover {{
     background-color: {t.surface_tertiary};
@@ -206,15 +207,14 @@ QComboBox:hover {{
 QComboBox:focus {{
     background-color: {t.surface_secondary};
     border: {t.FOCUS_RING_WIDTH}px solid {t.focus_ring};
-    padding: 7px 11px;
-    padding-right: 31px;
+    /* No padding change on focus — padding-right stays the same, arrow
+       position is preserved. */
 }}
 QLineEdit[error="true"], QLineEdit[error="1"] {{
     border: {t.BORDER_WIDTH}px solid {t.danger};
 }}
 QLineEdit[error="true"]:focus, QLineEdit[error="1"]:focus {{
     border: {t.FOCUS_RING_WIDTH}px solid {t.danger};
-    padding: 7px 11px;
 }}
 QLabel#fieldError {{
     color: {t.danger};
