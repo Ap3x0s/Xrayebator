@@ -46,6 +46,24 @@ jobs:
           python -m pytest -q gui/tests
           python -m build --wheel gui
 
+      # Bash validation subset — only tests that work on GitHub Windows runners.
+      # Full suite runs on ubuntu-latest in ci-linux.yml.
+      - name: Bash validation (Git Bash subset)
+        run: |
+          for test in \
+            validation/test-quickstart-migration-parity.sh \
+            validation/test-quickstart-subscription-port.sh \
+            validation/test-vless-url-generation.sh; do
+            echo "=== $test ==="
+            # CRLF safe: tests already normalize via tr -d '\r' internally
+            bash "$test"
+          done
+          # Syntax check of core bash files (POSIX grep on Linux; Git Bash on Windows)
+          bash -n xrayebator
+          bash -n install.sh
+          bash -n update.sh
+          bash -n uninstall.sh
+
   build:
     needs: test
     strategy:
