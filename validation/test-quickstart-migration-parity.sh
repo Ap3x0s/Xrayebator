@@ -1,6 +1,14 @@
 #!/bin/bash
-# Regression test для bug B1: quickstart_command пропускал 9 критических миграций.
-# Проверяем, что КРИТИЧЕСКИЕ для quickstart миграции присутствуют в нём.
+# Regression test: quickstart_command must run SAME CRITICAL migrations
+# as main_menu. If a new marker-driven migration is added to main_menu
+# (for new feature) and forgotten in quickstart, existing VPS that uses
+# ./xrayebator quickstart ends up in inconsistent state.
+#
+# The list is automatically derived from xrayebator source by grepping
+# all `run_migration "..."` lines in main_menu region of the file.
+#
+# CRLF-safe: we use tr -d '\r' to normalize the file before grepping
+# because Windows checkouts carry CRLF line endings from .gitattributes.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -11,40 +19,48 @@ fail() {
   exit 1
 }
 
-# Извлекаем тело quickstart_command (tr -d '\r' для CRLF-safe на Windows-машинах разработчиков)
+# Extract main_menu + quickstart blocks (CRLF-safe via tr -d '\r')
+main_menu_block=$(tr -d '\r' < xrayebator | sed -n '/^main_menu() {$/,/^# 2\. Последовательное детектирование/p')
 quickstart_block=$(tr -d '\r' < xrayebator | sed -n '/^quickstart_command() {$/,/^happ_setup_command() {$/p')
-[[ -n "$quickstart_block" ]] || fail "quickstart_command block not found in xrayebator"
 
-# Извлекаем все migration names в quickstart
+[[ -n "$main_menu_block" ]] || fail "main_menu block not found"
+[[ -n "$quickstart_block" ]] || fail "quickstart_command block not found"
+
+# Get all migration markers from BOTH blocks
+mapfile -t main_migrations < <(
+  grep -oE 'run_migration "[a-z0-9_]+"' <<< "$main_menu_block" \
+    | sed 's/run_migration "\(.*\)"/\1/' | sort -u
+)
 mapfile -t quickstart_migrations < <(
-  grep -oE 'run_migration "[a-z0-9_]+"' <<< "$quickstart_block" | sed 's/run_migration "\(.*\)"/\1/' | sort -u
+  grep -oE 'run_migration "[a-z0-9_]+"' <<< "$quickstart_block" \
+    | sed 's/run_migration "\(.*\)"/\1/' | sort -u
 )
 
-echo "Migrations in quickstart: ${quickstart_migrations[*]}"
+echo "main_menu migrations (${#main_migrations[@]}):"
+printf '  %s\n' "${main_migrations[@]}"
+echo "quickstart migrations (${#quickstart_migrations[@]}):"
+printf '  %s\n' "${quickstart_migrations[@]}"
 
-# Критические для quickstart миграции (должны быть в обоих quickstart и main_menu)
-# Без них quickstart ломается:
-# - mlkem_keys_generated — без него add_inbound pq_enabled=true fail → профиль недополный
-# - xhttp_default_2026 — default preset
-# - subscription_tokens_2026 — без токенов sub_token=missing
-# - happ_legacy_xhttp_route_2026 — HAPP совместимость
-# - subhttp_multiroute_2026 — многомаршрутный subscription handler
-required_migrations=(
-  "xhttp_migrated"
-  "routing_v132_migrated"
-  "legacy_udp443_block_removed_v3"
-  "xhttp_mode_migrated"
-  "config_optimized"
-  "xmux_explicit_2026"
-  "mlkem_keys_generated"
-  "xhttp_default_2026"
-  "subscription_tokens_2026"
-  "happ_legacy_xhttp_route_2026"
-  "xhttp_route_path_repair_2026"
-  "subhttp_multiroute_2026"
+# Migrations that are NONINTERACTIVE only (safe to bypass in quickstart)
+# We allow skipping: user needs to see them in interactive mode anyway.
+# List of migrations that do NOT require root/prompts that the user must see:
+skip_in_quickstart=(
+  "_migrate_bypass_routing_2026"           # depends on network state
+  "_migrate_subscription_tokens_2026"       # backend-token rotation — needs lock
+  "migrate_remove_legacy_tcp_tuning_v3"     # TCP tune is host-safe
 )
 
-for mig in "${required_migrations[@]}"; do
+declare -A skip_map
+for s in "${skip_in_quickstart[@]}"; do
+  skip_map["$s"]=1
+done
+
+failed=0
+for mig in "${main_migrations[@]}"; do
+  # Skip if explicitly allowed to be omitted
+  if [[ "${skip_map[$mig]:-}" == "1" ]]; then
+    continue
+  fi
   found=0
   for q in "${quickstart_migrations[@]}"; do
     if [[ "$q" == "$mig" ]]; then
@@ -52,7 +68,14 @@ for mig in "${required_migrations[@]}"; do
       break
     fi
   done
-  [[ $found -eq 1 ]] || fail "Critical migration missing in quickstart: $mig"
+  if [[ $found -eq 0 ]]; then
+    echo "⚠ Migration MISSING in quickstart: $mig"
+    failed=1
+  fi
 done
 
-echo "✓ quickstart содержит все критические миграции (${#required_migrations[@]} штук)"
+if [[ $failed -eq 1 ]]; then
+  fail "quickstart is missing migrations that main_menu has"
+fi
+
+echo "✓ quickstart migration parity covers all critical markers"
