@@ -2760,6 +2760,17 @@ _migrate_bypass_routing_2026() {
   echo ""
   echo -e "${CYAN}Эти домены пойдут через freedom outbound (direct), не через VPN.${NC}"
   echo ""
+
+  # BASH-4-fix: в noninteractive режиме (quickstart/happ-setup exportирует
+  # XRAYEBATOR_NONINTERACTIVE=1) read зависнет молча — детерминированный default.
+  # Default = N (не добавлять bypass): безопасный вариант, пользователь всегда
+  # может включить правила позже через меню (пункт 11). Не пытаемся читать
+  # из закрытого stdin — hang в systemd/GUI-контексте был реальным багом.
+  if [[ "${XRAYEBATOR_NONINTERACTIVE:-}" == "1" ]]; then
+    echo -e "${CYAN}  → noninteractive: bypass-правила пропущены (default). Настройка: меню → пункт 11.${NC}"
+    return 1
+  fi
+
   echo -n -e "${YELLOW}Добавить дефолтные bypass-правила? [y/N]: ${NC}"
 
   local ans
