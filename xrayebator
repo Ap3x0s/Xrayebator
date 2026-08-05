@@ -853,6 +853,9 @@ Description=Xrayebator: hourly shortlived IP TLS renewal attempt
 [Timer]
 OnBootSec=10min
 OnUnitActiveSec=12h
+# A10-fix: Persistent=true — отработать пропущенные срабатывания после простоя/выключения VPS.
+# Иначе long-lived серт (~6 дней) тихо умирает, если машина не имела wake-up на своём расписании.
+Persistent=true
 
 [Install]
 WantedBy=timers.target

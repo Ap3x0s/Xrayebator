@@ -1056,8 +1056,13 @@ if ! xray run -test -config /usr/local/etc/xray/config.json 2>&1 | grep -q "^Con
 fi
 echo -e "${GREEN}✓ config.json прошёл validation${NC}"
 
+# B3-fix: systemd может не успеть поднять сервис сразу после restart — даём время
+# перед is-active, иначе «не запущен» — ложный failure.
 systemctl restart xray > /dev/null 2>&1
-if systemctl is-active --quiet xray; then
+sleep 2
+# B4-fix: «успешно запущен» только при реально работающем Xray И наличии инбаундов.
+# На свежей установке inbounds пуст — Xray стартует, но сервер ещё не готов.
+if systemctl is-active --quiet xray && jq -e '.inbounds | length > 0' "$CONFIG_FILE" >/dev/null 2>&1; then
   echo -e "${GREEN}✓ Xray успешно запущен${NC}\n"
 else
   echo -e "${CYAN}✓ Xray установлен (запустится при создании профиля)${NC}\n"
