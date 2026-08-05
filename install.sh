@@ -28,6 +28,7 @@ DATA_DIR="/usr/local/etc/xray/data"
 SCRIPTS_DIR="/usr/local/etc/xray/scripts"
 PRIVATE_KEY_FILE="/usr/local/etc/xray/.private_key"
 PUBLIC_KEY_FILE="/usr/local/etc/xray/.public_key"
+APT_LOG="/tmp/xrayebator-apt.log"
 
 # ═══ Детекция IPv6-only VPS (shared helper) ═══
 # Используется при выборе dns.queryStrategy/freedom.domainStrategy.
@@ -186,14 +187,16 @@ if ! getent hosts archive.ubuntu.com >/dev/null 2>&1 && ! getent hosts security.
 fi
 
 echo -e "${CYAN}  → apt update...${NC}"
-if ! apt update 2>&1 | tail -5; then
+if ! apt update >"$APT_LOG" 2>&1; then
   echo -e "${RED}✗ apt update не прошёл. Проверьте /etc/resolv.conf:${NC}"
+  tail -5 "$APT_LOG"
   cat /etc/resolv.conf 2>/dev/null
   echo -e "${YELLOW}Попробуйте: echo 'nameserver 1.1.1.1' > /etc/resolv.conf${NC}"
   exit 1
 fi
-if ! apt install -y ca-certificates curl wget jq qrencode uuid-runtime ufw unzip openssl socat 2>&1 | tail -10; then
+if ! apt install -y ca-certificates curl wget jq qrencode uuid-runtime ufw unzip openssl socat >"$APT_LOG" 2>&1; then
   echo -e "${RED}✗ Ошибка установки зависимостей${NC}"
+  tail -10 "$APT_LOG"
   exit 1
 fi
 echo -e "${GREEN}✓ Зависимости установлены${NC}\n"
