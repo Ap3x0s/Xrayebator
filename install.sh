@@ -795,6 +795,14 @@ if _detect_ipv6_only; then
   echo -e "${CYAN}  IPv4 не обнаружен — DNS/outbound strategy = UseIP (IPv6-compatible)${NC}"
 fi
 
+# DNS-бустреп: на IPv6-only VPS нет маршрута до IPv4-резолверов (1.1.1.1),
+# поэтому используем IPv6-совместимый DoH (Google) вместе с IPv4 DoH.
+dns_main_doh="https+local://1.1.1.1/dns-query"
+dns_fallback_doh="localhost"
+if _detect_ipv6_only; then
+  dns_main_doh="https+local://dns.google/dns-query"
+fi
+
 cat > "$CONFIG_FILE" << EOF
 {
   "log": {
@@ -803,8 +811,8 @@ cat > "$CONFIG_FILE" << EOF
   },
   "dns": {
     "servers": [
-      "https+local://1.1.1.1/dns-query",
-      "localhost"
+      "${dns_main_doh}",
+      "${dns_fallback_doh}"
     ],
     "queryStrategy": "${QUERY_STRATEGY}",
     "disableCache": false

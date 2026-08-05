@@ -128,12 +128,40 @@ fi
 
 # Получение внешнего IP
 get_server_ip() {
-  local ip=$(curl -s4 --connect-timeout 5 --max-time 10 ifconfig.me 2>/dev/null || \
-             curl -s4 --connect-timeout 5 --max-time 10 icanhazip.com 2>/dev/null)
+  local ip=""
+  # На IPv6-only VPS нет маршрута до IPv4-сервисов определения — тогда запрашиваем IPv6.
+  if _detect_ipv6_only; then
+    ip=$(curl -s6 --connect-timeout 5 --max-time 10 ifconfig.me 2>/dev/null || \
+         curl -s6 --connect-timeout 5 --max-time 10 icanhazip.com 2>/dev/null)
+  else
+    ip=$(curl -s4 --connect-timeout 5 --max-time 10 ifconfig.me 2>/dev/null || \
+         curl -s4 --connect-timeout 5 --max-time 10 icanhazip.com 2>/dev/null)
+  fi
   if [[ -z "$ip" ]]; then
-    ip=$(hostname -I | awk '{print $1}')
+    if _detect_ipv6_only; then
+      # IPv6-only: первый адрес hostname -I может быть приватным; берём глобальный scope.
+      ip=$(hostname -I | awk '{for(i=1;i<=NF;i++) if ($i ~ /:/) print; exit}' | head -1)
+    else
+      ip=$(hostname -I | awk '{print $1}')
+    fi
   fi
   echo "$ip"
+}
+
+# Заключает IPv6-адрес в квадратные скобки для использования в URL/hostname
+# (nginx server_name, https://[addr]:port). Для IPv4 возвращает как есть.
+_ip_bracket() {
+  local addr="$1"
+  if [[ "$addr" == *":"* ]]; then
+    # Не брекетить повторно
+    if [[ "$addr" == "["* ]]; then
+      echo "$addr"
+    else
+      echo "[${addr}]"
+    fi
+  else
+    echo "$addr"
+  fi
 }
 
 # ═══════════════════════════════════════════════════════════
@@ -9138,6 +9166,8 @@ quickstart_command() {
     echo '{"ok":false,"error":"Не удалось определить публичный IP VPS (ни IPv4, ни IPv6)"}'
     return 1
   fi
+  local server_ip_bracketed
+  server_ip_bracketed=$(_ip_bracket "$server_ip")
 
   # Установить nginx если нет
   if ! command -v nginx &>/dev/null; then
@@ -9231,7 +9261,7 @@ limit_req_zone \$binary_remote_addr zone=xrayebator_sub:10m rate=30r/m;
 server {
     listen 8443 ssl http2;
     listen [::]:8443 ssl http2;
-    server_name ${server_ip};
+    server_name ${server_ip_bracketed};
     ssl_certificate /etc/letsencrypt/live/${server_ip}/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/${server_ip}/privkey.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
@@ -9253,7 +9283,7 @@ server {
 server {
     listen 80;
     listen [::]:80;
-    server_name ${server_ip};
+    server_name ${server_ip_bracketed};
     return 301 https://\$host\$request_uri;
 }
 NGINXHTTPS
@@ -9294,7 +9324,7 @@ NGINXHTTPS
   # Если .subscription_* markers не созданы (возможно при раннем вызове),
   # fallback на текущий server_ip + 8443 для обратной совместимости.
   if [[ -z "$base" ]] || [[ "$base" == *"127.0.0.1:8080"* && ! -f "/usr/local/etc/xray/.subscription_domain" && ! -f "/usr/local/etc/xray/.subscription_port" ]]; then
-    base="https://${server_ip}:8443"
+    base="https://${server_ip_bracketed}:8443"
   fi
   subscription_url="${base}/sub/${result_sub_token}"
 

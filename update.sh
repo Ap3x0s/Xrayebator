@@ -907,11 +907,17 @@ if [[ -f "$CONFIG_FILE" ]]; then
     # IPv6-only: если нет публичного IPv4, Xray не резолвит A-records через UseIPv4.
     query_strategy=$(_ipv6_query_strategy)
 
-    # Создаём новую конфигурацию DNS
+    # Создаём новую конфигурацию DNS.
+    # IPv6-only: нет маршрута до IPv4-резолверов (1.1.1.1) — используем IPv6-совместимый DoH.
+    if _detect_ipv6_only; then
+      dns_doh_server="https+local://dns.google/dns-query"
+    else
+      dns_doh_server="https+local://1.1.1.1/dns-query"
+    fi
     NEW_DNS=$(cat <<DNSEOF
 {
   "servers": [
-    "https+local://1.1.1.1/dns-query",
+    "${dns_doh_server}",
     "localhost"
   ],
   "queryStrategy": "${query_strategy}",
@@ -932,7 +938,7 @@ DNSEOF
       # Restore mode/owner (mktemp создаёт с mode 600, mv наследует root)
       chmod 644 "$CONFIG_FILE"
       chown xray:xray "$CONFIG_FILE" 2>/dev/null || true
-      echo -e "${GREEN}  ✓ DNS обновлён на DoH Local (https+local://1.1.1.1)${NC}"
+      echo -e "${GREEN}  ✓ DNS обновлён на DoH Local (${dns_doh_server})${NC}"
     else
       rm -f "$TMP_FILE"
       echo -e "${YELLOW}  ⚠ Не удалось обновить DNS (size-check или xray test failed, конфиг без изменений)${NC}"
