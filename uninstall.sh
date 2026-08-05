@@ -88,10 +88,11 @@ fi
 echo -e "${GREEN}✓ Firewall и пользователь очищены${NC}\n"
 
 echo -e "${BLUE}[7/7]${NC} ${YELLOW}Очистка журналов Xray...${NC}"
-# НЕ очищаем весь системный журнал (journalctl --vacuum-time=1s затирал бы
-# логи ВСЕХ сервисов) — только артефакты нашего юнита.
+# journalctl vacuum работает по ФАЙЛАМ журнала, а не по юнитам — опция -u
+# vacuum не ограничивает, поэтому `--vacuum-time=1s -u xray` затирал бы логи
+# ВСЕХ сервисов. Безопасно: только flush + rotate активного журнала.
 journalctl --flush > /dev/null 2>&1
-journalctl --rotate --vacuum-time=1s -u xray > /dev/null 2>&1
+journalctl --rotate > /dev/null 2>&1
 echo -e "${GREEN}✓ Журналы Xray очищены${NC}\n"
 
 clear
