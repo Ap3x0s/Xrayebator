@@ -162,8 +162,9 @@ get_server_ip() {
   fi
   if [[ -z "$ip" ]]; then
     if _detect_ipv6_only; then
-      # IPv6-only: первый адрес hostname -I может быть приватным; берём глобальный scope.
-      ip=$(hostname -I | awk '{for(i=1;i<=NF;i++) if ($i ~ /:/) print; exit}' | head -1)
+      # BASH-1-fix: bare print печатал всю строку, exit вне условия → мусор.
+      # Правильный синтаксис: if(match) { print $i; exit }.
+      ip=$(hostname -I | awk '{for(i=1;i<=NF;i++) if ($i ~ /:/) { print $i; exit } }' | head -1)
     else
       ip=$(hostname -I | awk '{print $1}')
     fi
