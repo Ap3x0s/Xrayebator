@@ -2283,15 +2283,30 @@ migrate_config_optimization() {
   query_strategy=$(_ipv6_query_strategy)
 
   local current_dns=$(jq -r '.dns.servers[0] // ""' "$CONFIG_FILE" 2>/dev/null)
+  # BASH-5-fix: fallback DNS должен учитывать IPv6-only — иначе 1.1.1.1 unreachable.
+  # dns.google поддерживает и A, и AAAA; 1.1.1.1 — только A.
+  local doh_fallback
+  doh_fallback=$(if _detect_ipv6_only; then echo "https+local://dns.google/dns-query"; else echo "https+local://1.1.1.1/dns-query"; fi)
   if [[ "$current_dns" == "127.0.0.1" ]]; then
     echo -e "${GREEN}  ✓ DNS -> 127.0.0.1 (AdGuard Home) сохранён${NC}"
-  elif [[ "$current_dns" == "https+local://1.1.1.1/dns-query" ]]; then
-    echo -e "${GREEN}  ✓ DNS уже оптимизирован${NC}"
+  elif [[ "$current_dns" == "https+local://1.1.1.1/dns-query" || "$current_dns" == "https+local://dns.google/dns-query" ]]; then
+    # Нормализуем под IPv6-safe fallback, если нужно
+    if [[ "$current_dns" == "https+local://1.1.1.1/dns-query" ]] && _detect_ipv6_only; then
+      echo -e "${YELLOW}  → DNS: 1.1.1.1 → dns.google (IPv6-only)${NC}"
+      if safe_jq_write --arg qs "$query_strategy" --arg doh "$doh_fallback" '.dns.servers = [$doh, "localhost"] | .dns.queryStrategy = $qs' "$CONFIG_FILE"; then
+        echo -e "${GREEN}  ✓ DNS переведён на dns.google${NC}"
+        changed=true
+      else
+        echo -e "${RED}  ✗ Ошибка миграции DNS${NC}"
+      fi
+    else
+      echo -e "${GREEN}  ✓ DNS уже оптимизирован${NC}"
+    fi
   else
     echo -e "${YELLOW}  → DNS: миграция на DoH Local${NC}"
-    if safe_jq_write --arg qs "$query_strategy" '.dns = {
+    if safe_jq_write --arg qs "$query_strategy" --arg doh "$doh_fallback" '.dns = {
       "servers": [
-        "https+local://1.1.1.1/dns-query",
+        $doh,
         "localhost"
       ],
       "queryStrategy": $qs,
