@@ -6872,13 +6872,18 @@ add_inbound() {
       # Override sni to match existing inbound
       sni="$existing_sni"
 
-      # Обновить SNI в только что созданном файле профиля
+      # Обновить SNI в только что созданном файле профиля.
+      # У multi-route профилей SNI живёт и в .routes[i].sni — обновляем и там,
+      # иначе маршрут рассинхронизируется с inbound и выпадет из подписки.
       local pf
       for pf in "$PROFILES_DIR"/*.json; do
         [[ ! -f "$pf" ]] && continue
         local pf_uuid=$(jq -r '.uuid' "$pf" 2>/dev/null)
         if [[ "$pf_uuid" == "$uuid" ]]; then
-          if ! safe_jq_write --arg sni "$existing_sni" '.sni = $sni' "$pf"; then
+          if ! safe_jq_write --arg sni "$existing_sni" --argjson port "$port" \
+            '.sni = $sni | if ((.routes? // []) | length) > 0 then
+               .routes |= map(if .port == $port then .sni = $sni else . end)
+             else . end' "$pf"; then
             echo -e "${RED}  ✗ Не удалось обновить SNI в профиле $(basename "$pf")${NC}"
             return 1
           fi
