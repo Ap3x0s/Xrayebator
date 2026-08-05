@@ -4486,6 +4486,35 @@ update_command() {
   echo -e "${BLUE}╚════════════════════════════════════════════════════╝${NC}"
   echo ""
 
+  # V9: если передан аргумент ветки (main/dev/experimental) — обновляем САМ скрипт
+  # xrayebator с этой ветки (self-update, как в update.sh). Иначе — только Xray binary.
+  if [[ -n "${1:-}" ]]; then
+    local branch="$1"
+    echo -e "${CYAN}  → Self-update xrayebator с ветки: ${YELLOW}$branch${NC}"
+    local up_script up_tmp
+    up_script=$(command -v xrayebator 2>/dev/null || echo /usr/local/bin/xrayebator)
+    up_tmp=$(mktemp /tmp/xrayebator_update_XXXXXX)
+    if curl -fsSL --connect-timeout 10 --max-time 60 \
+        "https://raw.githubusercontent.com/howdeploy/Xrayebator/${branch}/xrayebator" -o "$up_tmp" \
+        && [[ -s "$up_tmp" ]] && bash -n "$up_tmp"; then
+      chmod 755 "$up_tmp"
+      if mv "$up_tmp" "$up_script"; then
+        chown root:root "$up_script" 2>/dev/null || true
+        echo -e "${GREEN}  ✓ xrayebator обновлён с ветки $branch${NC}"
+        echo -e "${YELLOW}  → Перезапуск...${NC}"
+        exec bash "$up_script" update
+        exit 0
+      fi
+      rm -f "$up_tmp"
+      echo -e "${RED}✗ Не удалось заменить скрипт${NC}"
+      exit 1
+    else
+      rm -f "$up_tmp"
+      echo -e "${RED}✗ Не удалось скачать xrayebator с ветки '$branch' (проверьте имя или сеть)${NC}"
+      exit 2
+    fi
+  fi
+
   update_xray_core
   local rc=$?
   case $rc in
