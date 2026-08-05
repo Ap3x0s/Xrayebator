@@ -8907,8 +8907,13 @@ UPGEOF
   # config.json:.inbounds[].streamSettings.realitySettings.shortIds[0] — один источник истины.
   local profiles_ok=true
   for p in "${profiles_on_port[@]}"; do
-    if ! safe_jq_write --arg path "$xhttp_path" \
-      '.transport = "xhttp" | .schema_version = 2 | .pq_enabled = true | .xhttp_path = $path' \
+    if ! safe_jq_write --arg path "$xhttp_path" --argjson pnum "$port" \
+      '.transport = "xhttp" | .schema_version = 2 | .pq_enabled = true | .xhttp_path = $path
+       | if ((.routes? // []) | length) > 0 then
+           .routes |= map(if .port == $pnum then
+             .transport = "xhttp" | .pq_enabled = true | .xhttp_path = $path
+           else . end)
+         else . end' \
       "$PROFILES_DIR/$p.json"; then
       echo -e "${RED}  ✗ Ошибка обновления profile JSON: $p${NC}"
       profiles_ok=false
