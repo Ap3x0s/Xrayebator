@@ -9314,6 +9314,13 @@ NGINXHTTP
   fi
   echo "  TLS сертификат получен" >&2
 
+  # Проверяем, что порт 8443 свободен (или занят нашим же nginx config).
+  # Иначе nginx -t пройдёт, а reload упадёт из-за адресной конфликта bind.
+  if ss -ltnp 'sport = :8443' 2>/dev/null | grep -q LISTEN; then
+    echo '{"ok":false,"error":"Порт 8443 уже занят — subscription URL будет мёртвым"}'
+    return 1
+  fi
+
   # Nginx HTTPS config (проксирует на subscription server, порт 8443 — Xray на 443)
   cat > /etc/nginx/sites-available/xrayebator-sub << NGINXHTTPS
 limit_req_zone \$binary_remote_addr zone=xrayebator_sub:10m rate=30r/m;
@@ -9356,7 +9363,10 @@ server {
 }
 NGINXHTTPS
   nginx -t >/dev/null 2>&1 || { echo '{"ok":false,"error":"nginx HTTPS config failed"}'; return 1; }
-  systemctl reload nginx >/dev/null 2>&1 || true
+  if ! systemctl reload nginx >/dev/null 2>&1; then
+    echo '{"ok":false,"error":"nginx не перечитал HTTPS config — подписка недоступна"}'
+    return 1
+  fi
 
   # Пишем маркеры подписки (ip_tls mode) — иначе _subscription_base_url вернёт
   # локальный http://127.0.0.1:8080 и GUI/happ-setup покажут неверный URL и mode "unknown".
@@ -9380,11 +9390,18 @@ NGINXHTTPS
   fi
   local profile_file="$PROFILES_DIR/${HAPP_DEFAULT_PROFILE}.json"
 
-  # Перезапустить Xray (подхватить новые инбаунды маршрутов)
-  safe_restart_xray >/dev/null 2>&1 || true
+  # Перезапустить Xray (подхватить новые инбаунды маршрутов).
+  # Без || true: если конфиг не загрузился, отдаём ok:false, а не ложный успех с мёртвым URL.
+  if ! safe_restart_xray >/dev/null 2>&1; then
+    echo '{"ok":false,"error":"Не удалось перезапустить Xray — конфиг не принят (xray run -test failed)"}'
+    return 1
+  fi
 
-  # Убедиться что subscription handler отвечает
-  _subscription_ensure_handler_running >/dev/null 2>&1 || true
+  # Убедиться что subscription handler отвечает.
+  if ! _subscription_ensure_handler_running >/dev/null 2>&1; then
+    echo '{"ok":false,"error":"Subscription handler не отвечает на 127.0.0.1:8080"}'
+    return 1
+  fi
 
   # 5. Результат
   local result_uuid result_sub_token route_count
