@@ -5,6 +5,11 @@ on:
     paths:
       - ".github/workflows/gui-release.yml"
       - "gui/**"
+      - "xrayebator"
+      - "install.sh"
+      - "update.sh"
+      - "uninstall.sh"
+      - "validation/test-*.sh"
   workflow_dispatch:
     inputs:
       release_tag:
@@ -46,9 +51,9 @@ jobs:
           python -m pytest -q gui/tests
           python -m build --wheel gui
 
-      # Bash validation subset — only tests that work on GitHub Windows runners.
-      # Full suite runs on ubuntu-latest in ci-linux.yml.
-      - name: Bash validation (Git Bash subset)
+      # Bash smoke subset kept here for fast feedback on GUI-PR touching bash;
+      # the FULL suite (all validation/test-*.sh) runs in ci-linux.yml.
+      - name: Bash syntax smoke (GUI job)
         run: |
           for test in \
             validation/test-quickstart-migration-parity.sh \

@@ -79,6 +79,14 @@ if [[ -d /usr/local/etc/xray/profiles ]]; then
         ALL_XRAY_PORTS=$(printf '%s\n%s\n' "$ALL_XRAY_PORTS" "$ROUTE_PORTS")
     done
 fi
+# A7-uninstall-fix: останавливаем и удаляем systemd-таймер автопродления IP-сертификата,
+# иначе он продолжает стрелять каждые 12ч и долбить systemctl reload nginx после удаления.
+if systemctl list-unit-files 'xrayebator-ip-renew.*' > /dev/null 2>&1; then
+    systemctl disable --now xrayebator-ip-renew.timer > /dev/null 2>&1 || true
+    systemctl stop xrayebator-ip-renew.service > /dev/null 2>&1 || true
+    rm -f /etc/systemd/system/xrayebator-ip-renew.service
+    rm -f /etc/systemd/system/xrayebator-ip-renew.timer
+fi
 rm -rf /usr/local/etc/xray
 rm -rf /var/log/xray
 echo -e "${GREEN}✓ Конфигурации и логи удалены${NC}\n"
@@ -98,7 +106,34 @@ rm -f /etc/systemd/system/xrayebator-sub.service
 systemctl daemon-reload > /dev/null 2>&1
 echo -e "${GREEN}✓ Systemd очищен${NC}\n"
 
-echo -e "${BLUE}[6/7]${NC} ${YELLOW}Очистка firewall и пользователя...${NC}"
+echo -e "${BLUE}[6/7]${NC} ${YELLOW}Очистка firewall, nginx-конфигов и пользователя...${NC}"
+# A7-uninstall-fix: продукт создаёт nginx vhost'ы xrayebator-sub и xrayebator-selfsteal.
+# Без удаления nginx остаётся включённым и слушает 8443, проксируя на мёртвый 8080.
+if command -v nginx > /dev/null 2>&1; then
+    rm -f /etc/nginx/sites-available/xrayebator-sub
+    rm -f /etc/nginx/sites-enabled/xrayebator-sub
+    rm -f /etc/nginx/sites-available/xrayebator-selfsteal
+    rm -f /etc/nginx/sites-enabled/xrayebator-selfsteal
+    # Восстанавливаем default-сайт, если quickstart делал бэкап перед удалением.
+    if [[ -e /etc/nginx/sites-enabled/default.xrayebator.bak && ! -e /etc/nginx/sites-enabled/default ]]; then
+        cp -a /etc/nginx/sites-enabled/default.xrayebator.bak /etc/nginx/sites-enabled/default 2>/dev/null || true
+        rm -f /etc/nginx/sites-enabled/default.xrayebator.bak 2>/dev/null || true
+    fi
+    if nginx -t > /dev/null 2>&1; then
+        systemctl reload nginx > /dev/null 2>&1 || true
+    fi
+fi
+# A7-uninstall-fix: certbot-сертификаты (включая shortlived IP-серты) — удаляем приватные
+# ключи и email-аккаунт, обещанное "полное удаление" не должно оставлять LUKS-подобные данные.
+if command -v certbot > /dev/null 2>&1 && command -v openssl > /dev/null 2>&1; then
+    for cn in $(find /etc/letsencrypt/live -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sed 's#.*/##'); do
+        if [[ -n "$cn" ]]; then
+            timeout 60 certbot delete --cert-name "$cn" --non-interactive > /dev/null 2>&1 || true
+        fi
+    done
+fi
+rm -rf /var/www/xrayebator-ip-acme /var/www/xrayebator-selfsteal-acme 2>/dev/null
+# Убираем и webroot и защищаем: certbot delete уже удалил certs/keys/accounts.
 if command -v ufw > /dev/null 2>&1; then
     # Дефолтные порты + динамические порты, собранные из real config/profiles (до удаления).
     for p in 443/tcp 8443/tcp 8080/tcp 9443/tcp 9444/tcp $(echo "${ALL_XRAY_PORTS:-}" | tr ' ' '\n'); do

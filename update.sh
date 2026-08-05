@@ -515,16 +515,16 @@ fi
 # Обновление списка SNI
 echo -e "${YELLOW}Обновление списка SNI...${NC}"
 mkdir -p /usr/local/etc/xray/data
-curl -fsSL "${RAW_BASE_URL}/sni_list.txt" -o /usr/local/etc/xray/data/sni_list.txt
+curl -fsSL --connect-timeout 10 --max-time 30 "${RAW_BASE_URL}/sni_list.txt" -o /usr/local/etc/xray/data/sni_list.txt
 
-if [[ $? -eq 0 ]]; then
+if [[ $? -eq 0 ]] && [[ -s /usr/local/etc/xray/data/sni_list.txt ]]; then
   echo -e "${GREEN}✓ Список SNI обновлён${NC}\n"
 else
   echo -e "${YELLOW}⚠ Не удалось обновить SNI список${NC}\n"
 fi
 
 # Обновление ASCII арта (опционально)
-curl -fsSL "${RAW_BASE_URL}/ascii_art.txt" -o /usr/local/etc/xray/data/ascii_art.txt 2>/dev/null
+curl -fsSL --connect-timeout 10 --max-time 30 "${RAW_BASE_URL}/ascii_art.txt" -o /usr/local/etc/xray/data/ascii_art.txt 2>/dev/null
 
 # Проверка версии
 echo -e "${YELLOW}Проверка установленной версии...${NC}"
@@ -765,7 +765,7 @@ update_xray_core() {
   if [[ -f "$CONFIG_FILE" ]]; then
     local test_output
     test_output=$("${TMPDIR}/extract/xray" run -test -config "$CONFIG_FILE" 2>&1)
-    if ! grep -qx "Configuration OK." <<< "$test_output"; then
+    if ! grep -q "Configuration OK" <<< "$test_output"; then
       echo -e "${RED}✗ config.json не валиден против $TARGET_VERSION${NC}"
       echo -e "${YELLOW}Подробности:${NC}"
       echo "$test_output" | head -10

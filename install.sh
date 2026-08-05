@@ -180,10 +180,24 @@ if _should_run 1; then
 echo -e "${BLUE}[1/9]${NC} ${YELLOW}Установка необходимых пакетов...${NC}"
 
 # Диагностика DNS до apt: если резолв не работает, apt упадёт с непонятной ошибкой.
-if ! getent hosts archive.ubuntu.com >/dev/null 2>&1 && ! getent hosts security.ubuntu.com >/dev/null 2>&1; then
-  echo -e "${YELLOW}⚠ DNS не резолвит Ubuntu archive — подменяю /etc/resolv.conf на 1.1.1.1${NC}"
-  cp /etc/resolv.conf /etc/resolv.conf.bak.xrayebator 2>/dev/null || true
+# A2-fix: проверяем резолв через getent (не привязываясь к Ubuntu-зеркалам), а при
+# подмене resolv.conf заменяем симлинк реальным файлом (иначе printf пишет сквозь
+# symlink systemd-resolved в /run/systemd/resolve/stub-resolv.conf и бэкап неверен).
+if ! getent hosts archive.ubuntu.com >/dev/null 2>&1 && ! getent hosts deb.debian.org >/dev/null 2>&1; then
+  echo -e "${YELLOW}⚠ DNS не резолвит пакетные зеркала — подменяю /etc/resolv.conf на 1.1.1.1${NC}"
+  if [[ -L /etc/resolv.conf ]]; then
+    # Не пишем сквозь symlink systemd-resolved: сохраняем target отдельно, заменяем сам symlink.
+    local_resolv_target="$(readlink /etc/resolv.conf)"
+    cp -a "/etc/resolv.conf" "/etc/resolv.conf.bak.xrayebator" 2>/dev/null || true
+    echo -e "${YELLOW}  (symlink → ${local_resolv_target}; заменяю файлом, резерв: /etc/resolv.conf.bak.xrayebator)${NC}"
+    rm -f /etc/resolv.conf
+  else
+    cp /etc/resolv.conf /etc/resolv.conf.bak.xrayebator 2>/dev/null || true
+  fi
   printf 'nameserver 1.1.1.1\nnameserver 9.9.9.9\n' > /etc/resolv.conf
+  if ! getent hosts archive.ubuntu.com >/dev/null 2>&1 && ! getent hosts deb.debian.org >/dev/null 2>&1; then
+    echo -e "${YELLOW}  ⚠ Всё ещё нет резолва — продолжаю с 1.1.1.1, apt может не сработать${NC}"
+  fi
 fi
 
 echo -e "${CYAN}  → apt update...${NC}"
@@ -371,7 +385,7 @@ update_xray_core() {
   if [[ -f "$CONFIG_FILE" ]]; then
     local test_output
     test_output=$("${TMPDIR}/extract/xray" run -test -config "$CONFIG_FILE" 2>&1)
-    if ! grep -qx "Configuration OK." <<< "$test_output"; then
+    if ! grep -q "Configuration OK" <<< "$test_output"; then
       echo -e "${RED}✗ config.json не валиден против $TARGET_VERSION${NC}"
       echo -e "${YELLOW}Подробности:${NC}"
       echo "$test_output" | head -10
@@ -803,6 +817,15 @@ if _detect_ipv6_only; then
   dns_main_doh="https+local://dns.google/dns-query"
 fi
 
+# A1-fix: при переустановке сохраняем существующий конфиг перед перезаписью,
+# чтобы не потерять боевые inbound/профили (иначе сервер остаётся без инбаундов).
+if [[ -s "$CONFIG_FILE" ]]; then
+  local_backup_dir="${BACKUP_DIR:-/usr/local/etc/xray/backups}"
+  mkdir -p "$local_backup_dir"
+  cp -a "$CONFIG_FILE" "$local_backup_dir/pre-fresh-$(date +%Y%m%d-%H%M%S).json" 2>/dev/null || true
+  echo -e "${YELLOW}⚠ Существующий config.json сохранён в $local_backup_dir (бэкап перед переустановкой)${NC}"
+fi
+
 cat > "$CONFIG_FILE" << EOF
 {
   "log": {
@@ -884,6 +907,26 @@ if _should_run 7; then
 
 # [7/9] Настройка Firewall
 echo -e "${BLUE}[7/9]${NC} ${YELLOW}Настройка firewall...${NC}"
+
+# B1-fix: детектируем фактический SSH-порт ДО включения UFW (default policy = deny).
+# Если SSH на нестандартном порту и открыть его после enable — заперём себя на VPS.
+sfw_ssh_port=""
+if command -v ss >/dev/null 2>&1; then
+  sfw_ssh_port=$(ss -tlnp 2>/dev/null | awk '/sshd/ {for(i=1;i<=NF;i++) if ($i ~ /^:.*$/) {split($i,a,":"); print a[length(a)]; exit}}')
+  sfw_ssh_port="${sfw_ssh_port%%[,;]*}"
+fi
+if [[ -z "$sfw_ssh_port" ]] || ! [[ "$sfw_ssh_port" =~ ^[0-9]+$ ]]; then
+  # Fallback: читаем ListenAddress из sshd_config.
+  sfw_ssh_port=$(grep -h '^Port\s' /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf 2>/dev/null | awk '{print $2}' | head -1)
+fi
+if [[ -z "$sfw_ssh_port" ]] || ! [[ "$sfw_ssh_port" =~ ^[0-9]+$ ]]; then
+  sfw_ssh_port=22
+fi
+
+# Открываем SSH-порт ПЕРВЫМ, затем включаем UFW.
+ufw allow "${sfw_ssh_port}/tcp" > /dev/null 2>&1
+echo -e "${CYAN}  SSH-порт ${sfw_ssh_port}/tcp открыт перед включением UFW${NC}"
+
 if ! ufw status | grep -q "Status: active"; then
   ufw --force enable > /dev/null 2>&1
 fi
@@ -907,7 +950,7 @@ if _should_run 8; then
 
 # [8/9] Загрузка данных
 echo -e "${BLUE}[8/9]${NC} ${YELLOW}Загрузка данных приложения...${NC}"
-curl -fsSL "${RAW_BASE_URL}/sni_list.txt" -o "${DATA_DIR}/sni_list.txt"
+curl -fsSL --connect-timeout 10 --max-time 30 "${RAW_BASE_URL}/sni_list.txt" -o "${DATA_DIR}/sni_list.txt"
 if [[ $? -eq 0 ]] && [[ -s "${DATA_DIR}/sni_list.txt" ]]; then
   echo -e "${GREEN}✓ Список SNI загружен${NC}"
 else
@@ -926,7 +969,7 @@ www.microsoft.com|foreign|3
 EOF
 fi
 
-curl -fsSL "${RAW_BASE_URL}/ascii_art.txt" -o "${DATA_DIR}/ascii_art.txt" 2>/dev/null
+curl -fsSL --connect-timeout 10 --max-time 30 "${RAW_BASE_URL}/ascii_art.txt" -o "${DATA_DIR}/ascii_art.txt" 2>/dev/null
 if [[ -s "${DATA_DIR}/ascii_art.txt" ]]; then
   echo -e "${GREEN}✓ ASCII арт загружен${NC}\n"
 else
