@@ -730,7 +730,11 @@ _inbound_public_key_for_port() {
 
 _certbot_supports_ip_address() {
   local certbot_bin="${1:-certbot}"
-  "$certbot_bin" --help all 2>/dev/null | grep -q -- '--ip-address'
+  # Для IP-сертификатов нужен certbot 5.4+, который поддерживает И --ip-address,
+  # И --preferred-profile (shortlived). Проверяем оба флага, иначе старый apt-certbot
+  # упадёт с "unrecognized arguments" уже после установки nginx.
+  "$certbot_bin" --help all 2>/dev/null | grep -q -- '--ip-address' \
+    && "$certbot_bin" --help all 2>/dev/null | grep -q -- '--preferred-profile'
 }
 
 _ensure_certbot_ip_tls() {
@@ -9272,11 +9276,11 @@ quickstart_command() {
     }
   fi
 
-  # Certbot: сначала snap (поддерживает --ip-address)
+  # Certbot: сначала snap (поддерживает --ip-address + --preferred-profile)
   local certbot_bin=""
-  if command -v /snap/bin/certbot &>/dev/null && /snap/bin/certbot --help all 2>/dev/null | grep -q "\-\-ip-address"; then
+  if command -v /snap/bin/certbot &>/dev/null && _certbot_supports_ip_address /snap/bin/certbot; then
     certbot_bin="/snap/bin/certbot"
-  elif command -v certbot &>/dev/null && certbot --help all 2>/dev/null | grep -q "\-\-ip-address"; then
+  elif command -v certbot &>/dev/null && _certbot_supports_ip_address "$(command -v certbot)"; then
     certbot_bin="$(command -v certbot)"
   fi
   if [[ -z "$certbot_bin" ]]; then
@@ -9287,13 +9291,13 @@ quickstart_command() {
     if command -v snap &>/dev/null; then
       timeout 300 snap install core 2>/dev/null || true
       timeout 300 snap install --classic certbot 2>/dev/null || true
-      if command -v /snap/bin/certbot &>/dev/null && /snap/bin/certbot --help all 2>/dev/null | grep -q "\-\-ip-address"; then
+      if command -v /snap/bin/certbot &>/dev/null && _certbot_supports_ip_address /snap/bin/certbot; then
         certbot_bin="/snap/bin/certbot"
       fi
     fi
   fi
   if [[ -z "$certbot_bin" ]]; then
-    echo '{"ok":false,"error":"Certbot с --ip-address не найден"}'
+    echo '{"ok":false,"error":"Certbot с --ip-address и --preferred-profile не найден"}'
     return 1
   fi
   echo "  Certbot: $certbot_bin" >&2
