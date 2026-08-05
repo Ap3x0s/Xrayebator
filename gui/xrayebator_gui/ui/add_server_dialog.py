@@ -133,18 +133,18 @@ class AddServerDialog(QDialog):
         key_browse = QPushButton("Обзор…")
         key_browse.setProperty("variant", "ghost")
         key_browse.clicked.connect(self._browse_key)
-        # key_row оборачивает ТОЛЬКО lineEdit под валидацию, броуз-кнопка живёт отдельно
-        # (иначе _FieldRow обернёт не-QLineEdit и baseline распадается).
+        # GUI-1-fix: key_edit оборачиваем _FieldRow (для inline error ДО кнопки),
+        # а в форму добавляем композитную строку key_row + key_browse. Раньше
+        # key_row не добавлялся в форму вообще → пользователь видел только кнопку,
+        # inline-ошибка была скрыта.
+        self.key_row = _FieldRow(self.key_edit)
         key_with_browse = QHBoxLayout()
         key_with_browse.setContentsMargins(0, 0, 0, 0)
-        key_with_browse.addWidget(self.key_edit, 1)
+        key_with_browse.setSpacing(6)
+        key_with_browse.addWidget(self.key_row, 1)
         key_with_browse.addWidget(key_browse)
         key_container = QWidget()
         key_container.setLayout(key_with_browse)
-        self.key_row = _FieldRow(self.key_edit)
-        # key_row — валидатор вокруг только lineEdit, контейнер key_container
-        # добавляется в форму отдельно ниже (чтобы в ряду формы был сам QLineEdit,
-        # а browse-button справа).
 
         self.email_edit = QLineEdit()
         self.email_edit.setPlaceholderText("you@example.com (для Let's Encrypt)")
