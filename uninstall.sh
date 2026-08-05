@@ -66,6 +66,19 @@ rm -f /usr/local/bin/xray
 rm -rf /usr/local/share/xray
 
 echo -e "${BLUE}[3/7]${NC} ${YELLOW}Удаление конфигураций и профилей...${NC}"
+# Собираем динамические порты инбаундов и маршрутов ДО удаления конфига,
+# чтобы затем вычистить их из UFW (иначе пользовательские порты останутся открытыми).
+ALL_XRAY_PORTS=""
+if command -v jq > /dev/null 2>&1 && [[ -f /usr/local/etc/xray/config.json ]]; then
+    ALL_XRAY_PORTS=$(jq -r '[.inbounds[].port] | unique | .[]' /usr/local/etc/xray/config.json 2>/dev/null || true)
+fi
+if [[ -d /usr/local/etc/xray/profiles ]]; then
+    for pf in /usr/local/etc/xray/profiles/*.json; do
+        [[ -f "$pf" ]] || continue
+        ROUTE_PORTS=$(jq -r '(.routes // []) | .[].port' "$pf" 2>/dev/null || true)
+        ALL_XRAY_PORTS=$(printf '%s\n%s\n' "$ALL_XRAY_PORTS" "$ROUTE_PORTS")
+    done
+fi
 rm -rf /usr/local/etc/xray
 rm -rf /var/log/xray
 echo -e "${GREEN}✓ Конфигурации и логи удалены${NC}\n"
@@ -87,8 +100,14 @@ echo -e "${GREEN}✓ Systemd очищен${NC}\n"
 
 echo -e "${BLUE}[6/7]${NC} ${YELLOW}Очистка firewall и пользователя...${NC}"
 if command -v ufw > /dev/null 2>&1; then
-    for p in 443/tcp 8443/tcp 8080/tcp 9443/tcp 9444/tcp; do
-        ufw delete allow "$p" > /dev/null 2>&1 || true
+    # Дефолтные порты + динамические порты, собранные из real config/profiles (до удаления).
+    for p in 443/tcp 8443/tcp 8080/tcp 9443/tcp 9444/tcp $(echo "${ALL_XRAY_PORTS:-}" | tr ' ' '\n'); do
+        [[ -n "$p" ]] || continue
+        port="${p%%/*}"
+        if [[ "$port" =~ ^[0-9]+$ ]]; then
+            ufw delete allow "${port}/tcp" > /dev/null 2>&1 || true
+            ufw delete allow "${port}/udp" > /dev/null 2>&1 || true
+        fi
     done
 fi
 if id xray > /dev/null 2>&1; then
