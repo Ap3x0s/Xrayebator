@@ -47,11 +47,20 @@ systemctl disable xrayebator-sub.service > /dev/null 2>&1
 echo -e "${GREEN}✓ Сервисы остановлены${NC}\n"
 
 echo -e "${BLUE}[2/7]${NC} ${YELLOW}Удаление Xray-core...${NC}"
-if bash -c "$(curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ remove > /dev/null 2>&1; then
-    echo -e "${GREEN}✓ Xray-core удален (по штатному скрипту XTLS)${NC}\n"
+# Скачиваем XTLS installer в файл, проверяем что он реально получен (непустой + shebang).
+# Иначе bash -c "$(curl ...)" при офлайне выполнял пустую строку с кодом 0 → ложный успех.
+XTLS_REMOVE_SCRIPT=$(mktemp /tmp/xray-install-remove.XXXXXX.sh)
+if curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh -o "$XTLS_REMOVE_SCRIPT" \
+   && head -n 1 "$XTLS_REMOVE_SCRIPT" | grep -q "^#!/bin/bash"; then
+    if bash "$XTLS_REMOVE_SCRIPT" @ remove > /dev/null 2>&1; then
+        echo -e "${GREEN}✓ Xray-core удален (по штатному скрипту XTLS)${NC}\n"
+    else
+        echo -e "${YELLOW}⚠ Официальный скрипт XTLS не отработал — удаляю бинарь вручную${NC}\n"
+    fi
 else
-    echo -e "${YELLOW}⚠ Официальный скрипт XTLS не сработал (сеть?) — удаляю бинарь вручную${NC}\n"
+    echo -e "${YELLOW}⚠ Не удалось скачать скрипт XTLS (сеть?) — удаляю бинарь вручную${NC}\n"
 fi
+rm -f "$XTLS_REMOVE_SCRIPT"
 # Явная зачистка на случай, если скрипт XTLS не отработал
 rm -f /usr/local/bin/xray
 rm -rf /usr/local/share/xray
