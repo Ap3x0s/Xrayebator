@@ -926,12 +926,16 @@ if [[ -f "$CONFIG_FILE" ]]; then
 DNSEOF
 )
 
-    # Обновляем DNS секцию в конфиге
+    # Обновляем DNS секцию в конфиге.
+    # Обновляем только servers/queryStrategy/disableCache, сохраняя пользовательские
+    # hosts и прочие кастомные поля DNS (точечные полевые апдейты вместо сброса всего блока).
     TMP_FILE=$(mktemp /tmp/xray-cfg.XXXXXX) || {
       echo -e "${YELLOW}  ⚠ mktemp failed (DNS обновление пропущено)${NC}"
       true
     }
-    if [[ -n "$TMP_FILE" ]] && jq --argjson dns "$NEW_DNS" '.dns = $dns' "$CONFIG_FILE" > "$TMP_FILE" 2>/dev/null \
+    if [[ -n "$TMP_FILE" ]] && jq --argjson dns "$NEW_DNS" \
+       '.dns.servers = $dns.servers | .dns.queryStrategy = $dns.queryStrategy | .dns.disableCache = ($dns.disableCache // false)' \
+       "$CONFIG_FILE" > "$TMP_FILE" 2>/dev/null \
        && [[ -s "$TMP_FILE" ]] \
        && xray run -test -config "$TMP_FILE" 2>&1 | grep -q "^Configuration OK\.$"; then
       mv "$TMP_FILE" "$CONFIG_FILE"
