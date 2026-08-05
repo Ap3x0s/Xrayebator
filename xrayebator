@@ -4911,7 +4911,12 @@ trap 'rm -f -- "$body_tmp"' EXIT
 if [[ "$universal_sub" == "true" ]]; then
   # v2rayNG сначала пытается Base64-decode subscription body. Даём ему
   # классический v2ray-sub: только proxy URI, без HAPP comments/routing.
-  printf '%s' "$vless_urls" | base64 -w0 > "$body_tmp"
+  # Фильтруем PQ xhttp (encryption=mlkem768...): клиенты без ML-KEM не смогут
+  # подключиться, а legacy xhttp (encryption=none) сохраняем. V11.
+  printf '%s' "$vless_urls" | awk '
+    /^vless:\/\// && /&type=xhttp&/ && $0 !~ /encryption=none/ { next }
+    { print }
+  ' | base64 -w0 > "$body_tmp"
 else
   # HAPP standard subscriptions are text-based server lists. Keep body conservative:
   # only vless:// rows by default; metadata stays in HTTP headers.
