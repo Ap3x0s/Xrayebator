@@ -827,6 +827,11 @@ class MainWindow(QMainWindow):
 
     def _operation_finished(self) -> None:
         self._operation = None
+        # GUI-2-fix: worker.succeeded срабатывает РАНЬШЕ worker.finished, поэтому
+        # success-callback вызывает _on_snapshot() пока self._operation ещё не очищен,
+        # и busy остаётся True. После очистки делаем единый repaint/snapshot —
+        # прогресс скрывается, кнопки разблокируются.
+        self._on_snapshot(self._controller.snapshot)
         if self._connect_after_route_load and self._selected_route() is not None:
             self._connect_after_route_load = False
             self._toggle_connection()
@@ -880,8 +885,11 @@ class MainWindow(QMainWindow):
             and not busy
             and self._selected_profile() != snapshot.routing_profile
         )
-        self.tray_toggle_action.setText("Отключить" if connected else "Подключить")
-        self.tray_toggle_action.setEnabled(not busy)
+        # GUI-3-fix: в NO_TRAY режиме tray_toggle_action=None — иначе AttributeError
+        # на каждом snapshot'е при старте приложения.
+        if self.tray_toggle_action is not None:
+            self.tray_toggle_action.setText("Отключить" if connected else "Подключить")
+            self.tray_toggle_action.setEnabled(not busy)
         target = ""
         if snapshot.route is not None and snapshot.routing_profile is not None:
             target = (
@@ -933,15 +941,19 @@ class MainWindow(QMainWindow):
         if self._quitting:
             event.accept()
             return
+        # GUI-3-fix: в NO_TRAY режиме tray=None и приложение должно
+        # закрываться по крестику, а не висеть невидимым в фоне.
+        if self.tray is None:
+            event.accept()
+            return
         event.ignore()
         self.hide()
-        if self.tray is not None:
-            self.tray.showMessage(
-                "Xrayebator",
-                "Приложение продолжает работать в системном трее.",
-                QSystemTrayIcon.MessageIcon.Information,
-                2500,
-            )
+        self.tray.showMessage(
+            "Xrayebator",
+            "Приложение продолжает работать в системном трее.",
+            QSystemTrayIcon.MessageIcon.Information,
+            2500,
+        )
 
     def _quit(self) -> None:
         self._quitting = True
@@ -967,18 +979,14 @@ class MainWindow(QMainWindow):
                         self._controller.disconnect()
                     except Exception:
                         pass
-                    finally:
-                        if self.tray is not None:
-                            self.tray.hide()
-                        if app is not None:
-                            app.quit()
 
                 worker = OperationThread(
                     _do_quit,
                     parent=None,
                 )
-                worker.succeeded.connect(lambda *_: None)
-                worker.failed.connect(lambda *_: None)
+                # GUI-6-fix: tray.hide() и app.quit() — только в GUI thread.
+                # finished сигнал эмитится в главном потоке — там и делаем hide/quit.
+                worker.finished.connect(self._quit_after_disconnect)
                 worker.start()
                 # Храним ссылку чтобы GC не удалил до завершения
                 self._quit_worker = worker  # noqa: SLF001
@@ -999,3 +1007,16 @@ class MainWindow(QMainWindow):
                     app.quit()
             except Exception:
                 pass
+
+    def _quit_after_disconnect(self) -> None:
+        """Callback в GUI thread после завершения disconnect в worker."""
+        if self.tray is not None:
+            self.tray.hide()
+        try:
+            from PySide6.QtWidgets import QApplication
+
+            app = QApplication.instance()
+            if app is not None:
+                app.quit()
+        except Exception:
+            pass
