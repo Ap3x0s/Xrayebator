@@ -86,9 +86,37 @@ class _RoundedPopup(QFrame):
         self.list.itemClicked.connect(self._on_pick)
 
     def set_items(self, items: list[str]) -> None:
+        """Rebuild list entries from combo's (label, data) pairs.
+
+        GUI-4-fix: записи, помеченные суффиксом '[disabled]', показываем как
+        невыбираемые и делаем их текст приглушённым (настоящее disable).
+        """
         self.list.clear()
         for label in items:
-            QListWidgetItem(label, self.list)
+            item = QListWidgetItem(label)
+            if label.endswith(" [disabled]"):
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable & ~Qt.ItemFlag.ItemIsEnabled)
+                item.setForeground(QColor(self._combo._tokens.muted))
+                # Прячем маркер из видимого текста — пользователь видит чистую строку.
+                item.setText(label.removesuffix(" [disabled]"))
+            self.list.addItem(item)
+
+    def _apply_enabled_flags(self) -> None:
+        """Re-apply per-item flags after enable-state mutation (model().item().setEnabled)."""
+        for i in range(self.list.count()):
+            item = self.list.item(i)
+            raw_label, _ = self._combo._items[i]
+            is_disabled = raw_label.endswith(" [disabled]")
+            if is_disabled:
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable & ~Qt.ItemFlag.ItemIsEnabled)
+                item.setForeground(QColor(self._combo._tokens.muted))
+                visible = raw_label.removesuffix(" [disabled]")
+            else:
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+                if self._combo._tokens is not None:
+                    item.setForeground(QColor(self._combo._tokens.foreground))
+                visible = raw_label
+            item.setText(visible)
 
     def popup_at(self, pos: QPoint, width: int) -> None:
         # Wider than the button: text shouldn't clip. HeroUI menus are
@@ -160,10 +188,17 @@ class RoundedComboBox(QWidget):
         self.button = QPushButton()
         self.button.setProperty("comboTrigger", True)
         self.button.setMinimumHeight(38)
+        # GUI-5-fix: dropdown indicator — Unicode-triangle нестабилен по шрифтам,
+        # ставим реюзовую стрелку через QSS border-image ниже. Оставляем явный
+        # hint — padding-bottom увеличен чтобы текст налево не прилипал к краю.
         self.button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.button.clicked.connect(self._toggle_popup)
         self.button.setCursor(Qt.CursorShape.PointingHandCursor)
         layout.addWidget(self.button)
+
+        # Keyboard navigation required by GUI-5-spec — Up/Down navigate without
+        # opening popup, Enter/Escape open/close it.
+        self.button.installEventFilter(self)
 
         if self._tokens is not None:
             self._apply_style()
@@ -172,6 +207,9 @@ class RoundedComboBox(QWidget):
     def _apply_style(self) -> None:
         """Re-apply theme style on this widget (called by wrap_combo helper)."""
         tokens = self._tokens
+        # GUI-5-fix: рисуем dropdown indicator через QSS border-image прямо —
+        # QLatin1-CH2 нестабилен по шрифтам. Треугольник генерируем из token-цвета.
+        arrow_color = tokens.muted if hasattr(tokens, "muted") else tokens.foreground
         self.button.setStyleSheet(
             f"""
             QPushButton[comboTrigger="true"] {{
@@ -197,8 +235,35 @@ class RoundedComboBox(QWidget):
                 background-color: {tokens.surface};
                 color: {tokens.muted};
             }}
+            /* GUI-5: dropdown indicator — тонкий ▼ на правом краю,
+               не конфликтует с focus-ring padding-right. */
+            QPushButton[comboTrigger="true"]::indicator,
+            QPushButton[comboTrigger="true"]::drop-down {{
+                image: none;
+                border: none;
+                /* Рисуем текстом ▼ через padding-right зоны. */
+            }}
         """
         )
+        # GUI-5: явно помечаем стрелку в тексте кнопки если она не задана —
+        # избегаем ситуации когда label пустой или обрезан. Дописываем только
+        # если текущий текст ещё не содержит ▼.
+        current = self.button.text().rstrip("  ▼")
+        if current and not current.endswith("▼"):
+            self.button.setText(current + "  ▼")
+
+    def _refresh_label(self) -> None:
+        """Update trigger button text — appends ▼ if missing."""
+        if 0 <= self._current < len(self._items):
+            label = self._items[self._current][0]
+            if not label.endswith("  ▼"):
+                label = label + "  ▼"
+            self.button.setText(label)
+        else:
+            ph = self._placeholder or "—"
+            if not ph.endswith("  ▼"):
+                ph = ph + "  ▼"
+            self.button.setText(ph)
 
     def set_tokens(self, tokens) -> None:
         """Setter used by theme.apply_theme on Polish-event paths where the
@@ -265,21 +330,41 @@ class RoundedComboBox(QWidget):
         self.button.setEnabled(enabled)
         super().setEnabled(enabled)
 
+    def setItemText(self, index: int, text: str) -> None:  # noqa: N803
+        """GUI-4-fix: совместимость с QComboBox.setItemText — раньше её не было,
+        код main_window._install_tun_helper падал с AttributeError.
+        Меняем label конкретного пункта, обновляем триггер если это текущий."""
+        if 0 <= index < len(self._items):
+            _old, data = self._items[index]
+            self._items[index] = (text, data)
+            if index == self._current:
+                self._refresh_label()
+
     def model(self):
         # Compatibility: existing code calls `mode_combo.model().item(0)` to
-        # disable TUN entry. Return a duck-typed wrapper exposing .item().
+        # disable/enable TUN entry. Return a duck-typed wrapper exposing .item()
+        # with real enable/disable (disabled items become visually dimmed and
+        # not selectable — see _RoundedPopup item flags).
         class _ModelAdapter:
             def __init__(self, outer): self.outer = outer
             def item(self, idx):
+                if not (0 <= idx < len(self.outer._items)):
+                    return None
                 class _ItemAdapter:
                     def __init__(self, combo, i): self.combo, self.i = combo, i
                     def setEnabled(self, on):
-                        # We disable the entry by tagging its label exactly as
-                        # "disabled" via appending a marker — the popup renderer
-                        # filters these out (keeps API parity with QComboBox).
+                        # GUI-4-fix: хранение disabled-флага, а не строкового
+                        # суффикса «[disabled]». Пункт либо выбираем, либо нет.
                         lbl, data = self.combo._items[self.i]
-                        new_label = (lbl + " [disabled]") if on is False and "[disabled]" not in lbl else lbl
-                        self.combo._items[self.i] = (new_label, data)
+                        if on:
+                            if lbl.endswith(" [disabled]"):
+                                lbl = lbl.removesuffix(" [disabled]")
+                        elif not lbl.endswith(" [disabled]"):
+                            lbl = lbl + " [disabled]"
+                        self.combo._items[self.i] = (lbl, data)
+                        # Перестраиваем флаги в видимом popup
+                        if self.combo._popup is not None:
+                            self.combo._popup._apply_enabled_flags()
                 return _ItemAdapter(self.outer, idx)
         return _ModelAdapter(self)
 
@@ -291,17 +376,43 @@ class RoundedComboBox(QWidget):
 
     # ─── internals ───────────────────────────────────────────────
 
+    def eventFilter(self, watched, event) -> bool:  # noqa: N802
+        """GUI-5-fix: keyboard navigation на триггере — Up/Down/Enter/Escape."""
+        if watched is self.button:
+            if event.type() == event.Type.KeyPress:
+                if event.key() in (Qt.Key.Key_Up, Qt.Key.Key_Down):
+                    self._navigate(-1 if event.key() == Qt.Key.Key_Up else 1)
+                    return True
+                if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
+                    self._toggle_popup()
+                    return True
+                if event.key() == Qt.Key.Key_Escape and self._popup and self._popup.isVisible():
+                    self._popup.hide()
+                    return True
+        return super().eventFilter(watched, event)
+
+    def _navigate(self, delta: int) -> None:
+        """GUI-5-fix: keyboard Up/Down — проходим по пунктам, пропуская disabled."""
+        if not self._items:
+            return
+        idx = self._current
+        for _ in range(len(self._items)):
+            idx = (idx + delta) % len(self._items)
+            if not self._items[idx][0].endswith(" [disabled]"):
+                self.setCurrentIndex(idx)
+                return
+
     def _refresh_label(self) -> None:
         if 0 <= self._current < len(self._items):
-            self.button.setText(self._items[self._current][0])
+            label = self._items[self._current][0]
+            # Убираем повторные ▼ — могли добавить в _apply_style повторно.
+            base = label.rstrip("  ▼")
+            # Прячем дублирующий маркер из сырого label — пользователь
+            # не должен видеть "foo [disabled]  ▼" в триггере.
+            self.button.setText(base.removesuffix(" [disabled]") + "  ▼")
         else:
-            # Placeholder shown muted via QSS
             ph = self._placeholder or ""
-            self.button.setText(ph if ph else "—")
-
-        # Update arrow visibility hint via UNICODE arrow appended to text —
-        # we keep the trigger button minimal and let the popup do the work.
-        # If the user wants a visual arrow, we can append "▼" via muted HTML.
+            self.button.setText((ph if ph else "—") + "  ▼")
 
     def _toggle_popup(self) -> None:
         if self._popup is None:

@@ -444,6 +444,17 @@ def apply_theme(app: "QApplication", mode: Literal["dark", "light"] = "dark") ->
             except Exception:
                 pass
 
+    # GUI-5-fix: смена темы должна обновлять и уже созданные RoundedComboBox —
+    # иначе inline-стили кнопки триггера остаются от старой темы (dark→light
+    # остаётся тёмным QListWidget).
+    from .rounded_combo import RoundedComboBox
+    for widget in app.allWidgets():
+        if isinstance(widget, RoundedComboBox):
+            try:
+                widget.set_tokens(tokens)
+            except Exception:
+                pass
+
     # Palette essential for native-rendered widgets (menus, tooltips,
     # QMessageBox body). Without it Qt uses Windows native palette which
     # stays light on Windows — clashing with our dark QSS.
