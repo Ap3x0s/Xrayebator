@@ -628,12 +628,15 @@ class MainWindow(QMainWindow):
             return
         # Предупредить, если сейчас идёт активное соединение через этот сервер,
         # иначе после удаления маршрут потеряет свой сервер и поломает работу.
+        # GUI-7-fix: раньше сравнивали route.port (VLESS-порт маршрута) с
+        # server.get("port", 443) (SSH-порт сохранённого сервера) — это всегда
+        # False, потому что 22 ≠ 443.
+        # Правильная проверка: адрес маршрута совпадает с адресом сервера.
         route = self._controller.snapshot.route
         connected_here = (
             self._controller.snapshot.state == ConnectionState.CONNECTED
             and route is not None
             and route.address == server.get("host")
-            and route.port == server.get("port", 443)
         )
         warning_extra = (
             "\n\n⚠ ВНИМАНИЕ: вы сейчас подключены через этот сервер! "
