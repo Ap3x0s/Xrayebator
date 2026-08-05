@@ -905,7 +905,6 @@ if [[ -f "$CONFIG_FILE" ]]; then
     echo -e "${CYAN}  → Миграция на DoH Local${NC}"
 
     # IPv6-only: если нет публичного IPv4, Xray не резолвит A-records через UseIPv4.
-    local query_strategy
     query_strategy=$(_ipv6_query_strategy)
 
     # Создаём новую конфигурацию DNS
