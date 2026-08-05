@@ -787,6 +787,48 @@ _ensure_certbot_ip_tls() {
   return 1
 }
 
+# Устанавливает systemd timer, который каждые 12 часов пытается продлить shortlived
+# IP-сертификаты (~6 дней жизни) и перезагружает nginx при успехе.
+# Args: $1=certbot_bin, $2=cert_name, $3=webroot
+_install_ip_cert_renew_timer() {
+  local certbot_bin=$1 cert_name=$2 webroot=$3
+  local unit="/etc/systemd/system/xrayebator-ip-renew.service"
+  local timer="/etc/systemd/system/xrayebator-ip-renew.timer"
+
+  cat > "$unit" << RENEWSVCEOF
+[Unit]
+Description=Xrayebator: renew shortlived IP TLS certificate
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=${certbot_bin} renew --cert-name ${cert_name} --preferred-profile shortlived --webroot -w ${webroot}
+ExecStartPost=/bin/systemctl reload nginx
+RENEWSVCEOF
+
+  cat > "$timer" << RENEWTIMEREOF
+[Unit]
+Description=Xrayebator: hourly shortlived IP TLS renewal attempt
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=12h
+
+[Install]
+WantedBy=timers.target
+RENEWTIMEREOF
+
+  chmod 644 "$unit" "$timer"
+  systemctl daemon-reload >/dev/null 2>&1 || true
+  systemctl enable --now "$(basename "$timer")" >/dev/null 2>&1 || true
+}
+
+# Проверяет активность renew timer для ip_tls подписки (для статус-строки TUI).
+_ip_renew_timer_active() {
+  systemctl is-active xrayebator-ip-renew.timer >/dev/null 2>&1
+}
+
 write_profile_transport_metadata() {
   local profile_file=$1
   local grpc_service_name=$2
@@ -5358,6 +5400,9 @@ NGINX_TLS_EOF
   echo "ip_tls" > /usr/local/etc/xray/.subscription_mode
   chown xray:xray /usr/local/etc/xray/.subscription_port /usr/local/etc/xray/.subscription_domain /usr/local/etc/xray/.subscription_server_addr /usr/local/etc/xray/.subscription_mode 2>/dev/null || true
 
+  # Автопродление shortlived IP-сертификатов (~6 дней) — иначе подписка умрёт.
+  _install_ip_cert_renew_timer "$certbot_bin" "$server_ip" "$webroot"
+
   if ! _subscription_restart_service; then
     echo -e "${RED}✗ xrayebator-sub.service не запустился — проверьте journalctl -u xrayebator-sub${NC}"
     return 1
@@ -9299,7 +9344,15 @@ server {
     listen 80;
     listen [::]:80;
     server_name ${server_ip_bracketed};
-    return 301 https://\$host\$request_uri;
+    # MUST serve ACME http-01 challenge на 80, чтобы renew shortlived IP-сертификата
+    # (webroot) продолжал работать, а не уходил в редирект на https.
+    location ^~ /.well-known/acme-challenge/ {
+        root ${webroot};
+        default_type text/plain;
+    }
+    location / {
+        return 301 https://\$host\$request_uri;
+    }
 }
 NGINXHTTPS
   nginx -t >/dev/null 2>&1 || { echo '{"ok":false,"error":"nginx HTTPS config failed"}'; return 1; }
@@ -9308,6 +9361,9 @@ NGINXHTTPS
   # Пишем маркеры подписки (ip_tls mode) — иначе _subscription_base_url вернёт
   # локальный http://127.0.0.1:8080 и GUI/happ-setup покажут неверный URL и mode "unknown".
   _subscription_write_markers "8443" "$server_ip" "$server_ip" "ip_tls"
+
+  # Автопродление shortlived IP-сертификатов (~6 дней).
+  _install_ip_cert_renew_timer "$certbot_bin" "$server_ip" "$webroot"
 
   # 4. Создание профиля
   echo "=== Профиль ===" >&2
