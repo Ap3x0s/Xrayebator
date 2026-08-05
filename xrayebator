@@ -9317,7 +9317,7 @@ happ_setup_command() {
 
   # 2. Создать/найти multi-route профиль (7 маршрутов)
   echo '=== HAPP multi-route профиль ===' >&2
-  if ! _happ_ensure_default_multiroute_profile; then
+  if ! _happ_ensure_default_multiroute_profile >/dev/null 2>&1; then
     echo '{"ok":false,"error":"Не удалось создать HAPP multi-route профиль"}'
     return 1
   fi
