@@ -451,7 +451,11 @@ class XrayProcess:
             dir=self._config_path.parent,
         )
         try:
-            os.fchmod(fd, stat.S_IRUSR | stat.S_IWUSR)
+            # CI-2: os.fchmod() POSIX-only; Windows fallback на os.chmod().
+            if sys.platform == "win32":
+                os.chmod(tmp_name, stat.S_IRUSR | stat.S_IWUSR)
+            else:
+                os.fchmod(fd, stat.S_IRUSR | stat.S_IWUSR)
             with os.fdopen(fd, "w", encoding="utf-8") as config_file:
                 fd = -1
                 json.dump(config, config_file, indent=2)
@@ -469,7 +473,11 @@ class XrayProcess:
             os.O_RDWR | os.O_CREAT | os.O_TRUNC,
             stat.S_IRUSR | stat.S_IWUSR,
         )
-        os.fchmod(stderr_fd, stat.S_IRUSR | stat.S_IWUSR)
+        # CI-2: os.fchmod POSIX-only; на Windows права задаются через os.chmod.
+        if sys.platform == "win32":
+            os.chmod(self._stderr_path, stat.S_IRUSR | stat.S_IWUSR)
+        else:
+            os.fchmod(stderr_fd, stat.S_IRUSR | stat.S_IWUSR)
         self._stderr_file = os.fdopen(stderr_fd, "w+b")
         self._proc = subprocess.Popen(
             [str(self._binary), "run", "-c", str(self._config_path)],
