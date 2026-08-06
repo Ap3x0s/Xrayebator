@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 
-from PySide6.QtGui import QColor, QIcon, QPixmap, QPainter, QBrush
+from PySide6.QtGui import QBrush, QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import QApplication
 
 from .ui.main_window import MainWindow

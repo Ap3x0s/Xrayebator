@@ -194,20 +194,41 @@ def test_g5_tun_helper_install_path(make_window):
     """GUI-4: путь установки TUN helper (succeeded) не падает — setItemText +
     disable на model().item(0) + сброс busy-state."""
     w = make_window()
-    assert w.mode_combo._items[0][0].endswith(" [disabled]"), "TUN изначально disabled"
+    # Новое поведение: TUN выбираем всегда (не disabled), подпись зависит от ОС.
+    assert not w.mode_combo._items[0][0].endswith(" [disabled]"), "TUN не должен быть disabled"
     assert " [disabled]" not in w.mode_combo.currentText(), "маркер не виден пользователю"
+    # Подпись отражает доступность на текущей ОС.
+    assert "доступен для вашей ОС" in w.mode_combo.itemText(0)
 
     # Реальный фейковый успех: контроллер не используется, только UI-часть.
     w._desktop_backend = type(
         "B", (), {"tun_available": True}
     )()
     w._tun_available = True
-    w.mode_combo.model().item(0).setEnabled(True)
-    w.mode_combo.setItemText(0, "TUN (native Xray)")
+    w.mode_combo.setItemText(0, "TUN — доступен для вашей ОС")
     w.mode_combo.setCurrentIndex(0)
     w.install_helper_button.hide()
 
-    assert w.mode_combo.currentText() == "TUN (native Xray)"
+    assert w.mode_combo.currentText().startswith("TUN — доступен")
     assert not w.mode_combo._items[0][0].endswith(" [disabled]"), "флаг снят после установки helper"
 
     w.close()
+
+
+def test_g6_server_placeholder(make_window):
+    """Placeholder сервера без хвостового «—» (убрано из текста)."""
+    w = make_window()
+    assert w.server_combo.placeholderText() == "Выберите сервер или добавьте"
+    assert not w.server_combo.placeholderText().endswith("—")
+    w.close()
+
+
+def test_g7_spinbox_arrow_qss(qapp):
+    """SpinBox имеет собственные стрелки up/down (не нативные «квадраты с точками»)."""
+    qss = qapp.styleSheet()
+    assert "QSpinBox::up-arrow" in qss
+    assert "QSpinBox::down-arrow" in qss
+    assert "QSpinBox::up-button" in qss
+    assert "QSpinBox::down-button" in qss
+    # В QSS не должно остаться нативного маркера «data:image/png;base64,» пустым.
+    assert "data:image/png;base64,iVBORw0KGgo" in qss

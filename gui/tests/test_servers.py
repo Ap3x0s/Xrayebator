@@ -12,7 +12,6 @@ import pytest
 from xrayebator_gui.core import servers
 from xrayebator_gui.core.servers import ServerStore
 
-
 server_marks = pytest.mark.skipif(
     sys.platform == "win32",
     reason="POSIX-only file permission check (os.fchmod absent on Windows)",

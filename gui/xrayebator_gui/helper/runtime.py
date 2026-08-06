@@ -5,12 +5,12 @@ from __future__ import annotations
 import os
 import socket
 import stat
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
-from typing import Callable, Optional
 
-from ..core.subscription import VlessLink
 from ..core.routing import RoutingProfile
+from ..core.subscription import VlessLink
 from ..core.xray import (
     XRAY_TUN_VERSION,
     XrayProcess,
@@ -44,11 +44,11 @@ class TunRuntime:
         *,
         core_binary: Path = CORE_BINARY,
         runtime_dir: Path = RUNTIME_DIR,
-        network: Optional[LinuxNetwork] = None,
-        process_factory: Optional[ProcessFactory] = None,
-        resolver: Optional[Resolver] = None,
-        binary_validator: Optional[BinaryValidator] = None,
-        state_store: Optional[RouteStateStore] = None,
+        network: LinuxNetwork | None = None,
+        process_factory: ProcessFactory | None = None,
+        resolver: Resolver | None = None,
+        binary_validator: BinaryValidator | None = None,
+        state_store: RouteStateStore | None = None,
     ):
         self.core_binary = Path(core_binary)
         self.runtime_dir = Path(runtime_dir)
@@ -57,17 +57,17 @@ class TunRuntime:
         self._resolver = resolver or resolve_server
         self._binary_validator = binary_validator or validate_core_binary
         self._state_store = state_store or RouteStateStore()
-        self._process: Optional[XrayProcess] = None
+        self._process: XrayProcess | None = None
         self._state = "guarded_error" if self.network.guard_exists() else "disconnected"
-        self._error: Optional[str] = (
+        self._error: str | None = (
             "Обнаружен kill switch от предыдущего аварийного завершения"
             if self._state == "guarded_error"
             else None
         )
-        self._external_ip: Optional[str] = None
+        self._external_ip: str | None = None
         self._resolved_routes: dict[str, VlessLink] = {}
-        self._active_route_raw: Optional[str] = None
-        self._active_profile: Optional[RoutingProfile] = None
+        self._active_route_raw: str | None = None
+        self._active_profile: RoutingProfile | None = None
 
     def recover(self) -> dict:
         """Restore the last verified route while preserving a stale guard."""

@@ -36,7 +36,7 @@ def _fonts_dir() -> Path:
     return Path(__file__).parent.parent / "assets" / "fonts"
 
 
-def ensure_inter_font(app: "QApplication") -> str:
+def ensure_inter_font(app: QApplication) -> str:
     """Load Inter into QFontDatabase unless the system provides it.
 
     Returns the family name Qt reports for Inter (usually "Inter"), or

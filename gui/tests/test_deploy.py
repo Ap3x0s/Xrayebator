@@ -5,8 +5,8 @@ import json
 import pytest
 
 from xrayebator_gui.core.deploy import (
-    DeployError,
     Deployer,
+    DeployError,
     check_os_supported,
     redact_log_line,
 )

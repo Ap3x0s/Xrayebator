@@ -184,7 +184,7 @@ class MainWindow(QMainWindow):
         self.server_combo.currentIndexChanged.connect(self._server_changed)
         # Empty-state placeholder — без него combo выглядит пустым куском
         # поля и не очевидно, что он вообще есть и для чего.
-        self.server_combo.setPlaceholderText("Выберите сервер или добавьте —")
+        self.server_combo.setPlaceholderText("Выберите сервер или добавьте")
         self.server_combo.setCurrentIndex(-1)  # placeholder показывается при -1
         server_row.addWidget(self.server_combo, 1)
         self.add_server_button = QPushButton("Добавить VPS…")
@@ -200,16 +200,15 @@ class MainWindow(QMainWindow):
         form = QFormLayout()
         mode_row = QHBoxLayout()
         self.mode_combo = RoundedComboBox()
-        if self._tun_available:
-            tun_label = "TUN (native Xray)"
-        elif platform.system() == "Linux":
-            tun_label = "TUN — privileged helper не установлен"
-        else:
-            tun_label = "TUN — готовится для этой ОС"
+        # TUN доступен для выбора всегда; подпись зависит от ОС и наличия
+        # helper. Пункт НЕ дизаблится — пользователь может попробовать режим
+        # и получит понятную ошибку при подключении, если helper недоступен.
+        tun_label = (
+            "TUN — доступен для вашей ОС"
+            if self._tun_available
+            else "TUN — не доступен для вашей ОС"
+        )
         self.mode_combo.addItem(tun_label, ConnectionMode.TUN)
-        tun_item = self.mode_combo.model().item(0)
-        if tun_item is not None and not self._tun_available:
-            tun_item.setEnabled(False)
         self.mode_combo.addItem(
             "Системный proxy (текущий MVP)", ConnectionMode.SYSTEM_PROXY
         )
@@ -564,10 +563,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "TUN helper", message)
                 return
             self._tun_available = True
-            tun_item = self.mode_combo.model().item(0)
-            if tun_item is not None:
-                tun_item.setEnabled(True)
-            self.mode_combo.setItemText(0, "TUN (native Xray)")
+            self.mode_combo.setItemText(0, "TUN — доступен для вашей ОС")
             self.mode_combo.setCurrentIndex(0)
             self.install_helper_button.hide()
             self._append_log(str(result))

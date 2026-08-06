@@ -63,7 +63,7 @@ class ThemeTokens:
     FOCUS_RING_WIDTH = 2
 
     @classmethod
-    def dark(cls) -> "ThemeTokens":
+    def dark(cls) -> ThemeTokens:
         """HeroUI v3 dark theme (the default user-facing theme)."""
         return cls(
             background="#060607",
@@ -87,7 +87,7 @@ class ThemeTokens:
         )
 
     @classmethod
-    def light(cls) -> "ThemeTokens":
+    def light(cls) -> ThemeTokens:
         """HeroUI v3 light theme."""
         return cls(
             background="#f5f5f5",
@@ -240,9 +240,37 @@ QComboBox::drop-down {{
     subcontrol-position: center right;
 }}
 QComboBox::down-arrow {{
-    image: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAYCAYAAACIhL/AAAAACXBIWXMAAA9hAAAPYQGoP6dpAAAAl0lEQVRIie3Ouw3CMABAwWNK6kyCmcR1tqShQATH3yQS8itfdcxm13b7HjGuAY/zKeC5LPfwOTZALkNucCSAnI78iWMHyGnIJI4MkMORuzgKgByGzOIoBDIcWYSjAsgwZDGOSiDdyCocDUCakdU4GoFUI5twdAApRjbj6ASSRXbhGAAkiezGMQjIBjkEN7wY1/CGzmZ/0wviOU/eRnQqcAAAAABJRU5ErkJggg==");
+    image: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAYCAYAAACIhL/AAAAACXBIWXMAAA9hAAAPYQGoP6dpAAAAl0lEQVRIie3Ouw3CMABAwWNK6kyCmcR1tqShQATH3yQS8itfdcxm13b7HjGuAY/zKeC5LPfwOTZALkNucCSAnI78iWMHyGnIJI4MkMORuzgKgByGzOIoBDIcWYSjAsgwZDGOSiDdyCocDUAak9U4CoFUI5twdAApRjbj6ASSRXbhGAAkiezGMQjIBjkEN7wY1/CGzmZ/0wviOU/eRnQqcAAAAABJRU5ErkJggg==");
     width: 12px;
     height: 8px;
+}}
+/* QSpinBox: собственные кнопки-стрелки — нативные Vista-кнопки при фокусе
+   рисуются «квадратами с точками», заменяем их честными стрелками up/down. */
+QSpinBox::up-button {{
+    subcontrol-origin: border;
+    subcontrol-position: top right;
+    width: 22px;
+    border: none;
+    border-left: 1px solid {t.border};
+    border-top-right-radius: {ThemeTokens.RADIUS_XL}px;
+    background-color: transparent;
+}}
+QSpinBox::down-button {{
+    subcontrol-origin: border;
+    subcontrol-position: bottom right;
+    width: 22px;
+    border: none;
+    border-left: 1px solid {t.border};
+    border-bottom-right-radius: {ThemeTokens.RADIUS_XL}px;
+    background-color: transparent;
+}}
+QSpinBox::up-button:hover, QSpinBox::down-button:hover {{
+    background-color: {t.surface_tertiary};
+}}
+QSpinBox::up-arrow, QSpinBox::down-arrow {{
+    image: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAAACXBIWXMAAA9hAAAPYQGoP6dpAAAA7klEQVQ4je2Suw3CMBBAx0DyULXrV1+0SZuYaM/CGwGLvJFIfrsoXzBVcuOH8vD8fG+P458PfgG/giO8S9jsQe5Wq/ljt9mNlfMjCBq7c57j0PKcBcVX5vmKYz/OPX7fOTrc90/+3bRu22jzvIiwvL+ZLXZ37Z4254ReUqTU9/bKmR96mTp77XXc3Lm9nM0SIIsSfSGnUu97/Q+Ob3m3yFMy4EQe9s2mOqyJgLxE39LBfdpY8ANh+JAAAAABJRU5ErkJggg==");
+    width: 10px;
+    height: 10px;
 }}
 /* On Windows Qt uses a QComboBoxPrivateContainer frame around QListView
    of the popup, which inherits native Vista style and ignores our radii.
@@ -402,7 +430,7 @@ def build_qss(t: ThemeTokens) -> str:
     )
 
 
-def apply_theme(app: "QApplication", mode: Literal["dark", "light"] = "dark") -> None:  # noqa: F821
+def apply_theme(app: QApplication, mode: Literal["dark", "light"] = "dark") -> None:  # noqa: F821
     """Apply HeroUI v3 QSS theme to the application.
 
     On Windows we replace every stock QComboBox with a custom RoundedComboBox
@@ -421,7 +449,7 @@ def apply_theme(app: "QApplication", mode: Literal["dark", "light"] = "dark") ->
     app._heroui_tokens = tokens  # type: ignore[attr-defined]
 
     class _PopupFixer(QObject):
-        def eventFilter(self, obj: QObject, event: QEvent) -> bool:  # noqa: N802
+        def eventFilter(self, obj: QObject, event: QEvent) -> bool:
             if event.type() == QEvent.Type.Polish and isinstance(obj, QComboBox):
                 try:
                     from .rounded_combo import wrap_combo  # lazy import to avoid cycle
@@ -435,7 +463,6 @@ def apply_theme(app: "QApplication", mode: Literal["dark", "light"] = "dark") ->
 
     # Also fix any QComboBox that was already polished (manual construction
     # before apply_theme ran).
-    from PySide6.QtWidgets import QComboBox
     for widget in app.allWidgets():
         if isinstance(widget, QComboBox):
             try:
