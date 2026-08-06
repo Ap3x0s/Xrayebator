@@ -282,8 +282,17 @@ class RoundedComboBox(QWidget):
     def currentIndex(self) -> int:
         return self._current
 
+    def _clean_label(self, raw: str) -> str:
+        """GUI-4-fix: внутренний маркер «[disabled]» не должен протекать наружу —
+        пользователь видит чистую строку через любой публичный API."""
+        return raw.removesuffix(" [disabled]") if raw.endswith(" [disabled]") else raw
+
     def currentText(self) -> str:
-        return self._items[self._current][0] if 0 <= self._current < len(self._items) else ""
+        return (
+            self._clean_label(self._items[self._current][0])
+            if 0 <= self._current < len(self._items)
+            else ""
+        )
 
     def currentData(self):
         return self._items[self._current][1] if 0 <= self._current < len(self._items) else None
@@ -292,7 +301,11 @@ class RoundedComboBox(QWidget):
         return self._items[index][1] if 0 <= index < len(self._items) else None
 
     def itemText(self, index: int) -> str:
-        return self._items[index][0] if 0 <= index < len(self._items) else ""
+        return (
+            self._clean_label(self._items[index][0])
+            if 0 <= index < len(self._items)
+            else ""
+        )
 
     def setCurrentIndex(self, index: int) -> None:
         if index == self._current:
