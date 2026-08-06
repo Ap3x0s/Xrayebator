@@ -17,20 +17,19 @@ Usage:
 
 from __future__ import annotations
 
-from typing import Optional
-
-from PySide6.QtCore import QEvent, QObject, QPoint, Qt, Signal
+from PySide6.QtCore import QPoint, Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
+    QComboBox,
     QFrame,
     QHBoxLayout,
-    QLabel,
     QListWidget,
     QListWidgetItem,
     QPushButton,
     QVBoxLayout,
     QWidget,
 )
+
 
 # Импортируем lazily чтобы theme.py не циклил
 def _tokens_from_app():
@@ -44,7 +43,7 @@ class _RoundedPopup(QFrame):
 
     picked = Signal(int)
 
-    def __init__(self, parent: "RoundedComboBox"):
+    def __init__(self, parent: RoundedComboBox):
         super().__init__(parent, Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
         self._combo = parent
         tokens = parent._tokens
@@ -170,7 +169,7 @@ class RoundedComboBox(QWidget):
 
     currentIndexChanged = Signal(int)
 
-    def __init__(self, parent: Optional[QWidget] = None):
+    def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self._tokens = _tokens_from_app()
         if self._tokens is None:
@@ -202,14 +201,11 @@ class RoundedComboBox(QWidget):
 
         if self._tokens is not None:
             self._apply_style()
-        self._popup: Optional[_RoundedPopup] = None
+        self._popup: _RoundedPopup | None = None
 
     def _apply_style(self) -> None:
         """Re-apply theme style on this widget (called by wrap_combo helper)."""
         tokens = self._tokens
-        # GUI-5-fix: рисуем dropdown indicator через QSS border-image прямо —
-        # QLatin1-CH2 нестабилен по шрифтам. Треугольник генерируем из token-цвета.
-        arrow_color = tokens.muted if hasattr(tokens, "muted") else tokens.foreground
         self.button.setStyleSheet(
             f"""
             QPushButton[comboTrigger="true"] {{
@@ -245,25 +241,13 @@ class RoundedComboBox(QWidget):
             }}
         """
         )
-        # GUI-5: явно помечаем стрелку в тексте кнопки если она не задана —
-        # избегаем ситуации когда label пустой или обрезан. Дописываем только
-        # если текущий текст ещё не содержит ▼.
-        current = self.button.text().rstrip("  ▼")
+        # GUI-5-fix: явно помечаем стрелку в тексте кнопки если она не задана.
+        # Это отличает "стоковый QComboBox" (фоном рисует arrow) от нашего —
+        # пользователю看不到 dropdown, если текст кнопки идёт без маркера.
+        current = self.button.text()
         if current and not current.endswith("▼"):
-            self.button.setText(current + "  ▼")
-
-    def _refresh_label(self) -> None:
-        """Update trigger button text — appends ▼ if missing."""
-        if 0 <= self._current < len(self._items):
-            label = self._items[self._current][0]
-            if not label.endswith("  ▼"):
-                label = label + "  ▼"
-            self.button.setText(label)
-        else:
-            ph = self._placeholder or "—"
-            if not ph.endswith("  ▼"):
-                ph = ph + "  ▼"
-            self.button.setText(ph)
+            # Убираем возможные двойные пробелы в конце, потом добавляем маркер.
+            self.button.setText(current.rstrip(" ") + "  ▼")
 
     def set_tokens(self, tokens) -> None:
         """Setter used by theme.apply_theme on Polish-event paths where the
@@ -278,7 +262,7 @@ class RoundedComboBox(QWidget):
             self._popup = None
             self._rebuild_popup(items)
 
-    def addItem(self, label: str, userData: object = None) -> None:  # noqa: N803
+    def addItem(self, label: str, userData: object = None) -> None:
         self._items.append((label, userData))
         if self._current < 0:
             self.setCurrentIndex(0)
@@ -326,11 +310,11 @@ class RoundedComboBox(QWidget):
     def placeholderText(self) -> str:
         return self._placeholder
 
-    def setEnabled(self, enabled: bool) -> None:  # noqa: N803
+    def setEnabled(self, enabled: bool) -> None:
         self.button.setEnabled(enabled)
         super().setEnabled(enabled)
 
-    def setItemText(self, index: int, text: str) -> None:  # noqa: N803
+    def setItemText(self, index: int, text: str) -> None:
         """GUI-4-fix: совместимость с QComboBox.setItemText — раньше её не было,
         код main_window._install_tun_helper падал с AttributeError.
         Меняем label конкретного пункта, обновляем триггер если это текущий."""
@@ -376,7 +360,7 @@ class RoundedComboBox(QWidget):
 
     # ─── internals ───────────────────────────────────────────────
 
-    def eventFilter(self, watched, event) -> bool:  # noqa: N802
+    def eventFilter(self, watched, event) -> bool:
         """GUI-5-fix: keyboard navigation на триггере — Up/Down/Enter/Escape."""
         if watched is self.button:
             if event.type() == event.Type.KeyPress:
@@ -403,13 +387,17 @@ class RoundedComboBox(QWidget):
                 return
 
     def _refresh_label(self) -> None:
+        """Update trigger button text. ▼ marker added once, [disabled] hidden from UI."""
         if 0 <= self._current < len(self._items):
-            label = self._items[self._current][0]
-            # Убираем повторные ▼ — могли добавить в _apply_style повторно.
-            base = label.rstrip("  ▼")
-            # Прячем дублирующий маркер из сырого label — пользователь
-            # не должен видеть "foo [disabled]  ▼" в триггере.
-            self.button.setText(base.removesuffix(" [disabled]") + "  ▼")
+            raw = self._items[self._current][0]
+            # Прячем «[disabled]» из видимого текста, сохраняя корректный disabled state.
+            if raw.endswith(" [disabled]"):
+                label = raw.removesuffix(" [disabled]")
+            else:
+                label = raw
+            if not label.endswith("  ▼"):
+                label = label + "  ▼"
+            self.button.setText(label)
         else:
             ph = self._placeholder or ""
             self.button.setText((ph if ph else "—") + "  ▼")
@@ -439,7 +427,7 @@ class RoundedComboBox(QWidget):
         self.setCurrentIndex(row)
 
 
-def wrap_combo(combo: "QComboBox", tokens) -> None:
+def wrap_combo(combo: QComboBox, tokens) -> None:
     """Polish-event helper: if the widget is a plain QComboBox we style it via
     the previous `_fix_combo_popup`-style approach. When we've already replaced
     it with `RoundedComboBox`, this becomes a no-op extra set_tokens call.

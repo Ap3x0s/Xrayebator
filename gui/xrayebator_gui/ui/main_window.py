@@ -4,17 +4,17 @@ from __future__ import annotations
 
 import platform
 import traceback
+from collections.abc import Callable
 from datetime import datetime
-from typing import Callable, Optional
 
 from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot
 from PySide6.QtGui import QAction, QCloseEvent, QIcon
 from PySide6.QtWidgets import (
-    QComboBox,
     QFormLayout,
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QProgressBar,
     QPushButton,
@@ -22,10 +22,9 @@ from PySide6.QtWidgets import (
     QTextEdit,
     QVBoxLayout,
     QWidget,
-    QMenu,
 )
-from .rounded_combo import RoundedComboBox
 
+from ..core import subscription
 from ..core.connection import (
     ConnectionController,
     ConnectionMode,
@@ -39,9 +38,9 @@ from ..core.latency import probe_routes
 from ..core.routing import RoutingProfile
 from ..core.servers import ServerStore
 from ..core.ssh import SSHClient
-from ..core import subscription
 from ..core.subscription import VlessLink
 from .add_server_dialog import AddServerDialog
+from .rounded_combo import RoundedComboBox
 
 
 class OperationThread(QThread):
@@ -51,7 +50,7 @@ class OperationThread(QThread):
     failed = Signal(str)
 
     def __init__(
-        self, operation: Callable[[], object], parent: Optional[QObject] = None
+        self, operation: Callable[[], object], parent: QObject | None = None
     ):
         super().__init__(parent)
         self._operation = operation
@@ -59,7 +58,7 @@ class OperationThread(QThread):
     def run(self) -> None:
         try:
             result = self._operation()
-        except Exception as exc:  # noqa: BLE001 - surface operation error to UI
+        except Exception as exc:
             # Добавляем traceback, иначе невозможно отладить «exception из фона».
             message = f"{exc}\n\n{traceback.format_exc()}"
             self.failed.emit(message)
@@ -112,8 +111,8 @@ class MainWindow(QMainWindow):
         self,
         *,
         icon: QIcon,
-        store: Optional[ServerStore] = None,
-        controller: Optional[ConnectionController] = None,
+        store: ServerStore | None = None,
+        controller: ConnectionController | None = None,
     ):
         super().__init__()
         self.setWindowTitle("Xrayebator")
@@ -121,7 +120,7 @@ class MainWindow(QMainWindow):
         self.resize(760, 540)
 
         self._store = store or ServerStore()
-        self._desktop_backend: Optional[DesktopBackend] = None
+        self._desktop_backend: DesktopBackend | None = None
         if controller is None:
             desktop_backend = DesktopBackend()
             self._desktop_backend = desktop_backend
@@ -135,9 +134,9 @@ class MainWindow(QMainWindow):
         self._bridge.snapshot_changed.connect(self._on_snapshot)
 
         self._routes: list[VlessLink] = []
-        self._latencies: dict[str, Optional[int]] = {}
-        self._operation: Optional[OperationThread] = None
-        self._deploy_thread: Optional[QThread] = None
+        self._latencies: dict[str, int | None] = {}
+        self._operation: OperationThread | None = None
+        self._deploy_thread: QThread | None = None
         self._connect_after_route_load = False
         self._quitting = False
 
@@ -356,7 +355,7 @@ class MainWindow(QMainWindow):
         QPlainTextEdit). Делаем обрезку вручную: если блоков > лимита — удаляем
         самый верхний через QTextCursor. Дёшево, O(1) на удаление.
         """
-        timestamp = datetime.now().strftime("%H:%M:%S")
+        timestamp = datetime.now().astimezone().strftime("%H:%M:%S")
         low = text.lower()
         # Цветовая маркировка: ошибки красным, предупреждения жёлтым, успех зелёным.
         if "✗" in text or "ошибка" in low or "failed" in low or "traceback" in low:
@@ -385,7 +384,7 @@ class MainWindow(QMainWindow):
             cursor.removeSelectedText()
             cursor.deleteChar()  # удалить пустую строку после блока
 
-    def _reload_servers(self, select_id: Optional[str] = None) -> None:
+    def _reload_servers(self, select_id: str | None = None) -> None:
         self.server_combo.blockSignals(True)
         self.server_combo.clear()
         servers = self._store.list()
@@ -411,11 +410,11 @@ class MainWindow(QMainWindow):
         self._refresh_tray_menus()
         self._server_changed()
 
-    def _selected_server(self) -> Optional[dict]:
+    def _selected_server(self) -> dict | None:
         data = self.server_combo.currentData()
         return data if isinstance(data, dict) else None
 
-    def _selected_route(self) -> Optional[VlessLink]:
+    def _selected_route(self) -> VlessLink | None:
         index = self.route_combo.currentIndex()
         if 0 <= index < len(self._routes):
             return self._routes[index]
@@ -463,7 +462,7 @@ class MainWindow(QMainWindow):
 
         should_probe = self._controller.snapshot.state != ConnectionState.CONNECTED
 
-        def load() -> tuple[list[VlessLink], dict[str, Optional[int]]]:
+        def load() -> tuple[list[VlessLink], dict[str, int | None]]:
             routes = subscription.parse(subscription.fetch(url))
             if not routes:
                 raise RuntimeError(
@@ -922,6 +921,7 @@ class MainWindow(QMainWindow):
         """Toggle between HeroUI v3 dark/light themes, persist the choice."""
         from PySide6.QtCore import QSettings
         from PySide6.QtWidgets import QApplication
+
         from .theme import apply_theme
 
         settings = QSettings("xrayebator", "xrayebator-gui")
@@ -992,7 +992,7 @@ class MainWindow(QMainWindow):
                 worker.finished.connect(self._quit_after_disconnect)
                 worker.start()
                 # Храним ссылку чтобы GC не удалил до завершения
-                self._quit_worker = worker  # noqa: SLF001
+                self._quit_worker = worker
             else:
                 if self.tray is not None:
                     self.tray.hide()

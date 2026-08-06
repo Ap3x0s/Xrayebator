@@ -14,7 +14,6 @@ import tempfile
 import time
 import zipfile
 from pathlib import Path
-from typing import Optional
 from urllib.error import URLError
 from urllib.request import ProxyHandler, build_opener
 
@@ -87,7 +86,7 @@ def _sha256(path: Path) -> str:
     return h.hexdigest()
 
 
-def _parse_dgst(dgst_text: str, asset_name: str) -> Optional[str]:
+def _parse_dgst(dgst_text: str, asset_name: str) -> str | None:
     """Извлечь sha256 ассета из файла .dgst релиза Xray-core."""
     for line in dgst_text.splitlines():
         key, separator, value = line.partition("=")
@@ -126,7 +125,7 @@ def _install_from_zip(zip_path: Path, dest: Path) -> None:
     wanted = xray_binary_name()
     with zipfile.ZipFile(zip_path) as zf:
         member = next(
-            (n for n in zf.namelist() if n.endswith(wanted) or n.endswith("xray")),
+            (n for n in zf.namelist() if n.endswith((wanted, "xray"))),
             None,
         )
         if member is None:
@@ -155,7 +154,7 @@ def _install_from_zip(zip_path: Path, dest: Path) -> None:
                 _extract_member(zf, wintun_member, dest.parent / "wintun.dll")
 
 
-def _installed_version(binary: Path) -> Optional[str]:
+def _installed_version(binary: Path) -> str | None:
     try:
         result = subprocess.run(
             [str(binary), "version"],
@@ -177,7 +176,7 @@ def _routing_data_installed(binary: Path) -> bool:
     )
 
 
-def ensure_binary(version: Optional[str] = None) -> Path:
+def ensure_binary(version: str | None = None) -> Path:
     """Убедиться, что бинарник xray есть; вернуть путь к нему.
 
     Порядок: уже скачан -> vendor/ -> скачать релиз с GitHub (с проверкой
@@ -229,12 +228,11 @@ def _download(url: str, dest: Path) -> None:
     with requests.get(url, stream=True, timeout=120) as resp:
         resp.raise_for_status()
         with open(dest, "wb") as f:
-            for chunk in resp.iter_content(1 << 20):
-                f.write(chunk)
+            f.writelines(resp.iter_content(1 << 20))
 
 
 def _build_outbounds(
-    link: VlessLink, *, outbound_mark: Optional[int] = None
+    link: VlessLink, *, outbound_mark: int | None = None
 ) -> list[dict]:
     user: dict = {"id": link.uuid, "encryption": link.encryption or "none"}
     # flow несовместим с post-quantum encryption — добавляем только для "none"
@@ -340,7 +338,7 @@ def build_client_config(
     return config
 
 
-def _default_tun_name(system: str) -> Optional[str]:
+def _default_tun_name(system: str) -> str | None:
     if system == "Windows":
         return "xrayebator"
     if system == "Linux":
@@ -354,12 +352,12 @@ def _default_tun_name(system: str) -> Optional[str]:
 def build_tun_client_config(
     link: VlessLink,
     *,
-    system: Optional[str] = None,
-    interface_name: Optional[str] = None,
+    system: str | None = None,
+    interface_name: str | None = None,
     mtu: int = 1500,
     ipv6: bool = True,
     include_local_proxies: bool = False,
-    outbound_mark: Optional[int] = None,
+    outbound_mark: int | None = None,
     routing_profile: RoutingProfile = RoutingProfile.FULL,
 ) -> dict:
     """Build a full-device Xray-native TUN configuration.
@@ -427,13 +425,13 @@ class XrayProcess:
 
     def __init__(
         self,
-        binary: Optional[Path] = None,
+        binary: Path | None = None,
         *,
-        config_path: Optional[Path] = None,
-        stderr_path: Optional[Path] = None,
+        config_path: Path | None = None,
+        stderr_path: Path | None = None,
     ):
         self._binary = binary or xray_binary_path()
-        self._proc: Optional[subprocess.Popen] = None
+        self._proc: subprocess.Popen | None = None
         self._config_path = config_path or data_dir() / "config.json"
         self._stderr_path = stderr_path or data_dir() / "xray.log"
         self._stderr_file = None
@@ -508,7 +506,7 @@ class XrayProcess:
 
     def health_check(
         self, socks_port: int = SOCKS_PORT, timeout: float = 10.0
-    ) -> Optional[str]:
+    ) -> str | None:
         """Проверить туннель: запрос api.ipify.org через SOCKS5.
 
         Возвращает внешний IP или None.
@@ -529,7 +527,7 @@ class XrayProcess:
         except requests.RequestException:
             return None
 
-    def health_check_tun(self, timeout: float = 10.0) -> Optional[str]:
+    def health_check_tun(self, timeout: float = 10.0) -> str | None:
         """Проверить полный системный маршрут без локального proxy."""
         try:
             opener = build_opener(ProxyHandler({}))
