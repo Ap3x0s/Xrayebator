@@ -940,10 +940,15 @@ class MainWindow(QMainWindow):
         if self._quitting:
             event.accept()
             return
-        # GUI-3-fix: в NO_TRAY режиме tray=None и приложение должно
-        # закрываться по крестику, а не висеть невидимым в фоне.
+        # GUI-3-fix + GUI-8-fix: в NO_TRAY режиме tray=None и закрытие окна должно
+        # РЕАЛЬНО завершать приложение (выход из event loop), а не только скрывать
+        # окно. Проблема до фикса: app.setQuitOnLastWindowClosed(False) в app.py
+        # оставлял невидимый event loop жить в фоне; closeEvent лишь accept().
+        # _quit() корректно обрабатывает disconnect в worker (если нужно), затем
+        # вызывает app.quit() в GUI thread.
         if self.tray is None:
             event.accept()
+            self._quit()
             return
         event.ignore()
         self.hide()

@@ -1,11 +1,13 @@
-"""GUI-1..5: offscreen regression-тесты критических UI-фиксов.
+"""GUI-1..9: offscreen regression-тесты критических UI-фиксов.
 
-Пять сценариев из требований:
+Сценарии из требований:
   (а) поле SSH-ключа отображается в форме (GUI-1);
   (б) успешное завершение операции снимает busy-state (GUI-2);
   (в) старт/закрытие при XRAYEBATOR_NO_TRAY=1 (GUI-3);
   (г) смена темы обновляет RoundedComboBox + disable-состояние (GUI-4/GUI-5);
-  (д) установка TUN helper не падает (setItemText/disable) (GUI-4).
+  (д) установка TUN helper не падает (setItemText/disable) (GUI-4);
+  (е) NO_TRAY close реально завершает процесс (GUI-8, через настоящий subprocess);
+  (ж) валидатор хоста IPv4/IPv6/hostname (GUI-9).
 
 Запуск без дисплея: QT_QPA_PLATFORM=offscreen. Настоящий MainWindow
 строится с пустым ServerStore во временной папке и реальным
@@ -14,6 +16,10 @@ ConnectionController на фейковом backend — без моков Ui.
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
+import textwrap
+from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ["XRAYEBATOR_NO_TRAY"] = "1"
@@ -24,7 +30,7 @@ from PySide6.QtGui import QCloseEvent, QIcon, QKeyEvent
 from PySide6.QtWidgets import QApplication
 
 from xrayebator_gui.core.connection import ConnectionController
-from xrayebator_gui.ui.add_server_dialog import AddServerDialog
+from xrayebator_gui.ui.add_server_dialog import AddServerDialog, valid_host
 from xrayebator_gui.ui.main_window import MainWindow
 from xrayebator_gui.ui.rounded_combo import RoundedComboBox
 from xrayebator_gui.ui.theme import apply_theme
@@ -232,3 +238,144 @@ def test_g7_spinbox_arrow_qss(qapp):
     assert "QSpinBox::down-button" in qss
     # В QSS не должно остаться нативного маркера «data:image/png;base64,» пустым.
     assert "data:image/png;base64,iVBORw0KGgo" in qss
+
+
+def test_g8_no_tray_close_quits_event_loop(make_window, qapp, monkeypatch):
+    """GUI-8: NO_TRAY — closeEvent должен завершать приложение (выход из event loop),
+    а не только accept() с последующим невидимым фоновым циклом.
+
+    До фикса: app.setQuitOnLastWindowClosed(False) + closeEvent→accept() оставляли
+    QApplication.exec() крутиться дальше без окна. Тест доказывает, что после
+    закрытия окна вызван app.quit() (настоящий выход из event loop).
+    """
+    w = make_window()
+    assert w.tray is None, "тест рассчитан на NO_TRAY режим"
+
+    quit_calls = []
+    original_quit = qapp.quit
+
+    def _spy_quit(*args, **kwargs):
+        quit_calls.append(True)
+        return original_quit(*args, **kwargs)
+
+    monkeypatch.setattr(qapp, "quit", _spy_quit)
+
+    event = QCloseEvent()
+    w.closeEvent(event)
+    assert event.isAccepted(), "closeEvent при tray=None должен принимать закрытие"
+    assert quit_calls, "closeEvent при tray=None должен вызывать QApplication.quit()"
+
+    # Повторный closeEvent (уже _quitting) — не дублирует quit.
+    w._quitting = True
+    w.closeEvent(QCloseEvent())
+    assert len(quit_calls) == 1, "повторное закрытие не должно вызывать повторный quit"
+
+    w.close()
+
+
+def test_g9_valid_host_ipv4_ipv6_hostname(qapp):
+    """GUI-9: валидатор хоста принимает IPv4, IPv6-literal (со скобками и без)
+    и hostname; отвергает мусор и вышедшие за границы IPv4-октеты."""
+    valid = [
+        "8.8.8.8",
+        "192.168.1.1",
+        "2001:db8::1",
+        "[2001:db8::1]",
+        "2a00:1450:4001:82f::200e",
+        "example.com",
+        "sub.example.co.uk",
+    ]
+    invalid = [
+        "",
+        "999.1.1.1",
+        "256.0.0.1",
+        "not a host",
+        "example..com",
+        "-bad.example.com",
+        "2001:db8:::1",
+        "1.2.3",
+    ]
+    for h in valid:
+        assert valid_host(h), f"валидный хост отклонён: {h!r}"
+    for h in invalid:
+        assert not valid_host(h), f"невалидный хост принят: {h!r}"
+
+
+def test_g8_no_tray_process_exits(tmp_path):
+    """GUI-8 (процессно): настоящий subprocess с QApplication.exec() должен
+    ВЫЙТИ сам, когда в NO_TRAY режиме окно закрыто.
+
+    Регрессия: setQuitOnLastWindowClosed(False) + closeEvent→accept() оставляли
+    event loop жить — процесс висел. Теперь closeEvent в tray=None вызывает
+    _quit() → app.quit(), и exec() возвращается, процесс завершается с кодом 0.
+    Если завис — subprocess.run(timeout) бросит TimeoutExpired → тест падает.
+
+    Запускаем настоящий процесс (не mock), потому что проверять следует именно
+    завершение event loop, а не только факт вызова метода.
+    """
+    gui_root = Path(__file__).resolve().parents[1]
+    helper = tmp_path / "no_tray_exit_helper.py"
+    helper.write_text(
+        textwrap.dedent(
+            """\
+            import os
+            os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+            os.environ["XRAYEBATOR_NO_TRAY"] = "1"
+            from PySide6.QtCore import QTimer
+            from PySide6.QtGui import QIcon
+            from PySide6.QtWidgets import QApplication
+            from xrayebator_gui.core.connection import ConnectionController
+            from xrayebator_gui.core.servers import ServerStore
+            from xrayebator_gui.ui.main_window import MainWindow
+
+            class _FakeBackend:
+                def prepare(self, *a, **k): pass
+                def start(self, *a, **k): pass
+                def verify(self): return None
+                def replace(self, *a, **k): pass
+                def stop(self, *a, **k): pass
+
+            import sys
+            from pathlib import Path
+            app = QApplication([])
+            # Имитация app.py: окно НЕ должно закрывать приложение по последнему окну;
+            # выход обеспечивает только наш _quit().
+            app.setQuitOnLastWindowClosed(False)
+            import tempfile
+            store_dir = Path(tempfile.mkdtemp(prefix="xr-no-tray-"))
+            w = MainWindow(
+                icon=QIcon(),
+                store=ServerStore(store_dir),
+                controller=ConnectionController(_FakeBackend()),
+            )
+            assert w.tray is None, "NO_TRAY режим должен давать tray=None"
+            # Закроем окно после старта event loop.
+            QTimer.singleShot(200, w.close)
+            rc = app.exec()
+            print(f"EXEC_RETURNED rc={rc}", file=sys.stderr)
+            sys.exit(rc if rc == 0 else 1)
+            """
+        ),
+        encoding="utf-8",
+    )
+
+    env = dict(os.environ)
+    env["QT_QPA_PLATFORM"] = "offscreen"
+    env["XRAYEBATOR_NO_TRAY"] = "1"
+    # GUI-тест уже может быть импортирован; убеждаемся что пакет находит по пути.
+    env["PYTHONPATH"] = str(gui_root)
+
+    result = subprocess.run(
+        [sys.executable, str(helper)],
+        cwd=gui_root,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, (
+        f"NO_TRAY процесс не завершился чисто rc={result.returncode}\n"
+        f"stderr={result.stderr}"
+    )
+    assert "EXEC_RETURNED" in result.stderr, "exec() не вернулся — процесс висит"
+    assert str(result.returncode) in result.stderr.replace("rc=", "").strip()

@@ -71,14 +71,22 @@ _adguard_force_uninstall_if_present() {
     # IPv6-only: если нет публичного IPv4, Xray не резолвит A-records через UseIPv4.
     local query_strategy
     query_strategy=$(_ipv6_query_strategy)
+    # P1-ipv6-fix: единый family-aware DoH. Раньше жёстко 1.1.1.1 — на IPv6-only
+    # хосте недоступно, и после удаления AdGuard Xray оставался без DNS.
+    local dns_doh_server
+    if _detect_ipv6_only; then
+      dns_doh_server="https+local://dns.google/dns-query"
+    else
+      dns_doh_server="https+local://1.1.1.1/dns-query"
+    fi
     local _tmp
     _tmp=$(mktemp /tmp/xray-cfg.XXXXXX) || {
       echo -e "${RED}  mktemp failed — DNS rollback пропущен${NC}"
       _tmp=""
     }
-    if [[ -n "$_tmp" ]] && jq --arg qs "$query_strategy" '.dns = {
+    if [[ -n "$_tmp" ]] && jq --arg qs "$query_strategy" --arg doh "$dns_doh_server" '.dns = {
       "servers": [
-        "https+local://1.1.1.1/dns-query",
+        $doh,
         "localhost"
       ],
       "queryStrategy": $qs,
@@ -88,8 +96,8 @@ _adguard_force_uninstall_if_present() {
        && xray run -test -config "$_tmp" 2>&1 | grep -q "^Configuration OK\\.$"; then
       mv "$_tmp" "$cfg"
       chmod 644 "$cfg"
-      chown xray:xray "$cfg" 2>/dev/null || true
-      echo -e "${GREEN}  DNS rollback -> DoH Local (1.1.1.1)${NC}"
+      chown root:root "$cfg" 2>/dev/null || true
+      echo -e "${GREEN}  DNS rollback -> DoH Local ($dns_doh_server)${NC}"
     else
       rm -f "$_tmp"
       echo -e "${YELLOW}  DNS rollback пропущен (validation failed)${NC}"
@@ -395,7 +403,7 @@ _restore_update_config_backup() {
     echo -e "${RED}✗ Не удалось восстановить session backup config.json${NC}"
     return 1
   fi
-  chown xray:xray /usr/local/etc/xray/config.json 2>/dev/null || true
+  chown root:root /usr/local/etc/xray/config.json 2>/dev/null || true
   chmod 600 /usr/local/etc/xray/config.json
   echo -e "${GREEN}✓ config.json восстановлен из $UPDATE_CONFIG_BACKUP${NC}"
 }
@@ -416,9 +424,13 @@ if [[ $? -eq 0 ]] && [[ -s "$UPDATE_TMP" ]]; then
   # Проверяем что скрипт валидный
   if head -n 1 "$UPDATE_TMP" | grep -q "^#!/bin/bash" && bash -n "$UPDATE_TMP"; then
     mkdir -p /usr/local/etc/xray/scripts
+    chmod 755 /usr/local/etc/xray/scripts 2>/dev/null || true
+    chown root:root /usr/local/etc/xray/scripts 2>/dev/null || true
 
     # Сравниваем с текущей версией
     if ! cmp -s "$UPDATE_TMP" /usr/local/etc/xray/scripts/update.sh 2>/dev/null; then
+      chmod 755 "$UPDATE_TMP"
+      chown root:root "$UPDATE_TMP"
       mv "$UPDATE_TMP" /usr/local/etc/xray/scripts/update.sh
       echo -e "${GREEN}✓ Скрипт update.sh обновлён${NC}"
       echo -e "${YELLOW}⚠ Перезапуск для применения изменений${NC}"
@@ -452,6 +464,7 @@ curl -fsSL --connect-timeout 10 --max-time 60 "${RAW_BASE_URL}/xrayebator" -o "$
 
 if [[ $? -eq 0 ]] && [[ -s "$XRAY_TMP" ]]; then
   chmod 755 "$XRAY_TMP"
+  chown root:root "$XRAY_TMP"
   if bash -n "$XRAY_TMP"; then
     mv "$XRAY_TMP" /usr/local/bin/xrayebator
     echo -e "${GREEN}✓ xrayebator обновлён${NC}\n"
@@ -470,12 +483,15 @@ fi
 # Обновление uninstall.sh и восстановление symlink'ов команд.
 echo -e "${YELLOW}Обновление служебных скриптов...${NC}"
 mkdir -p /usr/local/etc/xray/scripts
+chmod 755 /usr/local/etc/xray/scripts 2>/dev/null || true
+chown root:root /usr/local/etc/xray/scripts 2>/dev/null || true
 UNINSTALL_TMP=$(mktemp /tmp/xrayebator_uninstall_new_XXXXXX.sh)
 if curl -fsSL --connect-timeout 10 --max-time 30 "${RAW_BASE_URL}/uninstall.sh" -o "$UNINSTALL_TMP" \
    && [[ -s "$UNINSTALL_TMP" ]] \
    && head -n 1 "$UNINSTALL_TMP" | grep -q "^#!/bin/bash" \
    && bash -n "$UNINSTALL_TMP"; then
   chmod 755 "$UNINSTALL_TMP"
+  chown root:root "$UNINSTALL_TMP"
   mv "$UNINSTALL_TMP" /usr/local/etc/xray/scripts/uninstall.sh
   echo -e "${GREEN}✓ uninstall.sh обновлён${NC}"
 else
@@ -485,6 +501,7 @@ fi
 chmod 755 /usr/local/bin/xrayebator 2>/dev/null || true
 chmod 755 /usr/local/etc/xray/scripts/update.sh 2>/dev/null || true
 chmod 755 /usr/local/etc/xray/scripts/uninstall.sh 2>/dev/null || true
+chown root:root /usr/local/bin/xrayebator /usr/local/etc/xray/scripts/update.sh /usr/local/etc/xray/scripts/uninstall.sh 2>/dev/null || true
 ln -sf /usr/local/etc/xray/scripts/update.sh /usr/local/bin/xrayebator-update 2>/dev/null || true
 ln -sf /usr/local/etc/xray/scripts/uninstall.sh /usr/local/bin/xrayebator-uninstall 2>/dev/null || true
 echo -e "${GREEN}✓ Команды xrayebator-update / xrayebator-uninstall проверены${NC}\n"
@@ -941,7 +958,7 @@ DNSEOF
       mv "$TMP_FILE" "$CONFIG_FILE"
       # Restore mode/owner (mktemp создаёт с mode 600, mv наследует root)
       chmod 644 "$CONFIG_FILE"
-      chown xray:xray "$CONFIG_FILE" 2>/dev/null || true
+      chown root:root "$CONFIG_FILE" 2>/dev/null || true
       echo -e "${GREEN}  ✓ DNS обновлён на DoH Local (${dns_doh_server})${NC}"
     else
       rm -f "$TMP_FILE"

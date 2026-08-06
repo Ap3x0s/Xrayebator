@@ -684,11 +684,49 @@ _subscription_write_markers() {
   printf '%s' "$domain" > /usr/local/etc/xray/.subscription_domain
   printf '%s' "$addr" > /usr/local/etc/xray/.subscription_server_addr
   printf '%s' "$mode" > /usr/local/etc/xray/.subscription_mode
-  chown xray:xray \
+  chown root:root \
     /usr/local/etc/xray/.subscription_port \
     /usr/local/etc/xray/.subscription_domain \
     /usr/local/etc/xray/.subscription_server_addr \
     /usr/local/etc/xray/.subscription_mode 2>/dev/null || true
+}
+
+# Публичный TLS endpoint подписки реально подтверждён (P1-happ-fix)?
+# Проверяем, что наш nginx vhost xrayebator-sub слушает 8443 ssl И сертификат для
+# сервера выпущен и действует. Используется happ_setup_command вместо фабрикации
+# маркеров: если endpoint не подтверждён — happ-setup вернёт ошибку, а не мёртвый URL.
+# Args: $1=server_addr (IPv4/hostname)
+_subscription_public_tls_endpoint_verified() {
+  local server_addr="${1:-}"
+  [[ -z "$server_addr" ]] && return 1
+  # 1) Наш nginx vhost с TLS на 8443 существует.
+  local vhost="/etc/nginx/sites-available/xrayebator-sub"
+  if [[ ! -f "$vhost" ]] || ! grep -q "listen 8443 ssl" "$vhost" 2>/dev/null; then
+    return 1
+  fi
+  # 2) Сертификат для адреса выпущен и файлы на месте.
+  local cert_dir="/etc/letsencrypt/live/${server_addr}"
+  if [[ ! -f "$cert_dir/fullchain.pem" || ! -f "$cert_dir/privkey.pem" ]]; then
+    return 1
+  fi
+  # 3) nginx реально слушает 8443 (не просто конфиг).
+  if command -v ss >/dev/null 2>&1; then
+    if ! ss -ltn 2>/dev/null | grep -q ':8443'; then
+      return 1
+    fi
+  fi
+  # 4) Сертификат не истёк (openssl доступен).
+  if command -v openssl >/dev/null 2>&1; then
+    local end
+    end=$(openssl x509 -enddate -noout -in "$cert_dir/fullchain.pem" 2>/dev/null | sed 's/notAfter=//')
+    local now_epoch end_epoch
+    now_epoch=$(date -u +%s)
+    end_epoch=$(date -u -d "$end" +%s 2>/dev/null || echo 0)
+    if [[ -z "$end_epoch" || "$end_epoch" -eq 0 || "$end_epoch" -le "$now_epoch" ]]; then
+      return 1
+    fi
+  fi
+  return 0
 }
 
 _connection_server_address() {
@@ -696,7 +734,6 @@ _connection_server_address() {
     echo "$XRAYEBATOR_SERVER_ADDR_OVERRIDE"
     return 0
   fi
-
   local selfsteal_domain mode domain saved_addr
   selfsteal_domain=$(_selfsteal_domain_value 2>/dev/null || true)
   if [[ -n "$selfsteal_domain" && "$selfsteal_domain" != "127.0.0.1" && "$selfsteal_domain" != "localhost" ]]; then
@@ -872,6 +909,31 @@ _ip_renew_timer_active() {
   systemctl is-active xrayebator-ip-renew.timer >/dev/null 2>&1
 }
 
+# ═══════════════════════════════════════════════════════════
+# Certbot ownership manifest (P0-privilege-boundary fix)
+# ═══════════════════════════════════════════════════════════
+# Xrayebator регистрирует в root-owned манифесте /usr/local/etc/xray/.certbot_owned
+# каждый сертификат, который ОН создал. uninstall.sh удаляет ТОЛЬКО перечисленные
+# имена — чужие сертификаты на VPS (сайты, почта, другие сервисы) не затрагиваются.
+# Манифест root:root 644 — подделать его может только root, поэтому содержимое
+# доверенное. Вызывать СРАЗУ после успешного certbot certonly.
+# Args: $1=cert_name (без слешей — валидируется в uninstall)
+_certbot_register() {
+  local cert_name="${1:-}"
+  [[ -z "$cert_name" ]] && return 0
+  local manifest="${CERTBOT_MANIFEST:-/usr/local/etc/xray/.certbot_owned}"
+  # Идемпотентность: не дублируем имя при повторных запусках quickstart.
+  if [[ ! -f "$manifest" ]]; then
+    printf '%s\n' "$cert_name" > "$manifest"
+  else
+    if ! grep -qxF "$cert_name" "$manifest" 2>/dev/null; then
+      printf '%s\n' "$cert_name" >> "$manifest"
+    fi
+  fi
+  chmod 644 "$manifest" 2>/dev/null || true
+  chown root:root "$manifest" 2>/dev/null || true
+}
+
 write_profile_transport_metadata() {
   local profile_file=$1
   local grpc_service_name=$2
@@ -965,14 +1027,14 @@ backup_config() {
   _lock_acquire
   mkdir -p "$backup_dir"
   chmod 700 "$backup_dir" 2>/dev/null
-  chown xray:xray "$backup_dir" 2>/dev/null
+  chown root:root "$backup_dir" 2>/dev/null
   local backup_file="$backup_dir/config_$(date +%Y%m%d_%H%M%S_%N)_${safe_operation_name}.json"
   local result=1
   if ! cp "$CONFIG_FILE" "$backup_file"; then
     echo -e "${RED}  ✗ Не удалось создать бэкап config.json: $backup_file${NC}"
   else
     chmod 600 "$backup_file" 2>/dev/null
-    chown xray:xray "$backup_file" 2>/dev/null
+    chown root:root "$backup_file" 2>/dev/null
     [[ -n "$result_var" ]] && printf -v "$result_var" '%s' "$backup_file"
     echo -e "${CYAN}  -> Бэкап конфига: $(basename "$backup_file")${NC}"
     result=0
@@ -993,7 +1055,7 @@ _restore_config_backup() {
     return 1
   fi
   chmod 600 "$CONFIG_FILE" 2>/dev/null
-  chown xray:xray "$CONFIG_FILE" 2>/dev/null
+  chown root:root "$CONFIG_FILE" 2>/dev/null
   echo -e "${GREEN}  ✓ Конфиг восстановлен из: $(basename "$backup_file")${NC}"
   return 0
 }
@@ -1070,11 +1132,47 @@ ensure_xray_runtime_user() {
   return 0
 }
 
-# Восстановление прав файлов для пользователя xray
+# Восстановление прав (privilege boundary, P0-fix).
+# Конфигурационные каталоги, state markers и root-исполняемые скрипты принадлежат
+# root:root. Сервис xray получает ТОЛЬКО чтение (644/755): config.json, профили,
+# keys (public/encryption — нужны subhttp для генерации URL), announce/happ_defaults.
+# Запись в /usr/local/etc/xray разрешена только root (управление через sudo).
+# Приватные ключи (.private_key, .vless_decryption) — 600 root:root.
+# НЕ выполнять chown -R xray:xray: владелец каталога может подменить root-скрипты
+# (update.sh/uninstall.sh) и .install_step_* markers → privilege escalation.
 fix_xray_permissions() {
   ensure_xray_runtime_user >/dev/null 2>&1 || true
-  chown -R xray:xray /usr/local/etc/xray/ 2>/dev/null || true
-  chmod 600 /usr/local/etc/xray/.private_key 2>/dev/null || true
+  local base="/usr/local/etc/xray"
+  # 1. Корень и каталоги — root:root 755 (xray читает, но не пишет).
+  chown root:root "$base" 2>/dev/null || true
+  chmod 755 "$base" 2>/dev/null || true
+  find "$base" -maxdepth 1 -type d -exec chown root:root {} + 2>/dev/null || true
+  find "$base" -maxdepth 1 -type d -exec chmod 755 {} + 2>/dev/null || true
+  find "$base"/profiles "$base"/backups "$base"/data "$base"/scripts "$base"/upstreams -maxdepth 1 -type d -exec chmod 755 {} + 2>/dev/null || true
+  # 2. Приватные ключи — 600 root:root.
+  chown root:root "$base/.private_key" "$base/.vless_decryption" 2>/dev/null || true
+  chmod 600 "$base/.private_key" "$base/.vless_decryption" 2>/dev/null || true
+  # 3. Публичные ключи — 644 root:root (читаются xray/subhttp для VLESS URL).
+  chown root:root "$base/.public_key" "$base/.vless_encryption" 2>/dev/null || true
+  chmod 644 "$base/.public_key" "$base/.vless_encryption" 2>/dev/null || true
+  # 4. Конфигурация и файлы, которые xray должен ЧИТАТЬ: 644 root:root.
+  chown root:root "$base/config.json" 2>/dev/null || true
+  chmod 644 "$base/config.json" 2>/dev/null || true
+  chown root:root "$base"/profiles/*.json 2>/dev/null || true
+  chmod 644 "$base"/profiles/*.json 2>/dev/null || true
+  chown root:root "$base"/.subscription_port "$base"/.subscription_domain "$base"/.subscription_server_addr "$base"/.subscription_mode "$base"/.happ_defaults.env "$base"/.subscription_installed "$base"/.happ_routing.json "$base"/announce.txt "$base"/.current_branch "$base"/.config_optimized "$base"/.certbot_owned 2>/dev/null || true
+  chmod 644 "$base"/.subscription_port "$base"/.subscription_domain "$base"/.subscription_server_addr "$base"/.subscription_mode "$base"/.happ_defaults.env "$base"/.subscription_installed "$base"/.happ_routing.json "$base"/announce.txt "$base"/.current_branch "$base"/.config_optimized "$base"/.certbot_owned 2>/dev/null || true
+  # 5. Прочие state markers — root:root 644 (включая .install_step_*_ok и миграционные).
+  find "$base" -maxdepth 1 -type f -name '.*' ! -name '.private_key' ! -name '.vless_decryption' ! -name '.public_key' ! -name '.vless_encryption' \
+    -exec chown root:root {} + 2>/dev/null || true
+  find "$base" -maxdepth 1 -type f -name '.*' ! -name '.private_key' ! -name '.vless_decryption' ! -name '.public_key' ! -name '.vless_encryption' \
+    -exec chmod 644 {} + 2>/dev/null || true
+  # 6. Root-исполняемые скрипты: root:root 755 (не подменяемы xray).
+  chown root:root "$base"/scripts/*.sh /usr/local/bin/xrayebator /usr/local/bin/subhttp.sh /usr/local/bin/xrayebator-update /usr/local/bin/xrayebator-uninstall 2>/dev/null || true
+  chmod 755 "$base"/scripts/*.sh /usr/local/bin/xrayebator /usr/local/bin/subhttp.sh /usr/local/bin/xrayebator-update /usr/local/bin/xrayebator-uninstall 2>/dev/null || true
+  # 7. Лог-каталог xray — xray:xray (сервис пишет журнал туда).
+  # /var/log/xray — единственное место, где xray пишет; остальное root:root (P0-fix).
+  chown xray:xray /var/log/xray 2>/dev/null || true
 }
 
 ensure_xray_service_unit() {
@@ -1613,7 +1711,7 @@ migrate_remove_legacy_tcp_tuning_v3() {
     echo -e "${RED}  ✗ Не удалось записать migration marker: $marker${NC}"
     return 1
   fi
-  chown xray:xray "$marker" 2>/dev/null || true
+  chown root:root "$marker" 2>/dev/null || true
   chmod 0640 "$marker" 2>/dev/null || true
   echo -e "${GREEN}  ✓ Legacy BBR/TCP tuning полностью отключён${NC}"
   return 0
@@ -1684,7 +1782,7 @@ run_migration() {
           echo -e "${RED}  ✗ Migration applied, но marker не записан: $marker${NC}"
           return 1
         fi
-        chown xray:xray "$marker" 2>/dev/null || true
+        chown root:root "$marker" 2>/dev/null || true
         _discard_profiles_snapshot "$profiles_snapshot"
         echo -e "${GREEN}  ✓ Migration applied: ${marker_basename}${NC}"
         return 0
@@ -1704,7 +1802,7 @@ run_migration() {
         echo -e "${RED}  ✗ Не удалось записать migration marker: $marker${NC}"
         return 1
       fi
-      chown xray:xray "$marker" 2>/dev/null || true
+      chown root:root "$marker" 2>/dev/null || true
       _discard_profiles_snapshot "$profiles_snapshot"
       echo -e "${CYAN}  ✓ Nothing to migrate: ${marker_basename}${NC}"
       return 0
@@ -1834,7 +1932,7 @@ migrate_client_fingerprint_state_2026() {
     echo -e "${RED}  ✗ Не удалось записать migration marker: $marker${NC}"
     return 1
   fi
-  chown xray:xray "$marker" 2>/dev/null || true
+  chown root:root "$marker" 2>/dev/null || true
   _discard_profiles_snapshot "$profiles_snapshot"
   return 0
 }
@@ -2618,7 +2716,7 @@ _migrate_mlkem_keys() {
   printf "%s" "$decryption" > "$VLESS_DECRYPTION_FILE"
   printf "%s" "$encryption" > "$VLESS_ENCRYPTION_FILE"
   chmod 600 "$VLESS_DECRYPTION_FILE" "$VLESS_ENCRYPTION_FILE"
-  chown xray:xray "$VLESS_DECRYPTION_FILE" "$VLESS_ENCRYPTION_FILE" 2>/dev/null || true
+  chown root:root "$VLESS_DECRYPTION_FILE" "$VLESS_ENCRYPTION_FILE" 2>/dev/null || true
 
   echo -e "${GREEN}✓ PQ ключи сгенерированы (mlkem768x25519plus.native)${NC}"
 
@@ -2665,7 +2763,7 @@ _migrate_subscription_tokens_2026() {
       echo -e "${RED}  ✗ safe_jq_write failed для $profile_file${NC}"
       return 2
     fi
-    chown xray:xray "$profile_file" 2>/dev/null || true
+    chown root:root "$profile_file" 2>/dev/null || true
     chmod 644 "$profile_file" 2>/dev/null || true
     echo -e "${GREEN}  ✓ sub_token сгенерирован для $(basename "$profile_file" .json)${NC}"
     changed=1
@@ -2753,7 +2851,7 @@ _migrate_sni_list_2026() {
   fi
 
   mv "$tmp" "$sni_file"
-  chown xray:xray "$sni_file" 2>/dev/null || true
+  chown root:root "$sni_file" 2>/dev/null || true
   chmod 644 "$sni_file" 2>/dev/null || true
 
   echo -e "${GREEN}✓ SNI list 2026 обновлен: РФ-банки/логистика + github, apple/icloud удалены${NC}"
@@ -3083,7 +3181,7 @@ _bypass_reset_all() {
 _cascade_ensure_dir() {
   mkdir -p "$UPSTREAMS_DIR"
   chmod 700 "$UPSTREAMS_DIR" 2>/dev/null
-  chown xray:xray "$UPSTREAMS_DIR" 2>/dev/null || true
+  chown root:root "$UPSTREAMS_DIR" 2>/dev/null || true
 }
 
 _cascade_config_file() {
@@ -3439,7 +3537,7 @@ _cascade_apply_current_upstream() {
   fix_xray_permissions
   if safe_restart_xray "$rollback_config"; then
     touch "$CASCADE_ACTIVE_FILE"
-    chown xray:xray "$CASCADE_ACTIVE_FILE" 2>/dev/null || true
+    chown root:root "$CASCADE_ACTIVE_FILE" 2>/dev/null || true
     echo -e "${GREEN}✓ Активный каскад синхронизирован с upstream${NC}"
     return 0
   fi
@@ -4098,6 +4196,8 @@ NGINX_SELFSTEAL_HTTP
     tail -30 /tmp/certbot-selfsteal.log
     return 1
   fi
+  # P0-certbot-fix: регистрируем cert в root-owned манифесте.
+  _certbot_register "$domain"
 
   local cert_dir="/etc/letsencrypt/live/${domain}"
   if [[ ! -f "$cert_dir/fullchain.pem" || ! -f "$cert_dir/privkey.pem" ]]; then
@@ -4157,7 +4257,7 @@ NGINX_SELFSTEAL_TLS
   echo "$domain" > "$SELFSTEAL_DOMAIN_FILE"
   echo "$template" > "$SELFSTEAL_TEMPLATE_FILE"
   echo "$SELFSTEAL_DEST" > "$SELFSTEAL_DEST_FILE"
-  chown xray:xray "$SELFSTEAL_DOMAIN_FILE" "$SELFSTEAL_TEMPLATE_FILE" "$SELFSTEAL_DEST_FILE" 2>/dev/null || true
+  chown root:root "$SELFSTEAL_DOMAIN_FILE" "$SELFSTEAL_TEMPLATE_FILE" "$SELFSTEAL_DEST_FILE" 2>/dev/null || true
 
   echo -e "${GREEN}✓ Self-steal заглушка готова: $domain → $SELFSTEAL_DEST${NC}"
   echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
@@ -4718,7 +4818,7 @@ show_pq_banner_once() {
   # Mark as shown — touch + chown как в run_migration helper.
   # Если touch упадёт (broken /usr/local/etc/xray/) — баннер появится снова. OK.
   touch "$marker" 2>/dev/null || true
-  chown xray:xray "$marker" 2>/dev/null || true
+  chown root:root "$marker" 2>/dev/null || true
 }
 
 # ═══════════════════════════════════════════════════════════
@@ -5074,7 +5174,7 @@ HAPP_ANNOUNCE_FILE="/usr/local/etc/xray/announce.txt"
 HAPP_ROUTING_JSON_FILE="/usr/local/etc/xray/.happ_routing.json"
 HAPP_DEFAULTS_EOF
     chmod 644 /usr/local/etc/xray/.happ_defaults.env
-    chown xray:xray /usr/local/etc/xray/.happ_defaults.env 2>/dev/null || true
+    chown root:root /usr/local/etc/xray/.happ_defaults.env 2>/dev/null || true
     echo -e "${GREEN}  ✓ /usr/local/etc/xray/.happ_defaults.env создан${NC}"
   else
     echo -e "${YELLOW}  ⚠ /usr/local/etc/xray/.happ_defaults.env уже существует — не трогаем${NC}"
@@ -5124,7 +5224,7 @@ SUBUNIT_EOF
 
   # Marker (opt-in активирован) — Plan 7.3 проверит наличие для меню/preflight.
   touch /usr/local/etc/xray/.subscription_installed
-  chown xray:xray /usr/local/etc/xray/.subscription_installed 2>/dev/null || true
+  chown root:root /usr/local/etc/xray/.subscription_installed 2>/dev/null || true
 
   echo ""
   echo -e "${YELLOW}  ⚠ Юнит создан, но НЕ запущен и НЕ enabled.${NC}"
@@ -5478,6 +5578,8 @@ NGINX_HTTP_EOF
     return 1
   fi
   systemctl reset-failed certbot.service 2>/dev/null || true
+  # P0-certbot-fix: регистрируем cert в root-owned манифесте.
+  _certbot_register "$server_ip"
 
   local cert_dir="/etc/letsencrypt/live/${server_ip}"
   if [[ ! -f "$cert_dir/fullchain.pem" || ! -f "$cert_dir/privkey.pem" ]]; then
@@ -5545,7 +5647,7 @@ NGINX_TLS_EOF
   echo "$server_ip" > /usr/local/etc/xray/.subscription_domain
   echo "$server_ip" > /usr/local/etc/xray/.subscription_server_addr
   echo "ip_tls" > /usr/local/etc/xray/.subscription_mode
-  chown xray:xray /usr/local/etc/xray/.subscription_port /usr/local/etc/xray/.subscription_domain /usr/local/etc/xray/.subscription_server_addr /usr/local/etc/xray/.subscription_mode 2>/dev/null || true
+  chown root:root /usr/local/etc/xray/.subscription_port /usr/local/etc/xray/.subscription_domain /usr/local/etc/xray/.subscription_server_addr /usr/local/etc/xray/.subscription_mode 2>/dev/null || true
 
   # Автопродление shortlived IP-сертификатов (~6 дней) — иначе подписка умрёт.
   _install_ip_cert_renew_timer "$certbot_bin" "$server_ip" "$webroot"
@@ -5709,6 +5811,8 @@ NGINX_HTTP_EOF
     return 1
   fi
   systemctl reset-failed certbot.service 2>/dev/null || true
+  # P0-certbot-fix: регистрируем cert в root-owned манифесте.
+  _certbot_register "$domain"
 
   local cert_dir="/etc/letsencrypt/live/${domain}"
   if [[ ! -f "$cert_dir/fullchain.pem" || ! -f "$cert_dir/privkey.pem" ]]; then
@@ -5777,7 +5881,7 @@ NGINX_TLS_EOF
   echo "$domain" > /usr/local/etc/xray/.subscription_domain
   echo "$server_ip" > /usr/local/etc/xray/.subscription_server_addr
   echo "domain_tls" > /usr/local/etc/xray/.subscription_mode
-  chown xray:xray /usr/local/etc/xray/.subscription_port /usr/local/etc/xray/.subscription_domain /usr/local/etc/xray/.subscription_server_addr /usr/local/etc/xray/.subscription_mode 2>/dev/null || true
+  chown root:root /usr/local/etc/xray/.subscription_port /usr/local/etc/xray/.subscription_domain /usr/local/etc/xray/.subscription_server_addr /usr/local/etc/xray/.subscription_mode 2>/dev/null || true
 
   # Активация unit.
   if ! _subscription_restart_service; then
@@ -5826,7 +5930,7 @@ install_subscription_local_only() {
   echo "127.0.0.1" > /usr/local/etc/xray/.subscription_domain
   get_server_ip > /usr/local/etc/xray/.subscription_server_addr 2>/dev/null || true
   echo "local_only" > /usr/local/etc/xray/.subscription_mode
-  chown xray:xray /usr/local/etc/xray/.subscription_port /usr/local/etc/xray/.subscription_domain /usr/local/etc/xray/.subscription_server_addr /usr/local/etc/xray/.subscription_mode 2>/dev/null || true
+  chown root:root /usr/local/etc/xray/.subscription_port /usr/local/etc/xray/.subscription_domain /usr/local/etc/xray/.subscription_server_addr /usr/local/etc/xray/.subscription_mode 2>/dev/null || true
 
   if ! _subscription_restart_service; then
     echo -e "${RED}✗ xrayebator-sub.service не запустился${NC}"
@@ -6008,7 +6112,7 @@ manage_subscription_menu() {
           sleep 2
           continue
         fi
-        chown xray:xray "$pfile" 2>/dev/null || true
+        chown root:root "$pfile" 2>/dev/null || true
         token="$new_token"
         echo -e "${GREEN}✓ Новый sub_token. Старая URL более не работает.${NC}"
         echo -e "${CYAN}  Новая URL: ${base_url}/sub/${token}${NC}"
@@ -6131,7 +6235,7 @@ _happ_edit_field() {
   fi
   mv "$tmp" "$env_file"
   chmod 644 "$env_file"
-  chown xray:xray "$env_file" 2>/dev/null || true
+  chown root:root "$env_file" 2>/dev/null || true
   if [[ -f /usr/local/etc/xray/.subscription_installed ]]; then
     if install_subscription_server >/dev/null 2>&1; then
       echo -e "${GREEN}✓ ${key} обновлено; subscription handler регенерирован${NC}"
@@ -6202,7 +6306,7 @@ edit_happ_announce_menu() {
             }
             printf '%s' "$new_text" > "$tmp"
             mv "$tmp" "$ann_file"
-            chown xray:xray "$ann_file" 2>/dev/null || true
+            chown root:root "$ann_file" 2>/dev/null || true
             chmod 644 "$ann_file"
             echo -e "${GREEN}Announcement сохранен в $ann_file${NC}"
           else
@@ -9238,11 +9342,19 @@ uninstall_adguard_home() {
   local rollback_config=""
   local query_strategy
   query_strategy=$(_ipv6_query_strategy)
+  # P1-ipv6-fix: единый family-aware DoH. Раньше жёстко 1.1.1.1 — на IPv6-only
+  # хосте AdGuard rollback оставлял Xray без DNS.
+  local dns_doh_server
+  if _detect_ipv6_only; then
+    dns_doh_server="https+local://dns.google/dns-query"
+  else
+    dns_doh_server="https+local://1.1.1.1/dns-query"
+  fi
   if [[ ! -f "$CONFIG_FILE" ]] ||
      ! backup_config "adguard_dns_restore" rollback_config ||
-     ! safe_jq_write --arg qs "$query_strategy" '.dns = {
+     ! safe_jq_write --arg qs "$query_strategy" --arg doh "$dns_doh_server" '.dns = {
        "servers": [
-         "https+local://1.1.1.1/dns-query",
+         $doh,
          "localhost"
        ],
        "queryStrategy": $qs,
@@ -9434,6 +9546,25 @@ quickstart_command() {
   mkdir -p "$webroot/.well-known/acme-challenge"
   chmod -R 755 "$webroot"
 
+  # P1-nginx-fix: транзакция quickstart-nginx. На любом failure path (nginx -t, certbot,
+  # занятый 8443, reload) исходный default-сайт восстанавливается из бэкапа, наш vhost
+  # убирается, nginx перезагружается. До фикса: default удалялся ДО certbot, и при
+  # ошибке VPS с существующим сайтом оставался без сайта до ручного вмешательства.
+  local _qs_nginx_modified=0
+  _qs_nginx_rollback() {
+    if [[ "$_qs_nginx_modified" -eq 1 ]]; then
+      rm -f /etc/nginx/sites-enabled/xrayebator-sub /etc/nginx/sites-available/xrayebator-sub
+      if [[ -e /etc/nginx/sites-enabled/default.xrayebator.bak && ! -e /etc/nginx/sites-enabled/default ]]; then
+        cp -a /etc/nginx/sites-enabled/default.xrayebator.bak /etc/nginx/sites-enabled/default
+      fi
+      rm -f /etc/nginx/sites-enabled/default.xrayebator.bak
+      if command -v nginx >/dev/null 2>&1 && nginx -t >/dev/null 2>&1; then
+        systemctl reload nginx >/dev/null 2>&1 || true
+      fi
+      _qs_nginx_modified=0
+    fi
+  }
+
   # Nginx HTTP config для certbot
   cat > /etc/nginx/sites-available/xrayebator-sub << NGINXHTTP
 server {
@@ -9455,8 +9586,11 @@ NGINXHTTP
   if [[ -e "$default_site" || -L "$default_site" ]]; then
     cp -a "$default_site" /etc/nginx/sites-enabled/default.xrayebator.bak 2>/dev/null || true
     rm -f "$default_site"
+    # P1-nginx-fix: с этого момента изменения nginx «живые» — при любой ошибке дальше
+    # (nginx -t, certbot, reload) rollback вернёт исходный default и уберёт наш vhost.
+    _qs_nginx_modified=1
   fi
-  nginx -t >/dev/null 2>&1 || { echo '{"ok":false,"error":"nginx -t failed"}'; return 1; }
+  nginx -t >/dev/null 2>&1 || { echo '{"ok":false,"error":"nginx -t failed"}'; _qs_nginx_rollback; return 1; }
   systemctl enable --now nginx >/dev/null 2>&1 || true
   systemctl reload nginx >/dev/null 2>&1 || true
 
@@ -9500,9 +9634,12 @@ NGINXHTTP
         --deploy-hook "systemctl reload nginx" \
         >/tmp/certbot-ip.log 2>&1; then
       echo '{"ok":false,"error":"certbot failed. Log: /tmp/certbot-ip.log"}'
+      _qs_nginx_rollback
       return 1
     fi
     echo "  TLS сертификат получен" >&2
+    # P0-certbot-fix: регистрируем cert в root-owned манифесте (uninstall удалит только его).
+    _certbot_register "$server_ip"
   fi
 
   # A3-fix: идемпотентность. Проверяем, что порт 8443 не занят ЧУЖИМ процессом.
@@ -9516,6 +9653,7 @@ NGINXHTTP
       echo "  -> Порт 8443 уже обслуживается нашим nginx (xrayebator-sub) — переиспользуем" >&2
     else
       echo '{"ok":false,"error":"Порт 8443 уже занят сторонним процессом — subscription URL будет мёртвым"}'
+      _qs_nginx_rollback
       return 1
     fi
   fi
@@ -9561,9 +9699,10 @@ server {
     }
 }
 NGINXHTTPS
-  nginx -t >/dev/null 2>&1 || { echo '{"ok":false,"error":"nginx HTTPS config failed"}'; return 1; }
+  nginx -t >/dev/null 2>&1 || { echo '{"ok":false,"error":"nginx HTTPS config failed"}'; _qs_nginx_rollback; return 1; }
   if ! systemctl reload nginx >/dev/null 2>&1; then
     echo '{"ok":false,"error":"nginx не перечитал HTTPS config — подписка недоступна"}'
+    _qs_nginx_rollback
     return 1
   fi
 
@@ -9585,6 +9724,7 @@ NGINXHTTPS
   echo "  Обеспечиваю multi-route HAPP профиль..." >&2
   if ! _happ_ensure_default_multiroute_profile >/dev/null 2>&1; then
     echo '{"ok":false,"error":"Не удалось создать HAPP multi-route профиль"}'
+    _qs_nginx_rollback
     return 1
   fi
   local profile_file="$PROFILES_DIR/${HAPP_DEFAULT_PROFILE}.json"
@@ -9593,12 +9733,14 @@ NGINXHTTPS
   # Без || true: если конфиг не загрузился, отдаём ok:false, а не ложный успех с мёртвым URL.
   if ! safe_restart_xray >/dev/null 2>&1; then
     echo '{"ok":false,"error":"Не удалось перезапустить Xray — конфиг не принят (xray run -test failed)"}'
+    _qs_nginx_rollback
     return 1
   fi
 
   # Убедиться что subscription handler отвечает.
   if ! _subscription_ensure_handler_running >/dev/null 2>&1; then
     echo '{"ok":false,"error":"Subscription handler не отвечает на 127.0.0.1:8080"}'
+    _qs_nginx_rollback
     return 1
   fi
 
@@ -9663,12 +9805,21 @@ happ_setup_command() {
   local _token
   _token=$(jq -r '.sub_token' "$PROFILES_DIR/$_profile_name.json")
 
-  # Восстанавливаем маркеры подписки, если они потеряны (passive-режим не создаёт их).
-  # Без них _subscription_base_url вернёт локальный URL и mode "unknown".
+  # P1-happ-fix: НЕ фабрикуем markers подписки, если они потеряны. Раньше здесь
+  # безусловно писался ip_tls(8443) с текущим server_ip — на свежем VPS без реального
+  # сертификата и TLS vhost команда возвращала ok:true с мёртвым https://IP:8443 URL.
+  # Теперь: markers восстанавливаются ТОЛЬКО если публичный TLS endpoint реально
+  # существует (наш nginx xrayebator-sub слушает 8443 + сертификат выпущен и живой).
+  # Иначе — понятная ошибка вместо ложного успеха.
   if [[ ! -f /usr/local/etc/xray/.subscription_domain || ! -f /usr/local/etc/xray/.subscription_port ]]; then
     local _srv_addr
     _srv_addr=$(get_server_ip)
-    _subscription_write_markers "8443" "$_srv_addr" "$_srv_addr" "ip_tls"
+    if _subscription_public_tls_endpoint_verified "$_srv_addr"; then
+      _subscription_write_markers "8443" "$_srv_addr" "$_srv_addr" "ip_tls"
+    else
+      echo "{\"ok\":false,\"error\":\"Публичный TLS endpoint подписки не подтверждён. Выполните 'xrayebator quickstart --email <email>' или настройте подписку через меню — happ-setup не выдаёт мёртвые URL.\"}"
+      return 1
+    fi
   fi
 
   # 3. База URL подписки

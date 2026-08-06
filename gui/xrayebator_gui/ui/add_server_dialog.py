@@ -22,19 +22,36 @@ from PySide6.QtWidgets import (
 _HOST_RE = re.compile(
     r"^(?=.{1,253}$)("
     r"(\d{1,3}\.){3}\d{1,3}"  # IPv4
+    r"|\[?[0-9a-fA-F:]{2,45}\]?"  # IPv6 literal (со скобками и без)
     r"|([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}"  # hostname
     r")$"
 )
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
+_HOSTNAME_RE = re.compile(
+    r"^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$"
+)
+
+
+def _valid_ip_literal(candidate: str) -> bool:
+    """Строгая проверка IP-литерала через ipaddress (IPv4/IPv6, со скобками и без)."""
+    import ipaddress
+
+    value = candidate[1:-1] if candidate.startswith("[") and candidate.endswith("]") else candidate
+    try:
+        ipaddress.ip_address(value)
+        return True
+    except ValueError:
+        return False
+
 
 def valid_host(host: str) -> bool:
-    """Проверка IPv4 или hostname перед отправкой на сервер."""
+    """Проверка IPv4/IPv6 или hostname перед отправкой на сервер."""
     if not _HOST_RE.match(host):
         return False
-    if re.match(r"^(\d{1,3}\.){3}\d{1,3}$", host):
-        return all(0 <= int(octet) <= 255 for octet in host.split("."))
-    return True
+    if _HOSTNAME_RE.match(host):
+        return True
+    return _valid_ip_literal(host)
 
 
 def valid_email(email: str) -> bool:

@@ -44,6 +44,14 @@ xrayebator_gui = [
     "assets/fonts/OFL.txt",
 ]
 
+[tool.setuptools.exclude-package-data]
+# CI-7-fix: из wheel не должны попадать скомпилированные байткоды (pyc/pyo) —
+# они раздувают дистрибутив и ломают воспроизводимые сборки.
+xrayebator_gui = [
+    "**/__pycache__/*",
+    "**/*.py[cod]",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 

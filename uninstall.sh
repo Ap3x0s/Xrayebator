@@ -123,14 +123,23 @@ if command -v nginx > /dev/null 2>&1; then
         systemctl reload nginx > /dev/null 2>&1 || true
     fi
 fi
-# A7-uninstall-fix: certbot-сертификаты (включая shortlived IP-серты) — удаляем приватные
-# ключи и email-аккаунт, обещанное "полное удаление" не должно оставлять LUKS-подобные данные.
-if command -v certbot > /dev/null 2>&1 && command -v openssl > /dev/null 2>&1; then
-    for cn in $(find /etc/letsencrypt/live -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sed 's#.*/##'); do
-        if [[ -n "$cn" ]]; then
+# A7-uninstall-fix: certbot-сертификаты (включая shortlived IP-серты) — удаляем ТОЛЬКО те,
+# которые были созданы самим Xrayebator и записаны в root-owned манифест
+# /usr/local/etc/xray/.certbot_owned. Чужие сертификаты, Certbot account и глобальное
+# состояние Certbot НЕ трогаем — uninstaller не имеет права уничтожать сторонние домены.
+CERTBOT_MANIFEST="${CERTBOT_MANIFEST:-/usr/local/etc/xray/.certbot_owned}"
+if command -v certbot > /dev/null 2>&1; then
+    if [[ -f "$CERTBOT_MANIFEST" ]]; then
+        while IFS= read -r cn; do
+            [[ -z "$cn" ]] && continue
+            # Защита от path-traversal: манифест могут подделать только root (root:root 644).
+            case "$cn" in
+                */*|*..*|*\\*) echo -e "${YELLOW}  ⚠ Пропуск подозрительного cert-name из манифеста: $cn${NC}" >&2; continue ;;
+            esac
             timeout 60 certbot delete --cert-name "$cn" --non-interactive > /dev/null 2>&1 || true
-        fi
-    done
+        done < "$CERTBOT_MANIFEST"
+        rm -f "$CERTBOT_MANIFEST"
+    fi
 fi
 rm -rf /var/www/xrayebator-ip-acme /var/www/xrayebator-selfsteal-acme 2>/dev/null
 # Убираем и webroot и защищаем: certbot delete уже удалил certs/keys/accounts.

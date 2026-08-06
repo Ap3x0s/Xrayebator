@@ -183,20 +183,38 @@ echo -e "${BLUE}[1/9]${NC} ${YELLOW}Установка необходимых п
 # A2-fix: проверяем резолв через getent (не привязываясь к Ubuntu-зеркалам), а при
 # подмене resolv.conf заменяем симлинк реальным файлом (иначе printf пишет сквозь
 # symlink systemd-resolved в /run/systemd/resolve/stub-resolv.conf и бэкап неверен).
+# DNS-бустреп перед apt: если IPv4-резолверы недоступны (IPv6-only VPS), используем
+# IPv6-совместимые. P1-ipv6-fix: раньше жёстко писался 1.1.1.1/9.9.9.9, на IPv6-only
+# хосте bootstrap мог сорвать apt. Теперь resolver выбирается family-aware.
 if ! getent hosts archive.ubuntu.com >/dev/null 2>&1 && ! getent hosts deb.debian.org >/dev/null 2>&1; then
-  echo -e "${YELLOW}⚠ DNS не резолвит пакетные зеркала — подменяю /etc/resolv.conf на 1.1.1.1${NC}"
-  if [[ -L /etc/resolv.conf ]]; then
-    # Не пишем сквозь symlink systemd-resolved: сохраняем target отдельно, заменяем сам symlink.
-    local_resolv_target="$(readlink /etc/resolv.conf)"
-    cp -a "/etc/resolv.conf" "/etc/resolv.conf.bak.xrayebator" 2>/dev/null || true
-    echo -e "${YELLOW}  (symlink → ${local_resolv_target}; заменяю файлом, резерв: /etc/resolv.conf.bak.xrayebator)${NC}"
-    rm -f /etc/resolv.conf
+  if _detect_ipv6_only; then
+    echo -e "${YELLOW}⚠ DNS не резолвит зеркала (IPv6-only) — подменяю /etc/resolv.conf на IPv6-резолверы${NC}"
+    local_v6_resolvers="nameserver 2606:4700:4700::1111\nnameserver 2001:4860:4860::8888\n"
+    if [[ -L /etc/resolv.conf ]]; then
+      # Не пишем сквозь symlink systemd-resolved: сохраняем target отдельно, заменяем сам symlink.
+      local_resolv_target="$(readlink /etc/resolv.conf)"
+      cp -a "/etc/resolv.conf" "/etc/resolv.conf.bak.xrayebator" 2>/dev/null || true
+      echo -e "${YELLOW}  (symlink → ${local_resolv_target}; заменяю файлом, резерв: /etc/resolv.conf.bak.xrayebator)${NC}"
+      rm -f /etc/resolv.conf
+    else
+      cp /etc/resolv.conf /etc/resolv.conf.bak.xrayebator 2>/dev/null || true
+    fi
+    printf '%b' "$local_v6_resolvers" > /etc/resolv.conf
   else
-    cp /etc/resolv.conf /etc/resolv.conf.bak.xrayebator 2>/dev/null || true
+    echo -e "${YELLOW}⚠ DNS не резолвит пакетные зеркала — подменяю /etc/resolv.conf на 1.1.1.1${NC}"
+    if [[ -L /etc/resolv.conf ]]; then
+      # Не пишем сквозь symlink systemd-resolved: сохраняем target отдельно, заменяем сам symlink.
+      local_resolv_target="$(readlink /etc/resolv.conf)"
+      cp -a "/etc/resolv.conf" "/etc/resolv.conf.bak.xrayebator" 2>/dev/null || true
+      echo -e "${YELLOW}  (symlink → ${local_resolv_target}; заменяю файлом, резерв: /etc/resolv.conf.bak.xrayebator)${NC}"
+      rm -f /etc/resolv.conf
+    else
+      cp /etc/resolv.conf /etc/resolv.conf.bak.xrayebator 2>/dev/null || true
+    fi
+    printf 'nameserver 1.1.1.1\nnameserver 9.9.9.9\n' > /etc/resolv.conf
   fi
-  printf 'nameserver 1.1.1.1\nnameserver 9.9.9.9\n' > /etc/resolv.conf
   if ! getent hosts archive.ubuntu.com >/dev/null 2>&1 && ! getent hosts deb.debian.org >/dev/null 2>&1; then
-    echo -e "${YELLOW}  ⚠ Всё ещё нет резолва — продолжаю с 1.1.1.1, apt может не сработать${NC}"
+    echo -e "${YELLOW}  ⚠ Всё ещё нет резолва — продолжаю, apt может не сработать${NC}"
   fi
 fi
 
@@ -640,7 +658,10 @@ mkdir -p "$DATA_DIR"
 mkdir -p "$SCRIPTS_DIR"
 mkdir -p /var/log/xray
 chown xray:xray /var/log/xray
-chown -R xray:xray /usr/local/etc/xray/
+# Privilege boundary (P0-fix): /usr/local/etc/xray принадлежит root:root,
+# xray получает только чтение. Root-скрипты и markers не подменяемы xray.
+chown root:root /usr/local/etc/xray/ /usr/local/etc/xray/profiles /usr/local/etc/xray/data /usr/local/etc/xray/scripts
+chmod 755 /usr/local/etc/xray/ /usr/local/etc/xray/profiles /usr/local/etc/xray/data /usr/local/etc/xray/scripts
 echo -e "${GREEN}✓ Директории созданы${NC}\n"
 
 _step_mark 4
@@ -722,8 +743,9 @@ echo -e "${GREEN}✓ Ключи сгенерированы${NC}"
 echo -e "${CYAN}  Private: ${PRIVATE_KEY:0:16}...${NC}"
 echo -e "${CYAN}  Public: ${PUBLIC_KEY:0:16}...${NC}\n"
 
-# Set file ownership for xray user
-chown -R xray:xray /usr/local/etc/xray/
+# Set ownership for root (privilege boundary): приватный ключ — root:root 600,
+# публичный — root:root 644. Сервис xray читает ключи из config.json, не из файлов.
+chown root:root "$PRIVATE_KEY_FILE" "$PUBLIC_KEY_FILE"
 chmod 600 "$PRIVATE_KEY_FILE"
 chmod 644 "$PUBLIC_KEY_FILE"
 
@@ -785,8 +807,11 @@ fi
 
 printf "%s" "$VLESS_DECRYPTION" > "$VLESS_DECRYPTION_FILE"
 printf "%s" "$VLESS_ENCRYPTION" > "$VLESS_ENCRYPTION_FILE"
-chmod 600 "$VLESS_DECRYPTION_FILE" "$VLESS_ENCRYPTION_FILE"
-chown xray:xray "$VLESS_DECRYPTION_FILE" "$VLESS_ENCRYPTION_FILE" 2>/dev/null || true
+# Privilege boundary (P0-fix): decryption (приватная часть) — root:root 600;
+# encryption (публичная часть, читается subhttp для генерации VLESS URL) — root:root 644.
+chmod 600 "$VLESS_DECRYPTION_FILE"
+chmod 644 "$VLESS_ENCRYPTION_FILE"
+chown root:root "$VLESS_DECRYPTION_FILE" "$VLESS_ENCRYPTION_FILE" 2>/dev/null || true
 
 echo -e "${GREEN}✓ VLESS Encryption ключи сгенерированы${NC}"
 echo -e "${CYAN}  decryption: ${VLESS_DECRYPTION:0:48}...${NC}"
@@ -893,11 +918,13 @@ cat > "$CONFIG_FILE" << EOF
 }
 EOF
 
-chown xray:xray "$CONFIG_FILE"
+# Privilege boundary (P0-fix): config.json читается xray (644), владелец root:root.
+chown root:root "$CONFIG_FILE"
+chmod 644 "$CONFIG_FILE"
 # Mark config as already optimized (skip migration on first launch)
 touch /usr/local/etc/xray/.config_optimized
-chown xray:xray /usr/local/etc/xray/.config_optimized
-chmod 644 "$CONFIG_FILE"
+chown root:root /usr/local/etc/xray/.config_optimized
+chmod 644 /usr/local/etc/xray/.config_optimized
 echo -e "${GREEN}✓ Конфигурация создана${NC}\n"
 
 _step_mark 6
@@ -997,14 +1024,22 @@ else
   exit 1
 fi
 
-# Скрипты управления
+# Скрипты управления (атомарная установка, P0-privilege-boundary-fix):
+# mktemp в /tmp + chmod 755 + mv (rename) — файл не бывает «полузаписан».
+# После mv проверяем ownership/mode: root:root 755, иначе скрипт подменяем xray.
 UPDATE_TMP=$(mktemp /tmp/xrayebator_update_install_XXXXXX.sh)
 if curl -fsSL --connect-timeout 10 --max-time 30 "${RAW_BASE_URL}/update.sh" -o "$UPDATE_TMP" 2>/dev/null \
    && [[ -s "$UPDATE_TMP" ]] \
    && head -n 1 "$UPDATE_TMP" | grep -q "^#!/bin/bash" \
    && bash -n "$UPDATE_TMP"; then
   chmod 755 "$UPDATE_TMP"
+  chown root:root "$UPDATE_TMP"
   mv "$UPDATE_TMP" "${SCRIPTS_DIR}/update.sh"
+  # Проверка: владелец root, права 755 (каталог scripts — root:root 755).
+  if ! [[ -O "${SCRIPTS_DIR}/update.sh" && -x "${SCRIPTS_DIR}/update.sh" ]]; then
+    echo -e "${RED}✗ update.sh установлен с неверными правами — прерывание${NC}"
+    exit 1
+  fi
 else
   echo -e "${YELLOW}⚠ update.sh не загружен или невалиден${NC}"
   rm -f "$UPDATE_TMP"
@@ -1015,7 +1050,12 @@ if curl -fsSL --connect-timeout 10 --max-time 30 "${RAW_BASE_URL}/uninstall.sh" 
    && head -n 1 "$UNINSTALL_TMP" | grep -q "^#!/bin/bash" \
    && bash -n "$UNINSTALL_TMP"; then
   chmod 755 "$UNINSTALL_TMP"
+  chown root:root "$UNINSTALL_TMP"
   mv "$UNINSTALL_TMP" "${SCRIPTS_DIR}/uninstall.sh"
+  if ! [[ -O "${SCRIPTS_DIR}/uninstall.sh" && -x "${SCRIPTS_DIR}/uninstall.sh" ]]; then
+    echo -e "${RED}✗ uninstall.sh установлен с неверными правами — прерывание${NC}"
+    exit 1
+  fi
 else
   echo -e "${YELLOW}⚠ uninstall.sh не загружен или невалиден${NC}"
   rm -f "$UNINSTALL_TMP"
@@ -1030,7 +1070,8 @@ if [[ -f "${SCRIPTS_DIR}/uninstall.sh" ]]; then
   ln_created=$((ln_created+1))
 fi
 echo "$GITHUB_BRANCH" > /usr/local/etc/xray/.current_branch
-chown xray:xray /usr/local/etc/xray/.current_branch 2>/dev/null || true
+chown root:root /usr/local/etc/xray/.current_branch 2>/dev/null || true
+chmod 644 /usr/local/etc/xray/.current_branch 2>/dev/null || true
 echo -e "${GREEN}✓ Скрипты установлены (${ln_created} shortcuts)${NC}\n"
 
 # Запуск Xray
