@@ -2,14 +2,6 @@ name: GUI desktop release
 
 on:
   pull_request:
-    paths:
-      - ".github/workflows/gui-release.yml"
-      - "gui/**"
-      - "xrayebator"
-      - "install.sh"
-      - "update.sh"
-      - "uninstall.sh"
-      - "validation/test-*.sh"
   workflow_dispatch:
     inputs:
       release_tag:

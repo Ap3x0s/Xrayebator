@@ -54,6 +54,22 @@ def valid_host(host: str) -> bool:
     return _valid_ip_literal(host)
 
 
+def normalize_host(host: str) -> str:
+    """Приводит host к виду, который принимает Paramiko/SSH.
+
+    P2-gui-fix: bracketed IPv6 типа ``[::1]`` проходит валидацию, но скобки — это только
+    синтаксис IPv6-адреса в URI, а не часть вин-адреса. Передавать их в Paramiko нельзя
+    (SSH не понимает ``hostname="[::1]"``). Снимаем квадратные скобки, если адрес —
+    валидный IPv6-литерал.
+    """
+    text = host.strip()
+    if text.startswith("[") and text.endswith("]"):
+        inner = text[1:-1]
+        if _valid_ip_literal(inner):
+            return inner
+    return text
+
+
 def valid_email(email: str) -> bool:
     return bool(_EMAIL_RE.match(email))
 
@@ -298,7 +314,7 @@ class AddServerDialog(QDialog):
         """Собранные и проверенные параметры формы."""
         use_password = self.auth_combo.currentIndex() == 0
         return {
-            "host": self.host_edit.text().strip(),
+            "host": normalize_host(self.host_edit.text()),
             "port": self.port_spin.value(),
             "user": self.user_edit.text().strip(),
             "auth_type": "password" if use_password else "key",

@@ -403,8 +403,8 @@ _restore_update_config_backup() {
     echo -e "${RED}✗ Не удалось восстановить session backup config.json${NC}"
     return 1
   fi
-  chown root:root /usr/local/etc/xray/config.json 2>/dev/null || true
-  chmod 600 /usr/local/etc/xray/config.json
+  chown root:xray /usr/local/etc/xray/config.json 2>/dev/null || true
+  chmod 640 /usr/local/etc/xray/config.json
   echo -e "${GREEN}✓ config.json восстановлен из $UPDATE_CONFIG_BACKUP${NC}"
 }
 

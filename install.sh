@@ -98,6 +98,23 @@ _step_marker() { echo "${STEP_DIR}/.install_step_$1_ok"; }
 _step_done()  { [[ -f "$(_step_marker "$1")" ]]; }
 _step_mark()  { mkdir -p "$STEP_DIR" 2>/dev/null; touch "$(_step_marker "$1")"; }
 
+# P2-fix: регистрируем правило UFW, открытое именно Xrayebator, в root-owned манифесте
+# /usr/local/etc/xray/.ufw_owned. uninstall.sh удалит ТОЛЬКО порты отсюда и динамические
+# порты из config.json — чужие правила 443/8443/8080 не затрагиваются.
+# Аргументы: $1=string "port/proto". Идемпотентно.
+_ufw_own_entry() {
+  local entry="$1"
+  local manifest="${UFW_OWNED_MANIFEST:-/usr/local/etc/xray/.ufw_owned}"
+  mkdir -p /usr/local/etc/xray 2>/dev/null || true
+  if [[ ! -f "$manifest" ]]; then
+    printf '%s\n' "$entry" > "$manifest"
+  else
+    grep -qxF "$entry" "$manifest" 2>/dev/null || printf '%s\n' "$entry" >> "$manifest"
+  fi
+  chmod 644 "$manifest" 2>/dev/null || true
+  chown root:root "$manifest" 2>/dev/null || true
+}
+
 _first_pending_step() {
   local s
   for s in "${STEP_ORDER[@]}"; do
@@ -937,38 +954,75 @@ echo -e "${BLUE}[7/9]${NC} ${YELLOW}Настройка firewall...${NC}"
 
 # B1-fix: детектируем фактический SSH-порт ДО включения UFW (default policy = deny).
 # Если SSH на нестандартном порту и открыть его после enable — заперём себя на VPS.
+# P2-fix: разбор ss охватывает и обычные bind-формы вида 0.0.0.0:2222 / [::]:2222,
+# и когда порт/правило не удалось определить — НЕ включаем UFW (иначе lockout).
 sfw_ssh_port=""
 if command -v ss >/dev/null 2>&1; then
-  sfw_ssh_port=$(ss -tlnp 2>/dev/null | awk '/sshd/ {for(i=1;i<=NF;i++) if ($i ~ /^:.*$/) {split($i,a,":"); print a[length(a)]; exit}}')
+  # ss -tlnp построчно: ищем строки с флагом LISTEN и процессом sshd, извлекаем
+  # локальный порт из последнего ':'-сегмента адреса (0.0.0.0:2222, *:2222, [::]:2222).
+  sfw_ssh_port=$(ss -tlnp 2>/dev/null | awk '
+    /LISTEN/ && /sshd/ {
+      for (i=1; i<=NF; i++) {
+        if ($i ~ /^(\[?\*|\[?[0-9a-fA-F:.]+):[0-9]+$/) {
+          split($i, a, ":")
+          print a[length(a)]
+          exit
+        }
+      }
+    }')
   sfw_ssh_port="${sfw_ssh_port%%[,;]*}"
 fi
 if [[ -z "$sfw_ssh_port" ]] || ! [[ "$sfw_ssh_port" =~ ^[0-9]+$ ]]; then
-  # Fallback: читаем ListenAddress из sshd_config.
+  # Fallback: читаем ListenAddress sshd_config.
   sfw_ssh_port=$(grep -h '^Port\s' /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf 2>/dev/null | awk '{print $2}' | head -1)
 fi
-if [[ -z "$sfw_ssh_port" ]] || ! [[ "$sfw_ssh_port" =~ ^[0-9]+$ ]]; then
-  sfw_ssh_port=22
+
+# Определили ли мы SSH-порт? Если нет и нельзя открыть правило — UFW не включаем
+# (default policy = deny, lockout). Лучше оставить UFW выключенным, чем запереть себя.
+sfw_ufw_safe=0
+if [[ -n "$sfw_ssh_port" ]] && [[ "$sfw_ssh_port" =~ ^[0-9]+$ ]]; then
+  if ufw allow "${sfw_ssh_port}/tcp" > /dev/null 2>&1; then
+    sfw_ufw_safe=1
+    echo -e "${CYAN}  SSH-порт ${sfw_ssh_port}/tcp открыт перед включением UFW${NC}"
+  else
+    echo -e "${YELLOW}  ⚠ Не удалось открыть SSH-порт ${sfw_ssh_port} — UFW остаётся выключенным${NC}"
+  fi
+else
+  echo -e "${YELLOW}  ⚠ Не удалось определить SSH-порт — UFW не включается (защита от блокировки)${NC}"
 fi
 
-# Открываем SSH-порт ПЕРВЫМ, затем включаем UFW.
-ufw allow "${sfw_ssh_port}/tcp" > /dev/null 2>&1
-echo -e "${CYAN}  SSH-порт ${sfw_ssh_port}/tcp открыт перед включением UFW${NC}"
-
-if ! ufw status | grep -q "Status: active"; then
+if command -v ufw >/dev/null 2>&1; then
+if [[ "$sfw_ufw_safe" -eq 1 ]] && ! ufw status | grep -q "Status: active"; then
   ufw --force enable > /dev/null 2>&1
+fi
+else
+  sfw_ufw_safe=0
 fi
 
 UFW_ERRORS=0
+# P2-fix: регистрируем в root-owned манифесте только правила, открытые ИМЕННО
+# Xrayebator (иначе uninstall удалил бы чужое правило на 443/8443). Если правило
+# уже существовало ДО нас — не трогаем и не регистрируем.
+if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
 for ufw_port in 22 80 443 8443 2053 2083 2087 8080 2096 8880 9443; do
+  if ufw status 2>/dev/null | grep -qE "^${ufw_port}/tcp.*ALLOW"; then
+    continue  # уже открыто кем-то до нас — чужие правила не присваиваем
+  fi
   if ! ufw allow "${ufw_port}/tcp" > /dev/null 2>&1; then
     echo -e "${YELLOW}  ⚠ Не удалось открыть порт ${ufw_port}/tcp${NC}"
     ((UFW_ERRORS++))
+  else
+    # P2-fix: манифест root:root 644 — только правила, открытые Xrayebator.
+    _ufw_own_entry "${ufw_port}/tcp"
   fi
 done
 
 ufw reload > /dev/null 2>&1
 echo -e "${GREEN}✓ Firewall настроен${NC}"
 echo -e "${CYAN}  Открытые порты: 443, 2053, 2096, 8080, 8443, 8880, 9443${NC}\n"
+else
+echo -e "${YELLOW}  ⚠ UFW не включён — порты не открывались (избегаем блокировки SSH)${NC}"
+fi
 
 _step_mark 7
 fi

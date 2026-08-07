@@ -66,6 +66,19 @@ rm -f /usr/local/bin/xray
 rm -rf /usr/local/share/xray
 
 echo -e "${BLUE}[3/7]${NC} ${YELLOW}Удаление конфигураций и профилей...${NC}"
+# P2-fix: снимки root-owned манифестов ДО удаления /usr/local/etc/xray (см. [6/7]).
+# certbot-names и ufw-правила читаются из снапшотов, а не из удаляемого каталога —
+# иначе manifest исчезал бы раньше, чем его успели обработать.
+CERTBOT_SNAPSHOT=""
+UFW_SNAPSHOT=""
+if [[ -f "${CERTBOT_MANIFEST:-/usr/local/etc/xray/.certbot_owned}" ]]; then
+    CERTBOT_SNAPSHOT=$(mktemp /tmp/xrayebator-certbot-owned.XXXXXX)
+    cat "${CERTBOT_MANIFEST:-/usr/local/etc/xray/.certbot_owned}" > "$CERTBOT_SNAPSHOT"
+fi
+if [[ -f "${UFW_OWNED_MANIFEST:-/usr/local/etc/xray/.ufw_owned}" ]]; then
+    UFW_SNAPSHOT=$(mktemp /tmp/xrayebator-ufw-owned.XXXXXX)
+    cat "${UFW_OWNED_MANIFEST:-/usr/local/etc/xray/.ufw_owned}" > "$UFW_SNAPSHOT"
+fi
 # Собираем динамические порты инбаундов и маршрутов ДО удаления конфига,
 # чтобы затем вычистить их из UFW (иначе пользовательские порты останутся открытыми).
 ALL_XRAY_PORTS=""
@@ -127,33 +140,46 @@ fi
 # которые были созданы самим Xrayebator и записаны в root-owned манифест
 # /usr/local/etc/xray/.certbot_owned. Чужие сертификаты, Certbot account и глобальное
 # состояние Certbot НЕ трогаем — uninstaller не имеет права уничтожать сторонние домены.
-CERTBOT_MANIFEST="${CERTBOT_MANIFEST:-/usr/local/etc/xray/.certbot_owned}"
-if command -v certbot > /dev/null 2>&1; then
-    if [[ -f "$CERTBOT_MANIFEST" ]]; then
-        while IFS= read -r cn; do
-            [[ -z "$cn" ]] && continue
-            # Защита от path-traversal: манифест могут подделать только root (root:root 644).
-            case "$cn" in
-                */*|*..*|*\\*) echo -e "${YELLOW}  ⚠ Пропуск подозрительного cert-name из манифеста: $cn${NC}" >&2; continue ;;
-            esac
-            timeout 60 certbot delete --cert-name "$cn" --non-interactive > /dev/null 2>&1 || true
-        done < "$CERTBOT_MANIFEST"
-        rm -f "$CERTBOT_MANIFEST"
-    fi
+# P2-fix: манифест уже удалён на шаге [3/7] вместе с /usr/local/etc/xray — работаем
+# по снапшоту CERTBOT_SNAPSHOT, взятому ДО удаления каталога.
+if command -v certbot > /dev/null 2>&1 && [[ -n "$CERTBOT_SNAPSHOT" && -f "$CERTBOT_SNAPSHOT" ]]; then
+    while IFS= read -r cn; do
+        [[ -z "$cn" ]] && continue
+        # Защита от path-traversal: манифест могут подделать только root (root:root 644).
+        case "$cn" in
+            */*|*..*|*\\*) echo -e "${YELLOW}  ⚠ Пропуск подозрительного cert-name из манифеста: $cn${NC}" >&2; continue ;;
+        esac
+        timeout 60 certbot delete --cert-name "$cn" --non-interactive > /dev/null 2>&1 || true
+    done < "$CERTBOT_SNAPSHOT"
 fi
+rm -f /tmp/xrayebator-certbot-owned.?????? 2>/dev/null || true
 rm -rf /var/www/xrayebator-ip-acme /var/www/xrayebator-selfsteal-acme 2>/dev/null
 # Убираем и webroot и защищаем: certbot delete уже удалил certs/keys/accounts.
+# P2-fix: удаляем UFW-правила ТОЛЬКО двух видов:
+#   1) порты из root-owned манифеста .ufw_owned (доказано — открывал Xrayebator);
+#   2) динамические порты, собранные из реального config.json/profiles ДО удаления
+#      (это фактические инбаунды Xray — они существуют только потому, что Xray их
+#      слушал, значит правила под них открывал тоже Xray).
+# Ранее тут бездоказательно удалялись общие 443/8443/8080/9443/9444 — чужие веб-сайты
+# на 443/8443 после uninstall оставались без доступа. Исправлено.
 if command -v ufw > /dev/null 2>&1; then
-    # Дефолтные порты + динамические порты, собранные из real config/profiles (до удаления).
-    for p in 443/tcp 8443/tcp 8080/tcp 9443/tcp 9444/tcp $(echo "${ALL_XRAY_PORTS:-}" | tr ' ' '\n'); do
+    UFW_TO_DELETE=""
+    if [[ -n "$UFW_SNAPSHOT" && -f "$UFW_SNAPSHOT" ]]; then
+        UFW_TO_DELETE=$(cat "$UFW_SNAPSHOT")
+    fi
+    UFW_TO_DELETE=$(printf '%s\n%s\n' "$UFW_TO_DELETE" "$ALL_XRAY_PORTS")
+    while IFS= read -r p; do
         [[ -n "$p" ]] || continue
         port="${p%%/*}"
-        if [[ "$port" =~ ^[0-9]+$ ]]; then
-            ufw delete allow "${port}/tcp" > /dev/null 2>&1 || true
-            ufw delete allow "${port}/udp" > /dev/null 2>&1 || true
-        fi
-    done
+        [[ "$port" =~ ^[0-9]+$ ]] || continue
+        # Порт в манифесте уже с протоколом (tcp/udp) — тянем и его, и TCP.
+        proto="${p#*/}"
+        [[ "$proto" == "udp" ]] || proto="tcp"
+        ufw delete allow "${port}/${proto}" > /dev/null 2>&1 || true
+        ufw delete allow "${port}/tcp" > /dev/null 2>&1 || true
+    done <<< "$UFW_TO_DELETE"
 fi
+rm -f /tmp/xrayebator-ufw-owned.?????? 2>/dev/null || true
 if id xray > /dev/null 2>&1; then
     userdel xray > /dev/null 2>&1 || true
 fi

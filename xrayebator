@@ -42,6 +42,39 @@ TCP_CC_AVAILABLE_FILE="/proc/sys/net/ipv4/tcp_available_congestion_control"
 HOST_TUNING_MIGRATION_MARKER="/usr/local/etc/xray/.host_tcp_tuning_removed_v3"
 SYSCTL_SCAN_PATHS="/etc/sysctl.conf:/etc/sysctl.d:/usr/lib/sysctl.d:/lib/sysctl.d"
 LOCK_FILE="${LOCK_FILE:-/usr/local/etc/xray/.xrayebator.lock}"
+# P2-fix: пути nginx-сайтов переопределяемы для тестов реальной последовательности
+# (quickstart rollback). В проде — системные каталоги; в функциональном тесте —
+# временная ФС. Совпадает с существующим паттерном CONFIG_FILE/PROFILES_DIR override.
+NGINX_SITES_AVAILABLE="${NGINX_SITES_AVAILABLE:-/etc/nginx/sites-available}"
+NGINX_SITES_ENABLED="${NGINX_SITES_ENABLED:-/etc/nginx/sites-enabled}"
+# P2-fix: транзакция quickstart-nginx вынесена на уровень файла (не local внутри
+# quickstart_command), чтобы её можно было реально исполнить в функциональном тесте и
+# она была единым источником истины для rollback. Состояние не персистентно — только
+# для текущего процесса quickstart.
+QS_NGINX_MODIFIED=0
+QS_VHOST_BACKUP="$NGINX_SITES_AVAILABLE/xrayebator-sub.xrayebator.bak"
+# Восстанавливает исходное состояние nginx после ANY мутации quickstart: прежний vhost
+# xrayebator-sub (если был), default-сайт (если удаляли), убирает наш vhost и перегружает
+# nginx. Обёрнуто в backreference: работает и при отсутствии default-сайта.
+_qs_nginx_rollback() {
+  if [[ "$QS_NGINX_MODIFIED" != "true" ]]; then
+    return 0
+  fi
+  rm -f "$NGINX_SITES_ENABLED/xrayebator-sub" "$NGINX_SITES_AVAILABLE/xrayebator-sub"
+  if [[ -e "$QS_VHOST_BACKUP" ]]; then
+    cp -a "$QS_VHOST_BACKUP" "$NGINX_SITES_AVAILABLE/xrayebator-sub"
+    ln -sf "$NGINX_SITES_AVAILABLE/xrayebator-sub" "$NGINX_SITES_ENABLED/xrayebator-sub"
+    rm -f "$QS_VHOST_BACKUP"
+  fi
+  if [[ -e "$NGINX_SITES_ENABLED/default.xrayebator.bak" && ! -e "$NGINX_SITES_ENABLED/default" ]]; then
+    cp -a "$NGINX_SITES_ENABLED/default.xrayebator.bak" "$NGINX_SITES_ENABLED/default"
+  fi
+  rm -f "$NGINX_SITES_ENABLED/default.xrayebator.bak"
+  if command -v nginx >/dev/null 2>&1 && nginx -t >/dev/null 2>&1; then
+    systemctl reload nginx >/dev/null 2>&1 || true
+  fi
+  return 0
+}
 # A11-fix: порты, выбранные в рамках одного процесса (например, 7 маршрутов
 # multi-route профиля), не должны повторяться. Массив живёт только в процессе bash.
 XRAYEBATOR_RESERVED_PORTS=()
@@ -258,8 +291,10 @@ find_available_random_port() {
   while [[ $attempts -lt 200 ]]; do
     port=$((min_port + ((RANDOM << 15 | RANDOM) % (max_port - min_port + 1))))
     # Проверяем и конфиг Xray, и реально слушающие порты, и уже зарезервированные
-    # в этом процессе (multi-route профиль резервирует 7 портов подряд — без этой
-    # проверки два маршрута могли получить один порт → add_inbound отклонял конфиг).
+    # в этом процессе. ВНИМАНИЕ: назначение порта происходит в КОПИИ массива
+    # XRAYEBATOR_RESERVED_PORTS (этот вызов часто идёт через командную подстановку,
+    # т.е. в subshell). По-настоящему резервирует порт в родительском shell вызывающий
+    # код через reserve_port() — иначе массив (изменённый в subshell) теряется.
     local reserved=0
     local rp
     for rp in "${XRAYEBATOR_RESERVED_PORTS[@]:-}"; do
@@ -269,7 +304,6 @@ find_available_random_port() {
        ! jq -e --argjson port "$port" '.inbounds[] | select(.port == $port)' \
       "$CONFIG_FILE" >/dev/null 2>&1 && \
       ! ss -tuln 2>/dev/null | grep -q ":${port} "; then
-      XRAYEBATOR_RESERVED_PORTS+=("$port")
       echo "$port"
       return 0
     fi
@@ -278,6 +312,22 @@ find_available_random_port() {
 
   echo -e "${RED}✗ Не удалось подобрать свободный случайный порт 30000-60000${NC}" >&2
   return 1
+}
+
+# P2-fix: резервирует порт в РОДИТЕЛЬСКОМ shell вызывающего. Причина: find_available_*,
+# вызванный через `port=$(...)`, работает в subshell, и изменение глобального массива
+# XRAYEBATOR_RESERVED_PORTS в нём ТЕРЯЕТСЯ. Вызывающий код после получения порта обязан
+# вызвать reserve_port "$port" в своём shell, иначе соседние маршруты могут повторно
+# получить тот же порт. Args: $1=port (целое, иначе игнор).
+reserve_port() {
+  local port=${1:-}
+  [[ "$port" =~ ^[0-9]+$ ]] || return 0
+  local existing=0
+  local _rp
+  for _rp in "${XRAYEBATOR_RESERVED_PORTS[@]:-}"; do
+    [[ "$_rp" == "$port" ]] && existing=1
+  done
+  [[ "$existing" -eq 0 ]] && XRAYEBATOR_RESERVED_PORTS+=("$port") || true
 }
 
 generate_transport_token() {
@@ -1054,8 +1104,11 @@ _restore_config_backup() {
     echo -e "${RED}  ✗ Не удалось восстановить config.json из $(basename "$backup_file")${NC}"
     return 1
   fi
-  chmod 600 "$CONFIG_FILE" 2>/dev/null
-  chown root:root "$CONFIG_FILE" 2>/dev/null
+  # P2-rollback-fix: live config обязан быть читаем сервисом (User=xray). root:root 0600
+  # после rollback делал конфиг недоступным — xray не стартовал. Backup остаётся 600
+  # root:root (backup_config), live — root:xray 0640 (группа читает, пишет только root).
+  chown root:xray "$CONFIG_FILE" 2>/dev/null || true
+  chmod 640 "$CONFIG_FILE" 2>/dev/null || true
   echo -e "${GREEN}  ✓ Конфиг восстановлен из: $(basename "$backup_file")${NC}"
   return 0
 }
@@ -1317,6 +1370,8 @@ open_firewall_port() {
   echo -e "${CYAN}  → Открываю порт ${port}/${protocol}...${NC}"
   if ufw allow "${port}/${protocol}" >/dev/null 2>&1; then
     echo -e "${GREEN}  ✓ Порт ${port}/${protocol} открыт${NC}"
+    # P2-fix: фиксируем в root-owned манифесте, что правило открыл именно Xrayebator.
+    _ufw_register_port "$port" "$protocol"
     ufw reload >/dev/null 2>&1
     return 0
   else
@@ -1330,7 +1385,6 @@ open_firewall_port() {
 close_firewall_port() {
   local port=$1
   local protocol=${2:-tcp}
-
   # Check if port is still used by any inbound
   local port_in_use=$(jq -r --argjson port "$port" \
     '.inbounds[] | select(.port == $port) | .tag' \
@@ -1355,6 +1409,26 @@ close_firewall_port() {
   fi
 
   return 0
+}
+
+# Реестр UFW-правил, добавленных Xrayebator (root-owned, /usr/local/etc/xray/.ufw_owned).
+# uninstall.sh удаляет ТОЛЬКО порты из этого манифеста (плюс динамические порты из
+# реального config.json) — чужие правила 443/8443/8080 и т.п. НЕ затрагиваются.
+# Формат строки: "<port>/<proto>". Вызывать сразу после успешного ufw allow.
+# Args: $1=port, $2=protocol (default: tcp)
+_ufw_register_port() {
+  local port=$1
+  local protocol=${2:-tcp}
+  [[ "$port" =~ ^[0-9]+$ ]] || return 0
+  local manifest="${UFW_OWNED_MANIFEST:-/usr/local/etc/xray/.ufw_owned}"
+  local entry="${port}/${protocol}"
+  if [[ ! -f "$manifest" ]]; then
+    printf '%s\n' "$entry" > "$manifest"
+  else
+    grep -qxF "$entry" "$manifest" 2>/dev/null || printf '%s\n' "$entry" >> "$manifest"
+  fi
+  chmod 644 "$manifest" 2>/dev/null || true
+  chown root:root "$manifest" 2>/dev/null || true
 }
 
 # Check whether a profile has route array
@@ -6687,30 +6761,37 @@ create_profile_all_routes() {
 
   defaults=$(build_transport_defaults "xhttp") || { rm -f "$routes_tmp"; return 1; }
   IFS='|' read -r port _ xhttp_path <<< "$defaults"
+  reserve_port "$port"
   _append_route_json "xhttp-legacy" "xhttp" "$port" "$default_sni" "$DEFAULT_CLIENT_FINGERPRINT" false "" "$xhttp_path" || { rm -f "$routes_tmp"; return 1; }
 
   defaults=$(build_transport_defaults "xhttp") || { rm -f "$routes_tmp"; return 1; }
   IFS='|' read -r port _ xhttp_path <<< "$defaults"
+  reserve_port "$port"
   _append_route_json "xhttp-pq" "xhttp" "$port" "$default_sni" "$DEFAULT_CLIENT_FINGERPRINT" true "" "$xhttp_path" || { rm -f "$routes_tmp"; return 1; }
 
   defaults=$(build_transport_defaults "tcp-mux") || { rm -f "$routes_tmp"; return 1; }
   IFS='|' read -r port _ _ <<< "$defaults"
+  reserve_port "$port"
   _append_route_json "tcp-mux" "tcp-mux" "$port" "$default_sni" "$DEFAULT_CLIENT_FINGERPRINT" false "" "" || { rm -f "$routes_tmp"; return 1; }
 
   defaults=$(build_transport_defaults "grpc") || { rm -f "$routes_tmp"; return 1; }
   IFS='|' read -r port grpc_service_name _ <<< "$defaults"
+  reserve_port "$port"
   _append_route_json "grpc" "grpc" "$port" "$grpc_sni" "$DEFAULT_CLIENT_FINGERPRINT" false "$grpc_service_name" "" || { rm -f "$routes_tmp"; return 1; }
 
   defaults=$(build_transport_defaults "tcp") || { rm -f "$routes_tmp"; return 1; }
   IFS='|' read -r port _ _ <<< "$defaults"
+  reserve_port "$port"
   _append_route_json "tcp-vision" "tcp" "$port" "$default_sni" "$DEFAULT_CLIENT_FINGERPRINT" false "" "" || { rm -f "$routes_tmp"; return 1; }
 
   defaults=$(build_transport_defaults "tcp-utls") || { rm -f "$routes_tmp"; return 1; }
   IFS='|' read -r port _ _ <<< "$defaults"
+  reserve_port "$port"
   _append_route_json "tcp-utls-firefox" "tcp-utls" "$port" "$default_sni" "firefox" false "" "" || { rm -f "$routes_tmp"; return 1; }
 
   defaults=$(build_transport_defaults "tcp-xudp") || { rm -f "$routes_tmp"; return 1; }
   IFS='|' read -r port _ _ <<< "$defaults"
+  reserve_port "$port"
   _append_route_json "tcp-xudp" "tcp-xudp" "$port" "$xudp_sni" "$DEFAULT_CLIENT_FINGERPRINT" false "" "" || { rm -f "$routes_tmp"; return 1; }
 
   local routes_json
@@ -6880,6 +6961,7 @@ create_profile() {
     IFS='|' read -r port generated_grpc_service_name generated_xhttp_path <<< "$defaults"
     [[ -z "$grpc_service_name" ]] && grpc_service_name="$generated_grpc_service_name"
     [[ -z "$xhttp_path" ]] && xhttp_path="$generated_xhttp_path"
+    reserve_port "$port"
   fi
 
   default_sni=$(_default_sni_for_transport "$transport")
@@ -8272,6 +8354,7 @@ change_port_menu() {
         read
         return
       fi
+      reserve_port "$new_port"
       ;;
     2) new_port="443" ;;
     3) new_port="8443" ;;
@@ -9547,26 +9630,23 @@ quickstart_command() {
   chmod -R 755 "$webroot"
 
   # P1-nginx-fix: транзакция quickstart-nginx. На любом failure path (nginx -t, certbot,
-  # занятый 8443, reload) исходный default-сайт восстанавливается из бэкапа, наш vhost
-  # убирается, nginx перезагружается. До фикса: default удалялся ДО certbot, и при
-  # ошибке VPS с существующим сайтом оставался без сайта до ручного вмешательства.
-  local _qs_nginx_modified=0
-  _qs_nginx_rollback() {
-    if [[ "$_qs_nginx_modified" -eq 1 ]]; then
-      rm -f /etc/nginx/sites-enabled/xrayebator-sub /etc/nginx/sites-available/xrayebator-sub
-      if [[ -e /etc/nginx/sites-enabled/default.xrayebator.bak && ! -e /etc/nginx/sites-enabled/default ]]; then
-        cp -a /etc/nginx/sites-enabled/default.xrayebator.bak /etc/nginx/sites-enabled/default
-      fi
-      rm -f /etc/nginx/sites-enabled/default.xrayebator.bak
-      if command -v nginx >/dev/null 2>&1 && nginx -t >/dev/null 2>&1; then
-        systemctl reload nginx >/dev/null 2>&1 || true
-      fi
-      _qs_nginx_modified=0
-    fi
-  }
+  # занятый 8443, reload) исходный default-сайт и ранее существовавший vhost
+  # xrayebator-sub восстанавливаются из бэкапов, наши изменения убираются, nginx
+  # перезагружается. P2-fix: транзакция помечается изменённой СРАЗУ после любой
+  # мутации nginx (запись vhost, symlink, удаление default) — независимо от наличия
+  # default-сайта; до фикса при отсутствии default-сайта rollback не срабатывал и
+  # мёртвый vhost оставался на VPS. Реализация на уровне файла (_qs_nginx_rollback)
+  # — ею пользуется и функциональный тест.
+  QS_NGINX_MODIFIED=false
+  QS_VHOST_BACKUP="$NGINX_SITES_AVAILABLE/xrayebator-sub.xrayebator.bak"
 
+  # P2-fix: сохраняем существующий vhost xrayebator-sub ДО перезаписи (может быть
+  # от прошлого quickstart или сторонней настройки) — rollback его вернёт.
+  if [[ -e "$NGINX_SITES_AVAILABLE/xrayebator-sub" || -L "$NGINX_SITES_AVAILABLE/xrayebator-sub" ]]; then
+    cp -a "$NGINX_SITES_AVAILABLE/xrayebator-sub" "$QS_VHOST_BACKUP" 2>/dev/null || true
+  fi
   # Nginx HTTP config для certbot
-  cat > /etc/nginx/sites-available/xrayebator-sub << NGINXHTTP
+  cat > "$NGINX_SITES_AVAILABLE/xrayebator-sub" << NGINXHTTP
 server {
     listen 80;
     listen [::]:80;
@@ -9580,16 +9660,17 @@ server {
     }
 }
 NGINXHTTP
-  ln -sf /etc/nginx/sites-available/xrayebator-sub /etc/nginx/sites-enabled/xrayebator-sub
+  ln -sf "$NGINX_SITES_AVAILABLE/xrayebator-sub" "$NGINX_SITES_ENABLED/xrayebator-sub"
   # A7-fix: не удалять default-сайт безвозвратно — делаем бэкап (может быть симлинк на config).
-  local default_site="/etc/nginx/sites-enabled/default"
+  local default_site="$NGINX_SITES_ENABLED/default"
   if [[ -e "$default_site" || -L "$default_site" ]]; then
-    cp -a "$default_site" /etc/nginx/sites-enabled/default.xrayebator.bak 2>/dev/null || true
+    cp -a "$default_site" "$NGINX_SITES_ENABLED/default.xrayebator.bak" 2>/dev/null || true
     rm -f "$default_site"
-    # P1-nginx-fix: с этого момента изменения nginx «живые» — при любой ошибке дальше
-    # (nginx -t, certbot, reload) rollback вернёт исходный default и уберёт наш vhost.
-    _qs_nginx_modified=1
   fi
+  # P2-fix: с этого момента изменения nginx «живые» — флаг ставим после ЛЮБОЙ мутации
+  # (vhost записан/symlink создан), независимо от наличия default-сайта. Иначе при
+  # отсутствии default-сайта rollback (nginx -t, certbot, reload) не срабатывал.
+  QS_NGINX_MODIFIED=true
   nginx -t >/dev/null 2>&1 || { echo '{"ok":false,"error":"nginx -t failed"}'; _qs_nginx_rollback; return 1; }
   systemctl enable --now nginx >/dev/null 2>&1 || true
   systemctl reload nginx >/dev/null 2>&1 || true
@@ -9599,6 +9680,10 @@ NGINXHTTP
     ufw allow 80/tcp >/dev/null 2>&1 || true
     ufw allow 443/tcp >/dev/null 2>&1 || true
     ufw allow 8443/tcp >/dev/null 2>&1 || true
+    # P2-fix: фиксируем открытые quickstart'ом правила в root-owned манифесте.
+    _ufw_register_port 80 tcp
+    _ufw_register_port 443 tcp
+    _ufw_register_port 8443 tcp
     ufw reload >/dev/null 2>&1 || true
   fi
 
@@ -9649,7 +9734,7 @@ NGINXHTTP
   port_8443_owner=$(ss -ltnp 'sport = :8443' 2>/dev/null | grep -oP 'users:\(\("([^"]+)"' | head -1 | sed 's/users:(("//')
   if ss -ltnp 'sport = :8443' 2>/dev/null | grep -q LISTEN; then
     if [[ -n "$port_8443_owner" && "$port_8443_owner" == "nginx" ]] && \
-       grep -q "listen 8443" /etc/nginx/sites-available/xrayebator-sub 2>/dev/null; then
+       grep -q "listen 8443" "$NGINX_SITES_AVAILABLE/xrayebator-sub" 2>/dev/null; then
       echo "  -> Порт 8443 уже обслуживается нашим nginx (xrayebator-sub) — переиспользуем" >&2
     else
       echo '{"ok":false,"error":"Порт 8443 уже занят сторонним процессом — subscription URL будет мёртвым"}'
@@ -9659,7 +9744,7 @@ NGINXHTTP
   fi
 
   # Nginx HTTPS config (проксирует на subscription server, порт 8443 — Xray на 443)
-  cat > /etc/nginx/sites-available/xrayebator-sub << NGINXHTTPS
+  cat > "$NGINX_SITES_AVAILABLE/xrayebator-sub" << NGINXHTTPS
 limit_req_zone \$binary_remote_addr zone=xrayebator_sub:10m rate=30r/m;
 
 server {

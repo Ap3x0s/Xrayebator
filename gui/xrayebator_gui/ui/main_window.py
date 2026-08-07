@@ -648,7 +648,38 @@ class MainWindow(QMainWindow):
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
-        self._store.remove(server["id"])
+        # P2-gui-fix: при активном соединении реально отключаемся через ту же
+        # машинерию, что и кнопка «Отключить» (_toggle_connection → disconnect),
+        # и удаляем запись ТОЛЬКО после подтверждённого DISCONNECTED. Раньше запись
+        # удалялась сразу: SSH-сеанс/controller оставался активным.
+        if connected_here:
+            self._remove_after_disconnect(server["id"])
+        else:
+            self._perform_store_remove(server["id"])
+
+    def _remove_after_disconnect(self, server_id: str) -> None:
+        self._set_operation_busy(True)
+
+        def failed(message: str) -> None:
+            self._set_operation_busy(False)
+            self._append_log(message)
+            QMessageBox.warning(self, "Не удалось отключиться", message)
+            self._on_snapshot(self._controller.snapshot)
+
+        def succeeded(result: object) -> None:
+            self._set_operation_busy(False)
+            if isinstance(result, ConnectionSnapshot):
+                if result.state == ConnectionState.DISCONNECTED:
+                    self._append_log("Соединение отключено")
+                elif result.state != ConnectionState.ERROR:
+                    failed("Соединение не было отключено.")
+                    return
+            self._perform_store_remove(server_id)
+
+        self._start_operation(self._controller.disconnect, succeeded, failed)
+
+    def _perform_store_remove(self, server_id: str) -> None:
+        self._store.remove(server_id)
         self._reload_servers()
 
     @Slot()

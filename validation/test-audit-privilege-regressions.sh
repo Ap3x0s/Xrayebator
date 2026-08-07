@@ -60,7 +60,7 @@ grep -q 'chown root:root' update.sh || fail "update.sh must chown root:root conf
 echo "── P1: quickstart nginx rollback ──"
 grep -q 'default.xrayebator.bak' "$CRLF_FILE" || fail "quickstart must back up default site"
 grep -q '_qs_nginx_rollback()' "$CRLF_FILE" || fail "missing _qs_nginx_rollback helper"
-grep -q '_qs_nginx_modified=1' "$CRLF_FILE" || fail "missing nginx modified flag"
+grep -q 'QS_NGINX_MODIFIED=true' "$CRLF_FILE" || fail "missing nginx modified flag"
 grep -q '_qs_nginx_rollback' "$CRLF_FILE" || fail "nginx rollback must be wired into quickstart"
 # rollback должен перезагрузить nginx после восстановления default
 grep -q 'systemctl reload nginx' "$CRLF_FILE" || fail "rollback must reload nginx"

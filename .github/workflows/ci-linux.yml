@@ -6,13 +6,6 @@ name: Bash core validation
 
 on:
   pull_request:
-    paths:
-      - "xrayebator"
-      - "install.sh"
-      - "update.sh"
-      - "uninstall.sh"
-      - "validation/**"
-      - ".github/workflows/ci-linux.yml"
   push:
     branches: [main, dev, experimental]
     paths:
