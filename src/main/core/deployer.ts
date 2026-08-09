@@ -20,9 +20,12 @@ export interface DeployResult {
   keys: VlessLink[]
 }
 
-/** Путь к ресурсам сценариев внутри собранного приложения. */
+/** Путь к сценариям: в собранном приложении — resources/scripts, в dev — корень проекта. */
 function scriptsDir(): string {
-  return join(app.getAppPath(), 'resources', 'scripts')
+  if (app.isPackaged) {
+    return join(process.resourcesPath, 'scripts')
+  }
+  return app.getAppPath()
 }
 
 export class Deployer {
