@@ -80,4 +80,17 @@ grep -Fq '2606:4700:4700::1111' <<< "$INSTALL_CRLF" || \
 grep -Fq '2001:4860:4860::8888' <<< "$INSTALL_CRLF" || \
   fail "install.sh must write IPv6 DNS (Google) on IPv6-only VPS"
 
+echo "── P1: UFW не блокирует SSH и не скрывает ошибки ──"
+grep -Fq 'sfw_ssh_port=' <<< "$INSTALL_CRLF" ||
+  fail "install.sh must detect the SSH port before enabling UFW"
+grep -Fq 'sfw_ufw_safe' <<< "$INSTALL_CRLF" ||
+  fail "install.sh must gate UFW enable on a verified SSH rule"
+grep -Fq 'if ! ufw --force enable' <<< "$INSTALL_CRLF" ||
+  fail "install.sh must handle UFW enable failure"
+grep -Fq 'Firewall настроен с ошибками' <<< "$INSTALL_CRLF" ||
+  fail "install.sh must report partial port-open failures"
+if grep -Eq '^[[:space:]]*ufw --force enable' <<< "$INSTALL_CRLF"; then
+  fail "install.sh contains an unconditional UFW enable path"
+fi
+
 echo "✓ audit P0/P1 regressions passed"

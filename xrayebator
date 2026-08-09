@@ -1385,10 +1385,16 @@ open_firewall_port() {
 close_firewall_port() {
   local port=$1
   local protocol=${2:-tcp}
-  # Check if port is still used by any inbound
-  local port_in_use=$(jq -r --argjson port "$port" \
+
+  # Check if port is still used by any inbound. On a jq/config error, keep the
+  # firewall rule: accidentally leaving a port open is safer than cutting off a
+  # live inbound because a damaged config looked empty.
+  local port_in_use
+  if ! port_in_use=$(jq -r --argjson port "$port" \
     '.inbounds[] | select(.port == $port) | .tag' \
-    "$CONFIG_FILE" 2>/dev/null)
+    "$CONFIG_FILE" 2>/dev/null); then
+    return 0
+  fi
 
   if [[ -n "$port_in_use" ]]; then
     return 0  # Still in use, don't close
@@ -7260,7 +7266,9 @@ add_inbound() {
       echo -e "${RED}  ✗ Не удалось добавить клиента в inbound${NC}"
       return 1
     fi
-    return
+    open_firewall_port "$port" || \
+      echo -e "${YELLOW}  ⚠ Порт $port не был открыт через UFW — проверьте firewall вручную${NC}"
+    return 0
   fi
 
   echo -e "${CYAN} → Создание нового inbound на порту $port${NC}"
@@ -8397,6 +8405,7 @@ change_port_menu() {
   local profile_xhttp_path=""
   local profile_fingerprint=""
   local profile_pq_enabled="false"
+  local profile_sni=""
 
   profile_uuid=$(jq -r '.uuid' "$profile_file")
   if [[ -n "$route_index" ]]; then
@@ -8405,10 +8414,12 @@ change_port_menu() {
     profile_xhttp_path=$(jq -r --argjson i "$route_index" '.routes[$i].xhttp_path // ""' "$profile_file")
     profile_fingerprint=$(jq -r --argjson i "$route_index" '.routes[$i].fingerprint // .fingerprint // "firefox"' "$profile_file")
     profile_pq_enabled=$(jq -r --argjson i "$route_index" '.routes[$i].pq_enabled // false' "$profile_file")
+    profile_sni=$(jq -r --argjson i "$route_index" '. as $root | .routes[$i].sni // $root.sni // empty' "$profile_file")
   else
     profile_transport=$(jq -r '.transport' "$profile_file")
     profile_fingerprint=$(jq -r '.fingerprint // "firefox"' "$profile_file")
     profile_pq_enabled=$(jq -r '.pq_enabled // false' "$profile_file")
+    profile_sni=$(jq -r '.sni // empty' "$profile_file")
     profile_metadata=$(read_profile_transport_metadata "$profile_file")
     IFS='|' read -r profile_grpc_service_name profile_xhttp_path <<< "$profile_metadata"
   fi
@@ -8597,27 +8608,80 @@ change_port_menu() {
     fi
 
   else
-    if ! safe_jq_write --argjson old_port "$old_port" --argjson new_port "$new_port" '
-      if ([.inbounds[] | select(.port == $old_port)] | length) != 1 then
-        error("source inbound not unique")
-      else
-        (.inbounds[] | select(.port == $old_port) | .port) = $new_port |
-        (.inbounds[] | select(.port == $new_port) | .tag) = ("inbound-" + ($new_port | tostring))
-      end
-    ' "$CONFIG_FILE"; then
+    local source_client_count
+    source_client_count=$(jq -r --argjson port "$old_port" \
+      '[.inbounds[] | select(.port == $port) | .settings.clients[]?] | length' \
+      "$CONFIG_FILE" 2>/dev/null)
+    if [[ ! "$source_client_count" =~ ^[0-9]+$ ]] || [[ "$source_client_count" -lt 1 ]]; then
       _restore_config_backup "$rollback_config" || true
       _restore_profiles_snapshot "$profiles_snapshot" || true
       _discard_profiles_snapshot "$profiles_snapshot"
-      echo -e "${RED}  ✗ Ошибка смены порта в конфиге — операция отменена${NC}"
+      echo -e "${RED}✗ Исходный inbound не содержит профиль — операция отменена${NC}"
       return
     fi
 
-    if ! update_all_profiles_port_reference "$old_port" "$new_port"; then
-      _restore_config_backup "$rollback_config" || true
-      _restore_profiles_snapshot "$profiles_snapshot" || true
-      _discard_profiles_snapshot "$profiles_snapshot"
-      echo -e "${RED}✗ Не удалось обновить все profile JSON — операция полностью откачена${NC}"
-      return
+    if [[ "$source_client_count" -gt 1 ]]; then
+      # Shared inbound: move only the selected UUID. Moving the inbound itself
+      # would silently move every other profile that shares the old port.
+      if ! add_inbound \
+        "$profile_uuid" "$profile_transport" "$new_port" "$profile_sni" \
+        "$profile_fingerprint" "$profile_grpc_service_name" "$profile_xhttp_path" \
+        "$profile_pq_enabled"; then
+        _restore_config_backup "$rollback_config" || true
+        _restore_profiles_snapshot "$profiles_snapshot" || true
+        _discard_profiles_snapshot "$profiles_snapshot"
+        echo -e "${RED}✗ Не удалось создать inbound на новом порту — операция откачена${NC}"
+        return
+      fi
+      if ! _remove_profile_uuid_from_config "$profile_uuid" "[$old_port]"; then
+        _restore_config_backup "$rollback_config" || true
+        _restore_profiles_snapshot "$profiles_snapshot" || true
+        _discard_profiles_snapshot "$profiles_snapshot"
+        echo -e "${RED}✗ Не удалось извлечь профиль из общего inbound — операция откачена${NC}"
+        return
+      fi
+
+      if [[ -n "$route_index" ]]; then
+        if ! safe_jq_write --argjson i "$route_index" --argjson port "$new_port" '
+          .routes[$i].port = $port |
+          if $i == 0 then .port = $port else . end
+        ' "$profile_file"; then
+          _restore_config_backup "$rollback_config" || true
+          _restore_profiles_snapshot "$profiles_snapshot" || true
+          _discard_profiles_snapshot "$profiles_snapshot"
+          echo -e "${RED}✗ Не удалось обновить route profile JSON — операция откачена${NC}"
+          return
+        fi
+      elif ! safe_jq_write --argjson port "$new_port" '.port = $port' "$profile_file"; then
+        _restore_config_backup "$rollback_config" || true
+        _restore_profiles_snapshot "$profiles_snapshot" || true
+        _discard_profiles_snapshot "$profiles_snapshot"
+        echo -e "${RED}✗ Не удалось обновить profile JSON — операция откачена${NC}"
+        return
+      fi
+    else
+      if ! safe_jq_write --argjson old_port "$old_port" --argjson new_port "$new_port" '
+        if ([.inbounds[] | select(.port == $old_port)] | length) != 1 then
+          error("source inbound not unique")
+        else
+          (.inbounds[] | select(.port == $old_port) | .port) = $new_port |
+          (.inbounds[] | select(.port == $new_port) | .tag) = ("inbound-" + ($new_port | tostring))
+        end
+      ' "$CONFIG_FILE"; then
+        _restore_config_backup "$rollback_config" || true
+        _restore_profiles_snapshot "$profiles_snapshot" || true
+        _discard_profiles_snapshot "$profiles_snapshot"
+        echo -e "${RED}  ✗ Ошибка смены порта в конфиге — операция отменена${NC}"
+        return
+      fi
+
+      if ! update_all_profiles_port_reference "$old_port" "$new_port"; then
+        _restore_config_backup "$rollback_config" || true
+        _restore_profiles_snapshot "$profiles_snapshot" || true
+        _discard_profiles_snapshot "$profiles_snapshot"
+        echo -e "${RED}✗ Не удалось обновить все profile JSON — операция полностью откачена${NC}"
+        return
+      fi
     fi
   fi
 

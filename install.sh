@@ -992,9 +992,13 @@ else
 fi
 
 if command -v ufw >/dev/null 2>&1; then
-if [[ "$sfw_ufw_safe" -eq 1 ]] && ! ufw status | grep -q "Status: active"; then
-  ufw --force enable > /dev/null 2>&1
-fi
+  if [[ "$sfw_ufw_safe" -eq 1 ]] && ! ufw status | grep -q "Status: active"; then
+    if ! ufw --force enable > /dev/null 2>&1; then
+      sfw_ufw_safe=0
+      echo -e "${RED}✗ Не удалось включить UFW${NC}"
+      echo -e "${YELLOW}⚠ Порты нужно будет открыть вручную${NC}"
+    fi
+  fi
 else
   sfw_ufw_safe=0
 fi
@@ -1018,8 +1022,12 @@ for ufw_port in 22 80 443 8443 2053 2083 2087 8080 2096 8880 9443; do
 done
 
 ufw reload > /dev/null 2>&1
-echo -e "${GREEN}✓ Firewall настроен${NC}"
-echo -e "${CYAN}  Открытые порты: 443, 2053, 2096, 8080, 8443, 8880, 9443${NC}\n"
+if [[ $UFW_ERRORS -eq 0 ]]; then
+  echo -e "${GREEN}✓ Firewall настроен${NC}"
+else
+  echo -e "${YELLOW}⚠ Firewall настроен с ошибками ($UFW_ERRORS портов не открылись)${NC}"
+fi
+echo -e "${CYAN}  Открытые порты: 443, 2053, 2083, 2087, 2096, 8080, 8443, 8880, 9443${NC}\n"
 else
 echo -e "${YELLOW}  ⚠ UFW не включён — порты не открывались (избегаем блокировки SSH)${NC}"
 fi

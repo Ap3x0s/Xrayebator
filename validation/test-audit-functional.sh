@@ -144,25 +144,63 @@ else
 fi
 
 echo "── ФУНКЦ.6: quickstart rollback при упавшем certbot восстанавливает default nginx ──"
-# Проверяем, что на failure-пути quickstart НЕ оставляет VPS без default-сайта:
-# перед удаляемым дефолтом создаётся бэкап default.xrayebator.bak, а при ошибке
-# certbot/nginx-t/reload — rollback его восстанавливает. Здесь проверяем наличие
-# механизма + эмулируем ровно тот же код на временных путях.
-grep -Fq 'default.xrayebator.bak' <<< "$CRLF" || fail "нет бэкапа default в quickstart"
-grep -Fq '_qs_nginx_modified=1' <<< "$CRLF" || fail "нет флага модификации nginx"
-# Емулируем исходный код восстановления (тот же алгоритм в uninstall.sh:118-121):
-SITES="$WORKDIR/nginx/sites-enabled"
-mkdir -p "$SITES"
-printf 'server {listen 80;}\n' > "$SITES/default"
-cp -a "$SITES/default" "$SITES/default.xrayebator.bak"
-rm -f "$SITES/default"
-# ...certbot упал → хэнн rollback...
-if [[ -e "$SITES/default.xrayebator.bak" && ! -e "$SITES/default" ]]; then
-  cp -a "$SITES/default.xrayebator.bak" "$SITES/default"
-fi
-rm -f "$SITES/default.xrayebator.bak"
-[[ -f "$SITES/default" ]] || fail "default не восстановлен после ошибки certbot"
-[[ ! -e "$SITES/default.xrayebator.bak" ]] || fail "бэкап не убран после восстановления"
-echo "  ✓ default восстановлен после упавшего certbot"
+# Исполняем настоящий file-scope helper на временной nginx-ФС. nginx -t намеренно
+# возвращает ошибку, чтобы тест не вызывал host systemctl.
+nginx() { return 1; }
+
+echo "  сценарий: default существовал, нашего vhost не было"
+NGINX_CASE="$WORKDIR/nginx-default"
+NGINX_SITES_AVAILABLE="$NGINX_CASE/sites-available"
+NGINX_SITES_ENABLED="$NGINX_CASE/sites-enabled"
+QS_VHOST_BACKUP="$NGINX_SITES_AVAILABLE/xrayebator-sub.xrayebator.bak"
+mkdir -p "$NGINX_SITES_AVAILABLE" "$NGINX_SITES_ENABLED"
+printf 'original-default\n' > "$NGINX_SITES_ENABLED/default"
+cp -a "$NGINX_SITES_ENABLED/default" "$NGINX_SITES_ENABLED/default.xrayebator.bak"
+rm -f "$NGINX_SITES_ENABLED/default"
+printf 'new-vhost\n' > "$NGINX_SITES_AVAILABLE/xrayebator-sub"
+ln -s "$NGINX_SITES_AVAILABLE/xrayebator-sub" "$NGINX_SITES_ENABLED/xrayebator-sub"
+QS_NGINX_MODIFIED=true
+_qs_nginx_rollback
+[[ "$(<"$NGINX_SITES_ENABLED/default")" == "original-default" ]] ||
+  fail "real rollback did not restore default"
+[[ ! -e "$NGINX_SITES_AVAILABLE/xrayebator-sub" && ! -e "$NGINX_SITES_ENABLED/xrayebator-sub" ]] ||
+  fail "real rollback kept a newly-created vhost"
+[[ ! -e "$NGINX_SITES_ENABLED/default.xrayebator.bak" ]] ||
+  fail "real rollback kept the default backup"
+
+echo "  сценарий: default отсутствовал до quickstart"
+NGINX_CASE="$WORKDIR/nginx-no-default"
+NGINX_SITES_AVAILABLE="$NGINX_CASE/sites-available"
+NGINX_SITES_ENABLED="$NGINX_CASE/sites-enabled"
+QS_VHOST_BACKUP="$NGINX_SITES_AVAILABLE/xrayebator-sub.xrayebator.bak"
+mkdir -p "$NGINX_SITES_AVAILABLE" "$NGINX_SITES_ENABLED"
+printf 'new-vhost\n' > "$NGINX_SITES_AVAILABLE/xrayebator-sub"
+ln -s "$NGINX_SITES_AVAILABLE/xrayebator-sub" "$NGINX_SITES_ENABLED/xrayebator-sub"
+QS_NGINX_MODIFIED=true
+_qs_nginx_rollback
+[[ ! -e "$NGINX_SITES_ENABLED/default" ]] ||
+  fail "rollback fabricated a default site that did not exist"
+[[ ! -e "$NGINX_SITES_AVAILABLE/xrayebator-sub" && ! -e "$NGINX_SITES_ENABLED/xrayebator-sub" ]] ||
+  fail "rollback kept the new vhost when no default existed"
+
+echo "  сценарий: существовал прежний xrayebator-sub vhost"
+NGINX_CASE="$WORKDIR/nginx-existing-vhost"
+NGINX_SITES_AVAILABLE="$NGINX_CASE/sites-available"
+NGINX_SITES_ENABLED="$NGINX_CASE/sites-enabled"
+QS_VHOST_BACKUP="$NGINX_SITES_AVAILABLE/xrayebator-sub.xrayebator.bak"
+mkdir -p "$NGINX_SITES_AVAILABLE" "$NGINX_SITES_ENABLED"
+printf 'old-vhost\n' > "$NGINX_SITES_AVAILABLE/xrayebator-sub"
+ln -s "$NGINX_SITES_AVAILABLE/xrayebator-sub" "$NGINX_SITES_ENABLED/xrayebator-sub"
+cp -a "$NGINX_SITES_AVAILABLE/xrayebator-sub" "$QS_VHOST_BACKUP"
+printf 'new-vhost\n' > "$NGINX_SITES_AVAILABLE/xrayebator-sub"
+QS_NGINX_MODIFIED=true
+_qs_nginx_rollback
+[[ "$(<"$NGINX_SITES_AVAILABLE/xrayebator-sub")" == "old-vhost" ]] ||
+  fail "rollback did not restore the pre-existing vhost"
+[[ -L "$NGINX_SITES_ENABLED/xrayebator-sub" ]] ||
+  fail "rollback did not restore the pre-existing vhost symlink"
+[[ ! -e "$QS_VHOST_BACKUP" ]] ||
+  fail "rollback kept the vhost backup"
+echo "  ✓ реальный rollback прошёл три сценария"
 
 echo "✓ функциональные P0/P1 regressions passed"
