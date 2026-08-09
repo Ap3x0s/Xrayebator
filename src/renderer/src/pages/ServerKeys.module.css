@@ -1,5 +1,8 @@
 .root {
   height: 100%;
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
   padding: 32px;
   display: flex;
   flex-direction: column;
@@ -16,7 +19,7 @@
 .title {
   font-size: 24px;
   font-weight: 600;
-  line-height: 1.2;
+  line-height: 32px;
   margin: 0;
 }
 
