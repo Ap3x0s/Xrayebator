@@ -12,12 +12,13 @@ interface ServerKeysProps {
 
 export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Element {
   const { t } = useTranslation()
-  const [keys, setKeys] = useState<VlessLink[]>([])
+  const [keys, setKeys] = useState<VlessLink[]>(server.keys ?? [])
   const [subscriptionUrl, setSubscriptionUrl] = useState(server.subscriptionUrl)
   const [toast, setToast] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
+    if (!server.subscriptionUrl) return
     window.api.subscription
       .fetch(server.id)
       .then((result) => {
@@ -26,7 +27,7 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
         setSubscriptionUrl(result.subscriptionUrl)
       })
       .catch(() => {
-        if (!cancelled) setKeys([])
+        if (!cancelled) setKeys(server.keys ?? [])
       })
     return () => {
       cancelled = true

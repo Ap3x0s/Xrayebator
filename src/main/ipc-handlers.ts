@@ -14,6 +14,9 @@ export function registerIpcHandlers({ store }: IpcContext): void {
   ipcMain.handle('servers:add', (_e, input: Omit<Server, 'id' | 'createdAt'>): Server => {
     return store.add(input)
   })
+  ipcMain.handle('servers:updateKeys', (_e, id: string, keys: unknown[]): Server | null => {
+    return store.updateKeys(id, keys as never[]) ?? null
+  })
   ipcMain.handle('servers:remove', (_e, id: string): void => {
     store.remove(id)
   })
@@ -26,9 +29,14 @@ export function registerIpcHandlers({ store }: IpcContext): void {
       if (!win.isDestroyed()) win.webContents.send(channel, data)
     }
 
-    const deployer = new Deployer((step, message) => {
-      emit('deploy:event', { type: 'step', step, label: message })
-    })
+    const deployer = new Deployer(
+      (step, message) => {
+        emit('deploy:event', { type: 'step', step, label: message })
+      },
+      (text) => {
+        emit('deploy:event', { type: 'log', text })
+      }
+    )
 
     ;(async () => {
       try {
@@ -47,7 +55,8 @@ export function registerIpcHandlers({ store }: IpcContext): void {
           username: payload.username,
           os: null,
           routesCount: result.keys.length,
-          subscriptionUrl: result.subscriptionUrl
+          subscriptionUrl: result.subscriptionUrl,
+          keys: result.keys
         })
 
         emit('deploy:event', {
@@ -71,6 +80,7 @@ export function registerIpcHandlers({ store }: IpcContext): void {
     const server = store.get(serverId)
     if (!server) throw new Error('Сервер не найден')
     const keys = await fetchSubscription(server.subscriptionUrl)
+    store.updateKeys(serverId, keys)
     return { serverId, subscriptionUrl: server.subscriptionUrl, keys }
   })
 

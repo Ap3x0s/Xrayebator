@@ -8,6 +8,7 @@ export interface Server {
   createdAt: string
   routesCount: number | null
   subscriptionUrl: string
+  keys: VlessLink[]
 }
 
 export interface VlessLink {
