@@ -36,6 +36,16 @@
       "running": "执行中...",
       "done": "完成"
     },
+    "active": {
+      "ssh": "正在建立 SSH 连接...",
+      "os_check": "正在检查服务器系统...",
+      "upload": "正在上传脚本到服务器...",
+      "install": "正在下载并安装 Xray...",
+      "binary": "正在安装 xrayebator 工具...",
+      "quickstart": "正在配置订阅并生成密钥...",
+      "save": "正在保存服务器和密钥..."
+    },
+    "progress": "部署进度",
     "log": "控制台",
     "waiting": "等待输出...",
     "success": "服务器部署成功！",

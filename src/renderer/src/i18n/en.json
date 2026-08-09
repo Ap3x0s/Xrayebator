@@ -36,6 +36,16 @@
       "running": "Running...",
       "done": "Done"
     },
+    "active": {
+      "ssh": "Establishing SSH connection...",
+      "os_check": "Checking server OS...",
+      "upload": "Uploading scripts to server...",
+      "install": "Downloading and installing Xray...",
+      "binary": "Installing xrayebator utility...",
+      "quickstart": "Setting up subscription and issuing keys...",
+      "save": "Saving server and keys..."
+    },
+    "progress": "Deployment progress",
     "log": "Console",
     "waiting": "Waiting for output...",
     "success": "Server deployed!",

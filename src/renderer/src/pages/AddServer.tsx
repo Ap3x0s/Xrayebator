@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Button, TextField, Label, Input, Spinner } from '@heroui/react'
+import { CheckCircle2, Circle } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { DeployEvent, DeployStep, Server } from '@shared/types'
 import styles from './AddServer.module.css'
@@ -42,17 +43,26 @@ export function AddServer({ onDone, onBack }: AddServerProps): React.JSX.Element
   const [stepLabels, setStepLabels] = useState<Partial<Record<DeployStep, string>>>({})
   const [log, setLog] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
+  const currentStepRef = useRef<DeployStep | null>(null)
 
   useEffect(() => {
     if (!deploying) return
     const unsubscribe = window.api.deploy.onEvent((event: DeployEvent) => {
       if (event.type === 'step') {
+        const prev = currentStepRef.current
+        if (prev && prev !== event.step) {
+          setCompletedSteps((p) => new Set(p).add(prev))
+        }
+        currentStepRef.current = event.step
         setCurrentStep(event.step)
         setStepLabels((prev) => ({ ...prev, [event.step]: event.label }))
-        setCompletedSteps((prev) => new Set(prev).add(event.step))
       } else if (event.type === 'log') {
         setLog((prev) => [...prev, event.text])
       } else if (event.type === 'done') {
+        const last = currentStepRef.current
+        if (last) {
+          setCompletedSteps((p) => new Set(p).add(last))
+        }
         window.api.servers
           .get(event.payload.serverId)
           .then((server) => server && onDone(server))
@@ -69,6 +79,8 @@ export function AddServer({ onDone, onBack }: AddServerProps): React.JSX.Element
     setLog([])
     setCompletedSteps(new Set())
     setStepLabels({})
+    currentStepRef.current = null
+    setCurrentStep(null)
     setDeploying(true)
     window.api.deploy.start({
       host: form.host.trim(),
@@ -134,6 +146,7 @@ export function AddServer({ onDone, onBack }: AddServerProps): React.JSX.Element
         </div>
 
         <div className={styles.status}>
+          <div className={styles.statusTitle}>{t('deploy.progress')}</div>
           <ol className={styles.steps}>
             {STEP_ORDER.map((step) => {
               const state = completedSteps.has(step)
@@ -145,7 +158,7 @@ export function AddServer({ onDone, onBack }: AddServerProps): React.JSX.Element
                 state === 'done'
                   ? t('deploy.status.done')
                   : state === 'active'
-                    ? stepLabels[step] ?? t('deploy.status.running')
+                    ? stepLabels[step] ?? t(`deploy.active.${step}`)
                     : t('deploy.status.pending')
               return (
                 <li
@@ -154,14 +167,19 @@ export function AddServer({ onDone, onBack }: AddServerProps): React.JSX.Element
                 >
                   <div className={styles.stepRow}>
                     <span className={styles.stepIcon}>
-                      {state === 'done' ? '✓' : state === 'active' ? '⟳' : '○'}
+                      {state === 'done' ? (
+                        <CheckCircle2 className={styles.stepCheck} size={20} />
+                      ) : state === 'active' ? (
+                        <span className={styles.stepDot} />
+                      ) : (
+                        <Circle className={styles.stepTodo} size={16} />
+                      )}
                     </span>
                     <span className={styles.stepLabel}>
                       {t(`deploy.steps.${step}`)}
                     </span>
                   </div>
                   <div className={styles.stepStatus} data-state={state}>
-                    {state === 'active' && <span className={styles.stepSpinner} />}
                     {statusText}
                   </div>
                 </li>
