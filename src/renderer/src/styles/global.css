@@ -44,16 +44,17 @@
   border-radius: 8px;
 }
 
-/* Приглушённый фон вторичных кнопок — не выделяются блоком на фоне страницы */
+/* Приглушённый фон вторичных кнопок — светлая полупрозрачная плашка вместо сплошного блока */
 .button--secondary {
-  --button-bg: color-mix(in srgb, var(--default) 45%, transparent);
-  --button-bg-hover: color-mix(in srgb, var(--default) 65%, transparent);
-  --button-bg-pressed: color-mix(in srgb, var(--default) 65%, transparent);
+  --button-bg: color-mix(in srgb, var(--text-1) 10%, transparent);
+  --button-bg-hover: color-mix(in srgb, var(--text-1) 18%, transparent);
+  --button-bg-pressed: color-mix(in srgb, var(--text-1) 18%, transparent);
+  --button-fg: var(--text-1);
 }
 
 /* Приглушённый фон default-чипов (напр. «Debian 12») */
 .chip--default {
-  --chip-bg: color-mix(in srgb, var(--default) 45%, transparent);
+  --chip-bg: color-mix(in srgb, var(--text-1) 10%, transparent);
 }
 
 ::-webkit-scrollbar {
