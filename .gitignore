@@ -1,6 +1,15 @@
 ﻿
+# Node / Electron
+node_modules/
+out/
+dist/
+*.log
+
 # Diagnostic helpers
 GUI-demo.py
 gui-debug.log
 Xrayebator-Windows-x64.exe.sha256
 
+# OS
+.DS_Store
+Thumbs.db

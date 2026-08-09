@@ -1,0 +1,60 @@
+{
+  "app": {
+    "title": "Xrayebator"
+  },
+  "dashboard": {
+    "title": "My servers",
+    "add": "Add",
+    "empty": "Add your first server",
+    "routes_one": "{{count}} route",
+    "routes_other": "{{count}} routes",
+    "keys": "Keys",
+    "refresh": "Refresh",
+    "delete": "Delete",
+    "back": "Back"
+  },
+  "deploy": {
+    "title": "Deploy server",
+    "host": "IP / Hostname",
+    "port": "SSH Port",
+    "username": "Username",
+    "password": "Password",
+    "email": "Email",
+    "button": "Deploy server",
+    "running": "Deploying...",
+    "steps": {
+      "ssh": "SSH connection",
+      "os_check": "OS check",
+      "upload": "Uploading scripts",
+      "install": "Installing Xray",
+      "binary": "Installing xrayebator",
+      "quickstart": "Quickstart",
+      "save": "Saving"
+    },
+    "status": {
+      "pending": "Waiting...",
+      "running": "Running...",
+      "done": "Done"
+    },
+    "log": "Console",
+    "waiting": "Waiting for output...",
+    "success": "Server deployed!",
+    "error": "Error"
+  },
+  "keys": {
+    "title": "Keys for HAPP",
+    "copy": "Copy",
+    "copy_all": "Copy all",
+    "copied": "Copied!",
+    "qr": "QR code",
+    "subscription": "Subscription URL",
+    "none": "No keys yet"
+  },
+  "settings": {
+    "theme": "Theme",
+    "language": "Language",
+    "updates": "Auto update",
+    "dark": "Dark",
+    "light": "Light"
+  }
+}

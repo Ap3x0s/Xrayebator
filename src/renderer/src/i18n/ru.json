@@ -1,0 +1,61 @@
+{
+  "app": {
+    "title": "Xrayebator"
+  },
+  "dashboard": {
+    "title": "Мои серверы",
+    "add": "Добавить",
+    "empty": "Добавьте первый сервер",
+    "routes_one": "{{count}} маршрут",
+    "routes_few": "{{count}} маршрута",
+    "routes_many": "{{count}} маршрутов",
+    "keys": "Ключи",
+    "refresh": "Обновить",
+    "delete": "Удалить",
+    "back": "Назад"
+  },
+  "deploy": {
+    "title": "Развернуть сервер",
+    "host": "IP / Hostname",
+    "port": "SSH Порт",
+    "username": "Пользователь",
+    "password": "Пароль",
+    "email": "Email",
+    "button": "Развернуть сервер",
+    "running": "Развёртывание...",
+    "steps": {
+      "ssh": "SSH подключение",
+      "os_check": "Проверка ОС",
+      "upload": "Загрузка скриптов",
+      "install": "Установка Xray",
+      "binary": "Установка xrayebator",
+      "quickstart": "Quickstart",
+      "save": "Сохранение"
+    },
+    "status": {
+      "pending": "Ожидание...",
+      "running": "Выполняется...",
+      "done": "Готово"
+    },
+    "log": "Консоль",
+    "waiting": "Ожидание вывода...",
+    "success": "Сервер развёрнут!",
+    "error": "Ошибка"
+  },
+  "keys": {
+    "title": "Ключи для HAPP",
+    "copy": "Копировать",
+    "copy_all": "Скопировать всё",
+    "copied": "Скопировано!",
+    "qr": "QR-код",
+    "subscription": "Subscription URL",
+    "none": "Ключи ещё не получены"
+  },
+  "settings": {
+    "theme": "Тема",
+    "language": "Язык",
+    "updates": "Автообновление",
+    "dark": "Тёмная",
+    "light": "Светлая"
+  }
+}
