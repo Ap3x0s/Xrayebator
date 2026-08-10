@@ -39,6 +39,13 @@ describe('parseVlessLine', () => {
     const link = parseVlessLine(`vless://a@h:443?type=tcp#${name}`)
     expect(link!.name).toBe('Москва')
   })
+
+  it('сохраняет региональный флаг в начале имени (HAPP рисует кружок флага)', () => {
+    const name = encodeURIComponent('🇱🇻 Latvia · happ-tcp-xudp')
+    const link = parseVlessLine(`vless://a@h:443?type=tcp#${name}`)
+    expect(link!.name.startsWith('🇱🇻')).toBe(true)
+    expect(link!.name).toBe('🇱🇻 Latvia · happ-tcp-xudp')
+  })
 })
 
 describe('parseSubscription', () => {

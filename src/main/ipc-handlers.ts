@@ -53,7 +53,10 @@ export function registerIpcHandlers({ store }: IpcContext): void {
           host: payload.host,
           port: payload.port,
           username: payload.username,
-          os: null,
+          os: result.os,
+          country: result.country,
+          city: result.city,
+          flag: result.flag,
           routesCount: result.keys.length,
           subscriptionUrl: result.subscriptionUrl,
           keys: result.keys

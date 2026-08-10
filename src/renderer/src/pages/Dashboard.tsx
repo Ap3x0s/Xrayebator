@@ -35,8 +35,15 @@ export function Dashboard({
             <div className={styles.cardHeader}>
               <span className={styles.statusDot} />
               <div className={styles.cardInfo}>
-                <div className={styles.cardTitle}>{server.name}</div>
+                <div className={styles.cardTitle}>
+                  {server.flag && <span className={styles.flag}>{server.flag}</span>}
+                  {server.name}
+                </div>
                 <div className={styles.cardMeta}>
+                  <Chip size="sm" color="default">
+                    {server.country || '—'}
+                  </Chip>
+                  {server.city && <span>{server.city}</span>}
                   <Chip size="sm" color="default">
                     {server.os ?? '—'}
                   </Chip>

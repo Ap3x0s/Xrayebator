@@ -5,6 +5,9 @@ export interface Server {
   port: number
   username: string
   os: string | null
+  country: string | null
+  city: string | null
+  flag: string | null
   createdAt: string
   routesCount: number | null
   subscriptionUrl: string

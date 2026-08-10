@@ -57,6 +57,13 @@
   font-weight: 600;
 }
 
+.flag {
+  font-size: 18px;
+  line-height: 1;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
 .cardMeta {
   display: flex;
   align-items: center;

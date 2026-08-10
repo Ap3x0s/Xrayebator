@@ -19,6 +19,10 @@ export interface DeployInput {
 export interface DeployResult {
   subscriptionUrl: string
   keys: VlessLink[]
+  os: string | null
+  country: string | null
+  city: string | null
+  flag: string | null
 }
 
 /** Путь к сценариям: в собранном приложении — resources/scripts, в dev — корень проекта. */
@@ -110,7 +114,11 @@ export class Deployer {
 
       return {
         subscriptionUrl: subUrl ?? '',
-        keys
+        keys,
+        os: payload.os ?? null,
+        country: payload.country ?? null,
+        city: payload.city ?? null,
+        flag: payload.flag ?? null
       }
     } finally {
       client.close()
@@ -122,6 +130,10 @@ interface QuickstartJson {
   ok?: boolean
   error?: string
   subscription_url?: string
+  country?: string
+  city?: string
+  flag?: string
+  os?: string
 }
 
 function parseQuickstartJson(raw: string): QuickstartJson {
