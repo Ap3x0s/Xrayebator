@@ -272,6 +272,13 @@ _geo_detect_country() {
   return 0
 }
 
+# Читает ISO-код страны из $SERVER_COUNTRY_FILE (пусто, если маркер отсутствует).
+_geo_country_code() {
+  if [[ -f "$SERVER_COUNTRY_FILE" ]]; then
+    cut -d'|' -f1 "$SERVER_COUNTRY_FILE" 2>/dev/null || true
+  fi
+}
+
 # Читает название страны из $SERVER_COUNTRY_FILE (пусто, если маркер отсутствует).
 _geo_country_name() {
   if [[ -f "$SERVER_COUNTRY_FILE" ]]; then
@@ -284,6 +291,22 @@ _geo_city() {
   if [[ -f "$SERVER_COUNTRY_FILE" ]]; then
     cut -d'|' -f3 "$SERVER_COUNTRY_FILE" 2>/dev/null || true
   fi
+}
+
+# Unicode-флаг страны из двух Regional Indicator Symbols (U+1F1E6..U+1F1FF).
+# ISO-код "LV" → 🇱🇻 (Latvia). Bash printf \UXXXXXX + вычисление кодпоинта из букв.
+# Пустой результат если код не ровно 2 латинских буквы — вызывающий просто не получит флаг.
+_geo_flag_emoji() {
+  local code="$1"
+  [[ "${#code}" -eq 2 ]] || return 0
+  local c1 c2 h1 h2
+  c1=$(LC_ALL=C printf '%d' "'${code:0:1}")
+  c2=$(LC_ALL=C printf '%d' "'${code:1:1}")
+  # Только A-Z (65..90) — иначе не региональный индикатор.
+  [[ "$c1" -ge 65 && "$c1" -le 90 && "$c2" -ge 65 && "$c2" -le 90 ]] || return 0
+  h1=$(printf '%x' $((0x1F1E6 + c1 - 65)))
+  h2=$(printf '%x' $((0x1F1E6 + c2 - 65)))
+  printf "\\U$(printf '%08s' "$h1" | tr ' ' 0)\\U$(printf '%08s' "$h2" | tr ' ' 0)"
 }
 
 # ═══════════════════════════════════════════════════════════
@@ -594,12 +617,18 @@ _generate_vless_url_pure() {
   fi
   [[ -n "$route_label" && "$route_label" != "null" ]] && profile_name="${profile_name}-${route_label}"
 
-  # Prepend страны ("сторона"): HAPP показывает маршруты как "Германия · HAPP-xhttp-legacy".
-  # Только если geo-маркер определён; иначе имя маршрута без изменений (совместимость).
-  local geo_country
+  # Prepend страны ("сторона"): HAPP показывает маршруты как "🇱🇻 Latvia · HAPP-xhttp-legacy".
+  # Региональный индикатор (Unicode-flag) в САМОМ начале фрагмента — HAPP рисует его
+  # в круглом флаге. Только если geo-маркер определён; иначе имя маршрута без изменений.
+  local geo_country geo_flag
   geo_country=$(_geo_country_name)
+  geo_flag=$(_geo_flag_emoji "$(_geo_country_code)")
   if [[ -n "$geo_country" ]]; then
-    profile_name="${geo_country} · ${profile_name}"
+    if [[ -n "$geo_flag" ]]; then
+      profile_name="${geo_flag} ${geo_country} · ${profile_name}"
+    else
+      profile_name="${geo_country} · ${profile_name}"
+    fi
   fi
 
   # URL-encoded фрагмент для vless://…{~#name} (пробелы/юникод страны в имени маршрута
@@ -9990,13 +10019,14 @@ NGINXHTTPS
   fi
   subscription_url="${base}/sub/${result_sub_token}"
 
-  # «Сторона» сервера для GUI (country/city) + ОС (PRETTY_NAME) — полезно "Мои серверы".
-  local result_country result_city result_os
+  # «Сторона» сервера для GUI (country/city/flag) + ОС (PRETTY_NAME) — полезно "Мои серверы".
+  local result_country result_city result_flag result_os
   result_country=$(_geo_country_name)
   result_city=$(_geo_city)
+  result_flag=$(_geo_flag_emoji "$(_geo_country_code)")
   result_os=$(awk -F'"' '/^PRETTY_NAME=/{print $2; exit}' /etc/os-release 2>/dev/null)
 
-  echo "{\"ok\":true,\"subscription_url\":\"${subscription_url}\",\"base_url\":\"${base}\",\"profile\":\"${HAPP_DEFAULT_PROFILE}\",\"routes\":${route_count},\"country\":\"${result_country}\",\"city\":\"${result_city}\",\"os\":\"${result_os}\"}"
+  echo "{\"ok\":true,\"subscription_url\":\"${subscription_url}\",\"base_url\":\"${base}\",\"profile\":\"${HAPP_DEFAULT_PROFILE}\",\"routes\":${route_count},\"country\":\"${result_country}\",\"city\":\"${result_city}\",\"flag\":\"${result_flag}\",\"os\":\"${result_os}\"}"
   return 0
 }
 
@@ -10067,13 +10097,14 @@ happ_setup_command() {
   local _route_count
   _route_count=$(jq -r '(.routes // []) | length' "$PROFILES_DIR/$_profile_name.json")
 
-  # «Сторона» сервера для GUI (country/city) + ОС.
-  local _sub_country _sub_city _sub_os
+  # «Сторона» сервера для GUI (country/city/flag) + ОС.
+  local _sub_country _sub_city _sub_flag _sub_os
   _sub_country=$(_geo_country_name)
   _sub_city=$(_geo_city)
+  _sub_flag=$(_geo_flag_emoji "$(_geo_country_code)")
   _sub_os=$(awk -F'"' '/^PRETTY_NAME=/{print $2; exit}' /etc/os-release 2>/dev/null)
 
-  echo "{\"ok\":true,\"profile\":\"$_profile_name\",\"routes\":$_route_count,\"subscription_url\":\"${_base}/sub/${_token}\",\"country\":\"${_sub_country}\",\"city\":\"${_sub_city}\",\"os\":\"${_sub_os}\"}"
+  echo "{\"ok\":true,\"profile\":\"$_profile_name\",\"routes\":$_route_count,\"subscription_url\":\"${_base}/sub/${_token}\",\"country\":\"${_sub_country}\",\"city\":\"${_sub_city}\",\"flag\":\"${_sub_flag}\",\"os\":\"${_sub_os}\"}"
   return 0
 }
 
