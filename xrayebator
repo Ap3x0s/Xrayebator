@@ -222,6 +222,71 @@ _ip_bracket() {
 }
 
 # ═══════════════════════════════════════════════════════════
+# Geo-определение страны/города сервера ("сторона")
+# ═══════════════════════════════════════════════════════════
+# Маркер-файл: "country_code|country_name|city" (например "DE|Germany|Frankfurt").
+# Пишется один раз при quickstart/happ-setup (best-effort, сетевой запрос к
+# бесплатным geo-API). Читается _generate_vless_url_pure для подписи имени vless
+# маршрута и quickstart JSON для GUI. Если файла нет — подписка ведёт себя как раньше.
+SERVER_COUNTRY_FILE="${SERVER_COUNTRY_FILE:-/usr/local/etc/xray/.server_country}"
+
+# Best-effort: определяет страну/город по публичному IP сервера и пишет $SERVER_COUNTRY_FILE.
+# Идемпотентен: если файл непустой и моложе 30 суток — сеть не трогает (subhttp source-ит
+# xrayebator на каждый запрос, лишние curl'ы под xray:xray неприемлемы).
+# Args: $1 = IP сервера (опционально; иначе get_server_ip).
+# Возвращает 0 даже при недоступности API — вызывающий никогда не фейлится из-за страны.
+_geo_detect_country() {
+  local ip="${1:-}"
+  local file="$SERVER_COUNTRY_FILE"
+
+  if [[ -s "$file" ]]; then
+    local now mtime
+    now=$(date +%s 2>/dev/null || echo 0)
+    mtime=$(stat -c %Y "$file" 2>/dev/null || echo 0)
+    if [[ "$now" -gt 0 && "$mtime" -gt 0 && $((now - mtime)) -lt 2592000 ]]; then
+      return 0
+    fi
+  fi
+
+  [[ -z "$ip" ]] && ip=$(get_server_ip)
+  ip="${ip//\[/}"; ip="${ip//\]/}"
+  [[ -n "$ip" ]] || return 0
+
+  # ipwho.is первым (HTTPS, без ключа); ip-api.com как fallback (cache-burst 45/min).
+  local json code country city
+  json=$(curl -fsS --connect-timeout 5 --max-time 8 "https://ipwho.is/${ip}" 2>/dev/null) \
+    || json=$(curl -fsS --connect-timeout 5 --max-time 8 \
+                    "http://ip-api.com/json/${ip}?fields=status,country,countryCode,city" 2>/dev/null) \
+    || return 0
+
+  [[ "$(printf '%s' "$json" | jq -r '.status // .success // empty' 2>/dev/null)" != "false" ]] || return 0
+  code=$(printf '%s' "$json" | jq -r '.country_code // .countryCode // empty' 2>/dev/null)
+  country=$(printf '%s' "$json" | jq -r '.country // empty' 2>/dev/null)
+  city=$(printf '%s' "$json" | jq -r '.city // empty' 2>/dev/null)
+  [[ -n "$country" && "$country" != "null" ]] || return 0
+  [[ -n "$code" && "$code" != "null" ]] || code=""
+  [[ -n "$city" && "$city" != "null" ]] || city=""
+
+  printf '%s|%s|%s\n' "$code" "$country" "$city" > "$file" 2>/dev/null || true
+  chown xray:xray "$file" 2>/dev/null || true
+  return 0
+}
+
+# Читает название страны из $SERVER_COUNTRY_FILE (пусто, если маркер отсутствует).
+_geo_country_name() {
+  if [[ -f "$SERVER_COUNTRY_FILE" ]]; then
+    cut -d'|' -f2 "$SERVER_COUNTRY_FILE" 2>/dev/null || true
+  fi
+}
+
+# Читает город из $SERVER_COUNTRY_FILE (пусто, если маркер отсутствует).
+_geo_city() {
+  if [[ -f "$SERVER_COUNTRY_FILE" ]]; then
+    cut -d'|' -f3 "$SERVER_COUNTRY_FILE" 2>/dev/null || true
+  fi
+}
+
+# ═══════════════════════════════════════════════════════════
 # HELPER FUNCTIONS
 # ═══════════════════════════════════════════════════════════
 
@@ -528,6 +593,18 @@ _generate_vless_url_pure() {
     sni=$(jq -r '.sni // "www.ozon.ru"' "$profile_file")
   fi
   [[ -n "$route_label" && "$route_label" != "null" ]] && profile_name="${profile_name}-${route_label}"
+
+  # Prepend страны ("сторона"): HAPP показывает маршруты как "Германия · HAPP-xhttp-legacy".
+  # Только если geo-маркер определён; иначе имя маршрута без изменений (совместимость).
+  local geo_country
+  geo_country=$(_geo_country_name)
+  if [[ -n "$geo_country" ]]; then
+    profile_name="${geo_country} · ${profile_name}"
+  fi
+
+  # URL-encoded фрагмент для vless://…{~#name} (пробелы/юникод страны в имени маршрута
+  # обязаны быть закодированы — иначе кривой URL у v2rayNG/HAPP/Shadowrocket).
+  profile_name=$(jq -nr --arg n "$profile_name" '$n|@uri')
 
   local server_ip clean_public_key
   server_ip=$(_connection_server_address)
@@ -9653,6 +9730,9 @@ quickstart_command() {
   local server_ip_bracketed
   server_ip_bracketed=$(_ip_bracket "$server_ip")
 
+  # «Сторона» сервера (страна/город) для GUI и подписи маршрутов в HAPP.
+  _geo_detect_country "$server_ip" >/dev/null 2>&1 || true
+
   # Установить nginx если нет
   if ! command -v nginx &>/dev/null; then
     echo "  -> Установка nginx..." >&2
@@ -9910,7 +9990,13 @@ NGINXHTTPS
   fi
   subscription_url="${base}/sub/${result_sub_token}"
 
-  echo "{\"ok\":true,\"subscription_url\":\"${subscription_url}\",\"base_url\":\"${base}\",\"profile\":\"${HAPP_DEFAULT_PROFILE}\",\"routes\":${route_count}}"
+  # «Сторона» сервера для GUI (country/city) + ОС (PRETTY_NAME) — полезно "Мои серверы".
+  local result_country result_city result_os
+  result_country=$(_geo_country_name)
+  result_city=$(_geo_city)
+  result_os=$(awk -F'"' '/^PRETTY_NAME=/{print $2; exit}' /etc/os-release 2>/dev/null)
+
+  echo "{\"ok\":true,\"subscription_url\":\"${subscription_url}\",\"base_url\":\"${base}\",\"profile\":\"${HAPP_DEFAULT_PROFILE}\",\"routes\":${route_count},\"country\":\"${result_country}\",\"city\":\"${result_city}\",\"os\":\"${result_os}\"}"
   return 0
 }
 
@@ -9971,6 +10057,9 @@ happ_setup_command() {
     fi
   fi
 
+  # «Сторона» сервера (country/city) — быстрое обновление, если маркер отсутствует/протух.
+  _geo_detect_country >/dev/null 2>&1 || true
+
   # 3. База URL подписки
   local _base
   _base=$(_subscription_base_url)
@@ -9978,7 +10067,13 @@ happ_setup_command() {
   local _route_count
   _route_count=$(jq -r '(.routes // []) | length' "$PROFILES_DIR/$_profile_name.json")
 
-  echo "{\"ok\":true,\"profile\":\"$_profile_name\",\"routes\":$_route_count,\"subscription_url\":\"${_base}/sub/${_token}\"}"
+  # «Сторона» сервера для GUI (country/city) + ОС.
+  local _sub_country _sub_city _sub_os
+  _sub_country=$(_geo_country_name)
+  _sub_city=$(_geo_city)
+  _sub_os=$(awk -F'"' '/^PRETTY_NAME=/{print $2; exit}' /etc/os-release 2>/dev/null)
+
+  echo "{\"ok\":true,\"profile\":\"$_profile_name\",\"routes\":$_route_count,\"subscription_url\":\"${_base}/sub/${_token}\",\"country\":\"${_sub_country}\",\"city\":\"${_sub_city}\",\"os\":\"${_sub_os}\"}"
   return 0
 }
 
