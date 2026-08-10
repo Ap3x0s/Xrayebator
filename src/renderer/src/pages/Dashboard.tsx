@@ -1,6 +1,7 @@
 import { Button, Chip } from '@heroui/react'
 import { useTranslation } from 'react-i18next'
 import type { Server } from '@shared/types'
+import { CountryFlag } from '../components/CountryFlag'
 import styles from './Dashboard.module.css'
 
 interface DashboardProps {
@@ -36,7 +37,7 @@ export function Dashboard({
               <span className={styles.statusDot} />
               <div className={styles.cardInfo}>
                 <div className={styles.cardTitle}>
-                  {server.flag && <span className={styles.flag}>{server.flag}</span>}
+                  <CountryFlag flag={server.flag} className={styles.flag} />
                   {server.name}
                 </div>
                 <div className={styles.cardMeta}>
