@@ -1,5 +1,6 @@
-import { Button, Chip } from '@heroui/react'
-import { Settings2 } from 'lucide-react'
+import { useState } from 'react'
+import { Button, Chip, AlertDialog } from '@heroui/react'
+import { Settings2, Trash2, TriangleAlert } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { Server } from '@shared/types'
 import { CountryFlag } from '../components/CountryFlag'
@@ -21,6 +22,13 @@ export function Dashboard({
   onRemove
 }: DashboardProps): React.JSX.Element {
   const { t } = useTranslation()
+  const [pendingRemove, setPendingRemove] = useState<Server | null>(null)
+
+  const confirmRemove = (): void => {
+    if (!pendingRemove) return
+    onRemove(pendingRemove.id)
+    setPendingRemove(null)
+  }
 
   return (
     <div className={styles.root}>
@@ -68,8 +76,9 @@ export function Dashboard({
               <Button
                 size="sm"
                 variant="danger-soft"
-                onPress={() => onRemove(server.id)}
+                onPress={() => setPendingRemove(server)}
               >
+                <Trash2 size={16} />
                 {t('dashboard.delete')}
               </Button>
             </div>
@@ -88,6 +97,41 @@ export function Dashboard({
           </Button>
         )}
       </div>
+
+      <AlertDialog.Root
+        isOpen={pendingRemove !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingRemove(null)
+        }}
+      >
+        <AlertDialog.Backdrop>
+          <AlertDialog.Container>
+            <AlertDialog.Dialog className={styles.confirmDialog}>
+              <AlertDialog.Header>
+                <AlertDialog.Icon status="danger">
+                  <TriangleAlert size={20} />
+                </AlertDialog.Icon>
+                <AlertDialog.Heading>
+                  {t('dashboard.confirmDeleteTitle')}
+                </AlertDialog.Heading>
+              </AlertDialog.Header>
+              <AlertDialog.Body>
+                {t('dashboard.confirmDeleteBody', {
+                  name: pendingRemove?.name ?? ''
+                })}
+              </AlertDialog.Body>
+              <AlertDialog.Footer>
+                <Button variant="secondary" onPress={() => setPendingRemove(null)}>
+                  {t('dashboard.cancel')}
+                </Button>
+                <Button variant="danger" onPress={confirmRemove}>
+                  {t('dashboard.delete')}
+                </Button>
+              </AlertDialog.Footer>
+            </AlertDialog.Dialog>
+          </AlertDialog.Container>
+        </AlertDialog.Backdrop>
+      </AlertDialog.Root>
     </div>
   )
 }

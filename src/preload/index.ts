@@ -7,6 +7,7 @@ import type {
   ProfileCreateResult,
   ProfileDeleteResult,
   Server,
+  ServerMaintenanceResult,
   ServerProfile,
   SubscriptionResult
 } from '@shared/types'
@@ -55,6 +56,17 @@ const api: ElectronAPI = {
       name: string
     ): Promise<ProfileDeleteResult> =>
       ipcRenderer.invoke('profiles:remove', serverId, password, name)
+  },
+
+  server: {
+    update: (
+      serverId: string,
+      password: string,
+      branch: string
+    ): Promise<ServerMaintenanceResult> =>
+      ipcRenderer.invoke('server:update', serverId, password, branch),
+    uninstall: (serverId: string, password: string): Promise<ServerMaintenanceResult> =>
+      ipcRenderer.invoke('server:uninstall', serverId, password)
   },
 
   app: {

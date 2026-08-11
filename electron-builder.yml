@@ -13,6 +13,8 @@ extraResources:
     to: scripts/install.sh
   - from: xrayebator
     to: scripts/xrayebator
+  - from: uninstall.sh
+    to: scripts/uninstall.sh
 
 publish:
   - provider: github

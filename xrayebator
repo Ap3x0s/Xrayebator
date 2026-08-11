@@ -182,6 +182,38 @@ if [[ "$XRAYEBATOR_SOURCED" -eq 0 ]]; then
   fi
 fi
 
+# Ждёт освобождения apt/dpkg lock (apt-daily, unattended-upgrades и т.п.).
+# На свежих Ubuntu после первого входа фоновые сервисы держат lock до ~10 минут,
+# из-за чего `apt-get install` молча висит и падает по timeout (GUI: «quickstart код 1»).
+# Возвращает 0, когда lock свободен, или 1 по истечении timeout (сек).
+_apt_wait_lock() {
+  local max_sec="${1:-300}"
+  local deadline=$(( $(date +%s) + max_sec ))
+  local locks=(
+    /var/lib/dpkg/lock-frontend
+    /var/lib/dpkg/lock
+    /var/lib/apt/lists/lock
+    /var/cache/apt/archives/lock
+  )
+  while (( $(date +%s) < deadline )); do
+    local held=0
+    local lock
+    for lock in "${locks[@]}"; do
+      # flock не создаёт файл — touch обязателен для несуществующих lock-путей.
+      touch "$lock" 2>/dev/null || true
+      if ! flock -n "$lock" true 2>/dev/null; then
+        held=1
+        break
+      fi
+    done
+    if [[ "$held" -eq 0 ]]; then
+      return 0
+    fi
+    sleep 5
+  done
+  return 1
+}
+
 # Получение внешнего IP
 get_server_ip() {
   local ip=""
@@ -964,6 +996,35 @@ _certbot_supports_ip_address() {
   # упадёт с "unrecognized arguments" уже после установки nginx.
   "$certbot_bin" --help all 2>/dev/null | grep -q -- '--ip-address' \
     && "$certbot_bin" --help all 2>/dev/null | grep -q -- '--preferred-profile'
+}
+
+# Читает лог проваленного certonly и извлекает человекочитаемую причину (rate limit
+# Let's Encrypt, ACME-ошибку и т.п.). Quickstart кладёт в JSON, чтобы GUI показывал
+# реальную причину вместо голого "certbot failed. Log: ...".
+_certbot_failure_reason() {
+  local logfile="${1:-/tmp/certbot-ip.log}"
+  local reason=""
+  [[ -s "$logfile" ]] || return 0
+
+  # Rate limit: "too many certificates (5) already issued for this exact set of
+  # identifiers in the last 168h0m0s, retry after 2026-08-12 18:52:48 UTC"
+  reason=$(grep -m1 -oP 'too many certificates.*?retry after [0-9-]+ [0-9:]+ UTC' "$logfile" 2>/dev/null)
+  if [[ -n "$reason" ]]; then
+    printf "Let's Encrypt rate limit: %s. Подождите до указанного времени или используйте домен вместо IP" "$reason"
+    return 0
+  fi
+
+  # ACME-ошибка вида "[urn:ietf:params:acme:error:unauthorized] ..."
+  reason=$(grep -m1 -oP '\[[a-z:0-9]+\][^[]*' "$logfile" 2>/dev/null | tr '\n' ' ' | sed 's/  */ /g')
+  if [[ -n "$reason" ]]; then
+    printf '%s' "$reason"
+    return 0
+  fi
+
+  # Fallback: последняя непустая строка лога.
+  reason=$(grep -v '^[[:space:]]*$' "$logfile" | tail -1)
+  [[ -n "$reason" ]] && printf '%s' "$reason"
+  return 0
 }
 
 _ensure_certbot_ip_tls() {
@@ -5033,10 +5094,15 @@ install_subscription_server() {
   # Pre-flight: socat (handler bind), openssl/base64/jq уже гарантированы install.sh.
   if ! command -v socat &>/dev/null; then
     echo -e "${CYAN}  → Установка socat...${NC}"
-    if ! apt-get install -y socat >/dev/null 2>&1; then
-      echo -e "${RED}✗ Не удалось установить socat${NC}"
-      echo -e "${YELLOW}Установите вручную: apt-get install -y socat${NC}"
-      return 1
+    _apt_wait_lock 300 || true
+    if ! timeout 180 apt-get install -y socat >/dev/null 2>&1; then
+      _apt_wait_lock 300 || true
+      timeout 180 apt-get update >/dev/null 2>&1 || true
+      if ! timeout 180 apt-get install -y socat >/dev/null 2>&1; then
+        echo -e "${RED}✗ Не удалось установить socat${NC}"
+        echo -e "${YELLOW}Установите вручную: apt-get install -y socat${NC}"
+        return 1
+      fi
     fi
     echo -e "${GREEN}  ✓ socat установлен${NC}"
   fi
@@ -9727,10 +9793,19 @@ quickstart_command() {
 
   # 2. Subscription server (HAPP)
   echo "=== Subscription server ===" >&2
-  if ! install_subscription_server >/dev/null 2>&1; then
-    echo '{"ok":false,"error":"Не удалось установить subscription server"}'
+  local sub_rc sub_log
+  sub_log=$(install_subscription_server 2>&1 >/dev/null)
+  sub_rc=$?
+  if [[ "$sub_rc" -ne 0 ]]; then
+    local sub_reason
+    sub_reason=$(printf '%s' "$sub_log" | grep -E '✗|ошиб|Ошибка|error|failed|Error' | tail -3 | tr '\n' ' ')
+    if [[ -z "$sub_reason" ]]; then
+      sub_reason=$(printf '%s' "$sub_log" | tail -3 | tr '\n' ' ')
+    fi
+    echo "{\"ok\":false,\"error\":\"Не удалось установить subscription server: ${sub_reason}\"}"
     return 1
   fi
+  printf '%s\n' "$sub_log" >&2
   echo "  Subscription server установлен" >&2
 
   # 3. nginx + TLS
@@ -9765,10 +9840,23 @@ quickstart_command() {
   # Установить nginx если нет
   if ! command -v nginx &>/dev/null; then
     echo "  -> Установка nginx..." >&2
-    timeout 120 apt-get install -y nginx >/dev/null 2>&1 || {
-      echo '{"ok":false,"error":"apt-get install nginx failed"}'
+    # FIX: фоновые apt-daily/unattended-upgrades держат lock на свежих Ubuntu —
+    # без ожидания apt-get висит и quickstart падает с кодом 1 (GUI).
+    if ! _apt_wait_lock 300; then
+      echo '{"ok":false,"error":"apt lock не освободился за 5 минут (apt-daily/unattended-upgrades)"}'
       return 1
-    }
+    fi
+    if ! timeout 180 apt-get install -y nginx >/dev/null 2>&1; then
+      # При пропущенном install.sh (повторный деплой) apt-индексы могут быть
+      # устаревшими — обновляем и пробуем ещё раз, прежде чем сдаться.
+      echo "  -> apt-get install nginx не удался, обновляю индексы и повторяю..." >&2
+      _apt_wait_lock 300 || true
+      timeout 180 apt-get update >/dev/null 2>&1 || true
+      if ! timeout 180 apt-get install -y nginx >/dev/null 2>&1; then
+        echo '{"ok":false,"error":"apt-get install nginx failed"}'
+        return 1
+      fi
+    fi
   fi
 
   # Certbot: сначала snap (поддерживает --ip-address + --preferred-profile)
@@ -9780,7 +9868,8 @@ quickstart_command() {
   fi
   if [[ -z "$certbot_bin" ]]; then
     echo "  -> Установка certbot через snap..." >&2
-    timeout 120 apt-get install -y snapd >/dev/null 2>&1 || true
+    _apt_wait_lock 300 || true
+    timeout 180 apt-get install -y snapd >/dev/null 2>&1 || true
     systemctl enable --now snapd.socket >/dev/null 2>&1 || true
     export PATH="/snap/bin:$PATH"
     if command -v snap &>/dev/null; then
@@ -9891,7 +9980,13 @@ NGINXHTTP
         -m "$email" \
         --deploy-hook "systemctl reload nginx" \
         >/tmp/certbot-ip.log 2>&1; then
-      echo '{"ok":false,"error":"certbot failed. Log: /tmp/certbot-ip.log"}'
+      local certbot_reason
+      certbot_reason=$(_certbot_failure_reason /tmp/certbot-ip.log)
+      if [[ -n "$certbot_reason" ]]; then
+        echo "{\"ok\":false,\"error\":\"certbot failed: ${certbot_reason}\"}"
+      else
+        echo '{"ok":false,"error":"certbot failed. Log: /tmp/certbot-ip.log"}'
+      fi
       _qs_nginx_rollback
       return 1
     fi

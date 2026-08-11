@@ -10,10 +10,61 @@
   overflow-y: auto;
 }
 
+.breathing {
+  animation: breathe 1.6s ease-in-out infinite;
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(0.97);
+  }
+}
+
+.glowPulse {
+  animation: glowPulse 1.6s ease-in-out infinite;
+}
+
+@keyframes glowPulse {
+  0%,
+  100% {
+    box-shadow: 0 0 8px var(--accent-glow);
+  }
+  50% {
+    box-shadow: 0 0 26px var(--accent-glow);
+  }
+}
+
+.iconDownloading {
+  animation: iconDown 1s ease-in-out infinite;
+}
+
+@keyframes iconDown {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(4px);
+  }
+}
+
 .header {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
 }
 
 .title {
@@ -379,6 +430,17 @@
   box-shadow: var(--shadow-lg);
   animation: toastIn 0.3s ease;
   z-index: 100;
+}
+
+.confirmDialog {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 24px;
+  max-width: 420px;
+  width: 100%;
+  outline: none;
 }
 
 @media (max-width: 900px) {

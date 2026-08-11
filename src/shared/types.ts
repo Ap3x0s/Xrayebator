@@ -60,6 +60,12 @@ export interface ProfileDeleteResult {
   error?: string
 }
 
+export interface ServerMaintenanceResult {
+  ok: boolean
+  output?: string
+  error?: string
+}
+
 export type DeployStep =
   | 'ssh'
   | 'os_check'
@@ -131,6 +137,17 @@ export interface ElectronAPI {
       password: string,
       name: string
     ) => Promise<ProfileDeleteResult>
+  }
+  server: {
+    update: (
+      serverId: string,
+      password: string,
+      branch: string
+    ) => Promise<ServerMaintenanceResult>
+    uninstall: (
+      serverId: string,
+      password: string
+    ) => Promise<ServerMaintenanceResult>
   }
   app: {
     getVersion: () => Promise<string>

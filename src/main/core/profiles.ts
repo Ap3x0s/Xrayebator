@@ -58,7 +58,12 @@ export function extractJson(raw: string): unknown {
     }
   }
 
-  throw new Error('Сервер вернул пустой ответ')
+  const snippet = clean.trim().replace(/\s+/g, ' ').slice(0, 120)
+  throw new Error(
+    snippet
+      ? `Сервер вернул пустой ответ (вывод: ${snippet})`
+      : 'Сервер вернул пустой ответ'
+  )
 }
 
 export class ProfileManager {

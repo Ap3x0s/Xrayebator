@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
-import { Button, TextField, Label, Input, Chip, Spinner } from '@heroui/react'
-import { Settings2, Play, Trash2, RefreshCw, Lock } from 'lucide-react'
+import { Button, TextField, Label, Input, Chip, Spinner, AlertDialog } from '@heroui/react'
+import { Settings2, Play, Trash2, RefreshCw, Lock, CloudDownload, CloudOff } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { Server, ServerProfile } from '@shared/types'
 import styles from './ServerSettings.module.css'
@@ -31,6 +31,11 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
   const [transport, setTransport] = useState('xhttp')
   const [count, setCount] = useState('1')
   const [creating, setCreating] = useState(false)
+
+  const [updating, setUpdating] = useState(false)
+  const [uninstalling, setUninstalling] = useState(false)
+  const [confirmUninstall, setConfirmUninstall] = useState(false)
+  const [confirmRemove, setConfirmRemove] = useState<ServerProfile | null>(null)
 
   const connected = profiles !== null
 
@@ -79,6 +84,7 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
     setBusy(true)
     setCreating(true)
     setError(null)
+    const beforeNames = new Set((profiles ?? []).map((p) => p.name))
     let createdCount = 0
     let failedMessage: string | null = null
     try {
@@ -100,6 +106,17 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
     try {
       const fresh = await window.api.profiles.list(server.id, password)
       setProfiles(fresh.profiles ?? [])
+      // Если create вернул ошибку парсинга («пустой ответ»), но заказанные
+      // профили реально появились на сервере — считаем создание успешным.
+      if (createdCount === 0 && failedMessage) {
+        const newlyAppeared = (fresh.profiles ?? []).filter(
+          (p) => futureNames.includes(p.name) && !beforeNames.has(p.name)
+        )
+        if (newlyAppeared.length > 0) {
+          createdCount = newlyAppeared.length
+          failedMessage = null
+        }
+      }
     } catch {
       // список не критичен, ошибку создания уже показываем
     }
@@ -123,7 +140,16 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
         toastText(t('settings.deleted', { name: profile.name }))
         setProfiles((prev) => (prev ?? []).filter((p) => p.name !== profile.name))
       } else {
-        setError(result.error ?? t('settings.deleteFailed'))
+        // Удаление могло пройти на сервере, даже если ответ не распарсился.
+        // Перечитываем список: профиля больше нет — считаем удаление успешным.
+        const fresh = await window.api.profiles.list(server.id, password)
+        const stillThere = (fresh.profiles ?? []).some((p) => p.name === profile.name)
+        if (stillThere) {
+          setError(result.error ?? t('settings.deleteFailed'))
+        } else {
+          toastText(t('settings.deleted', { name: profile.name }))
+          setProfiles(fresh.profiles ?? [])
+        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -136,6 +162,47 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
     if (!profile.subscription_url) return
     await navigator.clipboard.writeText(profile.subscription_url)
     toastText(t('settings.copied'))
+  }
+
+  const updateServer = async (): Promise<void> => {
+    if (!password.trim()) return
+    setBusy(true)
+    setUpdating(true)
+    setError(null)
+    try {
+      const result = await window.api.server.update(server.id, password, 'experimental')
+      if (result.ok) {
+        toastText(t('settings.updated'))
+      } else {
+        setError(result.error ?? t('settings.updateFailed'))
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+      setUpdating(false)
+    }
+  }
+
+  const uninstallServer = async (): Promise<void> => {
+    if (!password.trim()) return
+    setConfirmUninstall(false)
+    setBusy(true)
+    setUninstalling(true)
+    setError(null)
+    try {
+      const result = await window.api.server.uninstall(server.id, password)
+      if (result.ok) {
+        toastText(t('settings.uninstalled'))
+      } else {
+        setError(result.error ?? t('settings.uninstallFailed'))
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+      setUninstalling(false)
+    }
   }
 
   const transportLabel = (profile: ServerProfile): string =>
@@ -158,6 +225,32 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
           {t('settings.title')}
         </h1>
         <span className={styles.serverName}>{server.name}</span>
+        {connected && (
+          <div className={styles.headerActions}>
+            <Button
+              variant="secondary"
+              size="sm"
+              isDisabled={busy && !updating}
+              onPress={updateServer}
+            >
+              <CloudDownload
+                size={16}
+                className={updating ? styles.iconDownloading : undefined}
+              />
+              {updating ? t('settings.updating') : t('settings.updateServer')}
+            </Button>
+            <Button
+              variant="danger-soft"
+              size="sm"
+              className={uninstalling ? styles.breathing : undefined}
+              isDisabled={busy && !uninstalling}
+              onPress={() => setConfirmUninstall(true)}
+            >
+              <CloudOff size={16} />
+              {uninstalling ? t('settings.uninstalling') : t('settings.uninstallServer')}
+            </Button>
+          </div>
+        )}
       </header>
 
       <div className={styles.body}>
@@ -180,12 +273,12 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
               <Button
                 variant="primary"
                 size="lg"
+                className={busy ? styles.glowPulse : undefined}
                 isDisabled={busy || !password.trim()}
                 onPress={load}
               >
-                {busy && <Spinner size="sm" />}
                 <Play size={16} />
-                {t('settings.connect')}
+                {busy ? t('settings.connecting') : t('settings.connect')}
               </Button>
             ) : (
               <Button variant="secondary" size="lg" isDisabled={busy} onPress={reset}>
@@ -333,10 +426,10 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
                         size="sm"
                         variant="danger-soft"
                         isDisabled={busy}
-                        onPress={() => remove(profile)}
+                        onPress={() => setConfirmRemove(profile)}
                       >
                         <Trash2 size={14} />
-                        {t('dashboard.delete')}
+                        {t('settings.deleteKey')}
                       </Button>
                     )}
                   </div>
@@ -346,6 +439,81 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
           </>
         )}
       </div>
+
+      <AlertDialog.Root
+        isOpen={confirmRemove !== null}
+        onOpenChange={(open) => {
+          if (!open) setConfirmRemove(null)
+        }}
+      >
+        <AlertDialog.Backdrop>
+          <AlertDialog.Container>
+            <AlertDialog.Dialog className={styles.confirmDialog}>
+              <AlertDialog.Header>
+                <AlertDialog.Icon status="danger">
+                  <Trash2 size={20} />
+                </AlertDialog.Icon>
+                <AlertDialog.Heading>
+                  {t('settings.deleteKeyTitle')}
+                </AlertDialog.Heading>
+              </AlertDialog.Header>
+              <AlertDialog.Body>
+                {t('settings.deleteKeyBody', {
+                  name: confirmRemove?.name ?? '',
+                  server: server.name,
+                })}
+              </AlertDialog.Body>
+              <AlertDialog.Footer>
+                <Button variant="secondary" onPress={() => setConfirmRemove(null)}>
+                  {t('dashboard.cancel')}
+                </Button>
+                <Button
+                  variant="danger"
+                  onPress={() => {
+                    if (confirmRemove) void remove(confirmRemove)
+                    setConfirmRemove(null)
+                  }}
+                >
+                  {t('settings.deleteKey')}
+                </Button>
+              </AlertDialog.Footer>
+            </AlertDialog.Dialog>
+          </AlertDialog.Container>
+        </AlertDialog.Backdrop>
+      </AlertDialog.Root>
+
+      <AlertDialog.Root
+        isOpen={confirmUninstall}
+        onOpenChange={(open) => {
+          if (!open) setConfirmUninstall(false)
+        }}
+      >
+        <AlertDialog.Backdrop>
+          <AlertDialog.Container>
+            <AlertDialog.Dialog className={styles.confirmDialog}>
+              <AlertDialog.Header>
+                <AlertDialog.Icon status="danger">
+                  <Trash2 size={20} />
+                </AlertDialog.Icon>
+                <AlertDialog.Heading>
+                  {t('settings.uninstallTitle')}
+                </AlertDialog.Heading>
+              </AlertDialog.Header>
+              <AlertDialog.Body>
+                {t('settings.uninstallBody', { name: server.name })}
+              </AlertDialog.Body>
+              <AlertDialog.Footer>
+                <Button variant="secondary" onPress={() => setConfirmUninstall(false)}>
+                  {t('dashboard.cancel')}
+                </Button>
+                <Button variant="danger" onPress={uninstallServer}>
+                  {t('settings.uninstallServer')}
+                </Button>
+              </AlertDialog.Footer>
+            </AlertDialog.Dialog>
+          </AlertDialog.Container>
+        </AlertDialog.Backdrop>
+      </AlertDialog.Root>
     </div>
   )
 }

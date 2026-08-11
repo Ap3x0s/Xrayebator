@@ -1,9 +1,10 @@
 import { ipcMain, BrowserWindow } from 'electron'
-import type { Server } from '@shared/types'
+import type { Server, ServerMaintenanceResult } from '@shared/types'
 import type { ServerStore } from './core/servers'
 import { Deployer } from './core/deployer'
 import { fetchSubscription } from './core/subscription'
 import { ProfileManager } from './core/profiles'
+import { ServerManager } from './core/server-manager'
 
 interface IpcContext {
   store: ServerStore
@@ -126,6 +127,32 @@ export function registerIpcHandlers({ store }: IpcContext): void {
     if (!result.ok) throw new Error(result.error ?? 'Не удалось удалить профиль')
     return result
   })
+
+  const serverManagerFor = (serverId: string, password: string): ServerManager => {
+    const server = store.get(serverId)
+    if (!server) throw new Error('Сервер не найден')
+    if (!password) throw new Error('Не указан SSH-пароль')
+    return new ServerManager({
+      host: server.host,
+      port: server.port,
+      username: server.username,
+      password
+    })
+  }
+
+  ipcMain.handle(
+    'server:update',
+    async (_e, serverId: string, password: string, branch: string): Promise<ServerMaintenanceResult> => {
+      return serverManagerFor(serverId, password).update(branch)
+    }
+  )
+
+  ipcMain.handle(
+    'server:uninstall',
+    async (_e, serverId: string, password: string): Promise<ServerMaintenanceResult> => {
+      return serverManagerFor(serverId, password).uninstall()
+    }
+  )
 
   ipcMain.handle('app:version', () => process.env.npm_package_version ?? '0.1.0')
 }

@@ -44,6 +44,18 @@ function summarize(stdout: string): string {
   return head.length > 160 ? `${head.slice(0, 157)}...` : head
 }
 
+/** Извлекает human-readable причину из серверного JSON-ошибки, если она есть. */
+function extractError(raw: string): string | null {
+  const match = raw.match(/\{"ok":false[^\n}]*\}/)
+  if (!match) return null
+  try {
+    const parsed = JSON.parse(match[0]) as { error?: string }
+    return parsed.error ?? null
+  } catch {
+    return null
+  }
+}
+
 export class Deployer {
   constructor(
     private readonly onStep: DeployStepListener,
@@ -96,7 +108,16 @@ export class Deployer {
       this.onStep('quickstart', 'Запускаю quickstart...')
       const quick = await client.exec(`xrayebator quickstart --email ${input.email}`)
       if (quick.code !== 0) {
-        throw new Error(`quickstart завершился с кодом ${quick.code}: ${quick.stderr}`)
+        // Серверный quickstart печатает статус в stderr, а JSON с причиной
+        // ({ok:false,error:...}) — в stdout. Извлекаем причину из JSON в первую
+        // очередь (summarize по stderr её обрезает), иначе показываем оба потока.
+        const detail = (quick.stderr + '\n' + quick.stdout).trim()
+        const reason = extractError(quick.stdout) ?? extractError(detail)
+        throw new Error(
+          reason
+            ? `quickstart завершился с кодом ${quick.code}: ${reason}`
+            : `quickstart завершился с кодом ${quick.code}: ${summarize(detail)}`
+        )
       }
       this.onLog(`quickstart: ${summarize(quick.stdout)}`)
       const payload = parseQuickstartJson(quick.stdout)
