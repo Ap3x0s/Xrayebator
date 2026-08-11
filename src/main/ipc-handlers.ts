@@ -3,6 +3,7 @@ import type { Server } from '@shared/types'
 import type { ServerStore } from './core/servers'
 import { Deployer } from './core/deployer'
 import { fetchSubscription } from './core/subscription'
+import { ProfileManager } from './core/profiles'
 
 interface IpcContext {
   store: ServerStore
@@ -85,6 +86,45 @@ export function registerIpcHandlers({ store }: IpcContext): void {
     const keys = await fetchSubscription(server.subscriptionUrl)
     store.updateKeys(serverId, keys)
     return { serverId, subscriptionUrl: server.subscriptionUrl, keys }
+  })
+
+  const profileManagerFor = (serverId: string, password: string): ProfileManager => {
+    const server = store.get(serverId)
+    if (!server) throw new Error('Сервер не найден')
+    if (!password) throw new Error('Не указан SSH-пароль')
+    return new ProfileManager({
+      host: server.host,
+      port: server.port,
+      username: server.username,
+      password
+    })
+  }
+
+  ipcMain.handle('profiles:list', async (_e, serverId: string, password: string) => {
+    const manager = profileManagerFor(serverId, password)
+    const result = await manager.list()
+    if (!result.ok) throw new Error(result.error ?? 'Не удалось получить список профилей')
+    return result
+  })
+
+  ipcMain.handle(
+    'profiles:create',
+    async (
+      _e,
+      serverId: string,
+      password: string,
+      input: { name: string; transport: string; port?: number; count?: number }
+    ) => {
+      const manager = profileManagerFor(serverId, password)
+      return manager.create(input)
+    }
+  )
+
+  ipcMain.handle('profiles:remove', async (_e, serverId: string, password: string, name: string) => {
+    const manager = profileManagerFor(serverId, password)
+    const result = await manager.remove(name)
+    if (!result.ok) throw new Error(result.error ?? 'Не удалось удалить профиль')
+    return result
   })
 
   ipcMain.handle('app:version', () => process.env.npm_package_version ?? '0.1.0')

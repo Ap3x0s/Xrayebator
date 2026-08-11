@@ -9,6 +9,7 @@
     "routes_one": "{{count}} route",
     "routes_other": "{{count}} routes",
     "keys": "Keys",
+    "settings": "Settings",
     "refresh": "Refresh",
     "delete": "Delete",
     "back": "Back"
@@ -61,10 +62,45 @@
     "none": "No keys yet"
   },
   "settings": {
-    "theme": "Theme",
-    "language": "Language",
-    "updates": "Auto update",
-    "dark": "Dark",
-    "light": "Light"
+    "title": "Server profiles",
+    "hint": "Connect to the server over SSH to manage profiles: create separate keys for devices or delete existing ones.",
+    "sshPassword": "SSH password",
+    "passwordNote": "The password is never stored — it is requested on every connection.",
+    "connect": "Connect",
+    "changePassword": "Disconnect",
+    "createTitle": "Create profile",
+    "createHint": "One device — one key. Enter a name, protocol and copy count (profile family).",
+    "profileName": "Profile name",
+    "protocol": "Protocol",
+    "protocolPrompt": "Choose how traffic should bypass blocking. XHTTP — the best balance of speed and stability. For a stable connection, fast TCP is a great fit. The rest are fallback options.",
+    "recommended": "Recommended",
+    "protocolHint": {
+      "xhttp": "The most modern protocol. Low latency, excellent DPI resistance. Our default recommendation — works on both stable and unstable connections.",
+      "tcp": "Classic TCP + Reality (Vision). Maximum speed, minimal latency. Best for stable connections: gaming, video calls, streaming.",
+      "tcp-utls": "TCP with TLS imitation (uTLS) — resistant to active probing. Slightly slower than plain TCP, but more reliable when your ISP actively blocks.",
+      "tcp-xudp": "TCP + QUIC-like (XUDP). Faster on unstable links, carries both TCP and UDP. Great for messengers and VoIP.",
+      "tcp-mux": "TCP with multiplexing — several sessions in one connection. Slower on short requests, but lower overhead. For browsing.",
+      "grpc": "gRPC — slower than others, but nearly indistinguishable from regular HTTPS traffic. Use when other protocols are blocked by your ISP."
+    },
+    "creating": "Creating profile…",
+    "routes": "routes",
+    "count": "Count",
+    "previewLabel": "Profiles to be created:",
+    "previewHint": "The first profile keeps your name as-is, the rest get suffixes name-2, name-3… Each has its own subscription.",
+    "createBtn": "Create profile",
+    "listTitle": "Existing profiles",
+    "empty": "No profiles yet. Create the first one.",
+    "happ": "HAPP",
+    "copy": "Copy",
+    "copied": "Copied!",
+    "created": "Profiles created: {{count}}",
+    "deleted": "Profile «{{name}}» deleted",
+    "createFailed": "Failed to create profile",
+    "deleteFailed": "Failed to delete profile",
+    "mainProfile": "Main",
+    "mainProfileHint": "Base HAPP profile with routes. Cannot be deleted from the app — it is used by the HAPP interface and quickstart. Remove it via SSH / server menu if needed.",
+    "error": "Error",
+    "errorPassword": "Enter SSH password",
+    "errorName": "Enter profile name"
   }
 }

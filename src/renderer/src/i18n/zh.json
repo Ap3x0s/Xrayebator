@@ -9,6 +9,7 @@
     "routes_one": "{{count}} 条路线",
     "routes_other": "{{count}} 条路线",
     "keys": "密钥",
+    "settings": "设置",
     "refresh": "刷新",
     "delete": "删除",
     "back": "返回"
@@ -61,10 +62,45 @@
     "none": "暂无密钥"
   },
   "settings": {
-    "theme": "主题",
-    "language": "语言",
-    "updates": "自动更新",
-    "dark": "深色",
-    "light": "浅色"
+    "title": "服务器配置文件",
+    "hint": "通过 SSH 连接服务器以管理配置文件：为设备创建单独密钥或删除现有配置。",
+    "sshPassword": "SSH 密码",
+    "passwordNote": "密码不会保存——每次连接时都会重新询问。",
+    "connect": "连接",
+    "changePassword": "断开",
+    "createTitle": "创建配置文件",
+    "createHint": "一台设备 — 一个密钥。输入名称、协议及副本数量（配置文件组）。",
+    "profileName": "配置文件名称",
+    "protocol": "协议",
+    "protocolPrompt": "选择流量如何绕过封锁。XHTTP — 速度和稳定性的最佳平衡。网络稳定时快速 TCP 也很合适，其余为备用方案。",
+    "recommended": "推荐",
+    "protocolHint": {
+      "xhttp": "最现代化的协议。低延迟、抗 DPI 能力强。默认推荐 — 在稳定和不稳定网络下都能用。",
+      "tcp": "经典 TCP + Reality (Vision)。速度最快、延迟最低。适合稳定网络：游戏、视频通话、直播。",
+      "tcp-utls": "TCP 带 TLS 模拟 (uTLS) — 抗主动探测。比普通 TCP 稍慢，但运营商主动封锁时更可靠。",
+      "tcp-xudp": "TCP + 类 QUIC (XUDP)。不稳定链路上更快，同时支持 TCP 和 UDP。适合即时通讯和 VoIP。",
+      "tcp-mux": "TCP 多路复用 — 一个连接承载多个会话。短请求稍慢，但开销更低。适合日常浏览。",
+      "grpc": "gRPC — 比其他协议慢，但几乎与普通 HTTPS 流量无异。当其他协议被运营商封锁时使用。"
+    },
+    "creating": "正在创建配置文件…",
+    "routes": "条路线",
+    "count": "数量",
+    "previewLabel": "将要创建的配置文件：",
+    "previewHint": "第一个配置文件保持原名，其余加上编号 name-2、name-3… 每个都有自己的订阅。",
+    "createBtn": "创建配置文件",
+    "listTitle": "现有配置文件",
+    "empty": "暂无配置文件，请创建第一个。",
+    "happ": "HAPP",
+    "copy": "复制",
+    "copied": "已复制！",
+    "created": "已创建配置文件：{{count}}",
+    "deleted": "配置文件「{{name}}」已删除",
+    "createFailed": "无法创建配置文件",
+    "deleteFailed": "无法删除配置文件",
+    "mainProfile": "主要",
+    "mainProfileHint": "带路由的基础 HAPP 配置文件。无法从应用中删除 — 它由 HAPP 界面和快速设置使用。如需删除请在 SSH / 服务器菜单中操作。",
+    "error": "错误",
+    "errorPassword": "请输入 SSH 密码",
+    "errorName": "请输入配置文件名称"
   }
 }

@@ -10108,6 +10108,331 @@ happ_setup_command() {
   return 0
 }
 
+# ────────────────────────────────────────────────────────────────────────────────
+# CLI для управления профилями (используется GUI «Настройки сервера»).
+# Команды переиспользуют примитивы (add_inbound, backup_config, safe_restart_xray)
+# и печатают ЧИСТЫЙ JSON в stdout — никаких цветных баннеров и read-пауз.
+# ────────────────────────────────────────────────────────────────────────────────
+
+_profile_cli_subscription_url() {
+  local token="$1"
+  if [[ ! -f /usr/local/etc/xray/.subscription_installed || ! "$token" =~ ^[a-f0-9]{32}$ ]]; then
+    return 1
+  fi
+  echo "$(_subscription_base_url)/sub/${token}"
+}
+
+# xrayebator profiles → JSON-массив всех профилей.
+profiles_command() {
+  export TERM=dumb
+  export XRAYEBATOR_NONINTERACTIVE=1
+
+  local base
+  base=$(_subscription_base_url 2>/dev/null || true)
+
+  local first=1
+  printf '['
+  for file in "$PROFILES_DIR"/*.json; do
+    [[ -f "$file" ]] || continue
+    [[ "$first" -eq 0 ]] && printf ','
+    first=0
+
+    local name uuid transport port fingerprint sni created sub_token multi_route rcount pq
+    name=$(basename "$file" .json)
+    uuid=$(jq -r '.uuid // ""' "$file" 2>/dev/null)
+    transport=$(jq -r '.transport // ""' "$file" 2>/dev/null)
+    port=$(jq -r '.port // 0' "$file" 2>/dev/null)
+    fingerprint=$(jq -r '.fingerprint // ""' "$file" 2>/dev/null)
+    sni=$(jq -r '.sni // ""' "$file" 2>/dev/null)
+    created=$(jq -r '.created // ""' "$file" 2>/dev/null)
+    sub_token=$(jq -r '.sub_token // ""' "$file" 2>/dev/null)
+    multi_route=$(jq -r '(.multi_route // false)' "$file" 2>/dev/null)
+    rcount=$(jq -r '((.routes // []) | length)' "$file" 2>/dev/null)
+    pq=$(jq -r '(.pq_enabled // false)' "$file" 2>/dev/null)
+    [[ "$rcount" =~ ^[0-9]+$ ]] || rcount=0
+
+    local sub_url=""
+    if _profile_cli_subscription_url "$sub_token" >/dev/null 2>&1; then
+      sub_url="$base/sub/$sub_token"
+    fi
+
+    jq -n \
+      --arg name "$name" --arg uuid "$uuid" --arg transport "$transport" \
+      --argjson port "$port" --arg fingerprint "$fingerprint" --arg sni "$sni" \
+      --arg created "$created" --arg sub_token "$sub_token" \
+      --argjson multi_route "$multi_route" --argjson routes "$rcount" \
+      --argjson pq "$pq" --arg subscription_url "$sub_url" \
+      '{name: $name, uuid: $uuid, transport: $transport, port: $port,
+        fingerprint: $fingerprint, sni: $sni, created: $created,
+        sub_token: $sub_token, multi_route: $multi_route, routes: $routes,
+        pq_enabled: $pq, subscription_url: $subscription_url}'
+  done
+  printf ']\n'
+  return 0
+}
+
+# xrayebator profile-create --name NAME [--transport T] [--port P] [--count N]
+#   T: tcp|tcp-utls|tcp-xudp|tcp-mux|grpc|xhttp (по умолчанию xhttp)
+#   N: количество копий (по умолчанию 1); имена: name, name-2, name-3, ...
+# При N>1 каждый профиль получает отдельный случайный порт (или заданный --port).
+profile_create_command() {
+  export TERM=dumb
+  export DEBIAN_FRONTEND=noninteractive
+  export XRAYEBATOR_NONINTERACTIVE=1
+
+  local name="" transport="xhttp" port="" count=1
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --name) name="$2"; shift 2 ;;
+      --transport) transport="$2"; shift 2 ;;
+      --port) port="$2"; shift 2 ;;
+      --count) count="$2"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+
+  if [[ -z "$name" ]] || ! [[ "$name" =~ ^[a-zA-Z0-9_-]{1,48}$ ]]; then
+    echo '{"ok":false,"error":"Некорректное имя профиля (1-48 симв.: a-z, 0-9, _ -)"}'
+    return 1
+  fi
+  case "$transport" in
+    tcp|tcp-utls|tcp-xudp|tcp-mux|grpc|xhttp) ;;
+    *)
+      echo '{"ok":false,"error":"Некорректный транспорт: tcp|tcp-utls|tcp-xudp|tcp-mux|grpc|xhttp"}'
+      return 1
+      ;;
+  esac
+  if ! [[ "$count" =~ ^[0-9]+$ ]] || [[ "$count" -lt 1 ]] || [[ "$count" -gt 50 ]]; then
+    echo '{"ok":false,"error":"Некорректное количество (1-50)"}'
+    return 1
+  fi
+  if [[ -n "$port" ]] && ! [[ "$port" =~ ^[0-9]+$ ]] || [[ -n "$port" && "$port" -lt 1 ]] || [[ -n "$port" && "$port" -gt 65535 ]]; then
+    echo '{"ok":false,"error":"Некорректный порт (1-65535)"}'
+    return 1
+  fi
+  if [[ -n "$port" && "$port" == "443" && "$transport" =~ ^tcp|tcp-utls|tcp-xudp$ ]]; then
+    echo '{"ok":false,"error":"Порт 443 + Vision требует интерактивного подтверждения — используйте меню сервера"}'
+    return 1
+  fi
+
+  local profile_names=()
+  local i
+  for ((i=1; i<=count; i++)); do
+    if [[ "$i" -eq 1 ]]; then
+      profile_names+=("$name")
+    else
+      profile_names+=("${name}-${i}")
+    fi
+  done
+
+  local results_file
+  results_file=$(mktemp /tmp/xrayebator-create.XXXXXX) || {
+    echo '{"ok":false,"error":"mktemp failed"}'
+    return 1
+  }
+
+  # CLI-режим: статусы helper-функций (backup_config, add_inbound, open_firewall_port,
+  # safe_restart_xray) печатают цветной мусор в stdout и ломали JSON-парсинг в GUI.
+  # Перенаправляем stdout в stderr на время создания — в stdout попадёт только JSON.
+  exec 3>&1
+  exec 1>&2
+
+  local created_names=() errors=()
+  for pname in "${profile_names[@]}"; do
+    if [[ -f "$PROFILES_DIR/$pname.json" ]]; then
+      errors+=("$pname: уже существует")
+      continue
+    fi
+    if _profile_cli_create_one "$pname" "$transport" "$port" "$results_file"; then
+      created_names+=("$pname")
+    else
+      errors+=("$pname: не удалось создать")
+    fi
+  done
+
+  exec 1>&3 3>&-
+
+  jq -n \
+    --argjson ok true \
+    --argjson names "$(printf '%s\n' "${created_names[@]}" | jq -R -s -c 'split("\n") | map(select(length > 0))')" \
+    --argjson error_list "$(printf '%s\n' "${errors[@]}" | jq -R -s -c 'split("\n") | map(select(length > 0))')" \
+    '{ok: $ok, names: $names, errors: $error_list}'
+  rm -f "$results_file"
+  return 0
+}
+
+# Один профиль: файл JSON + inbound + safe_restart_xray. Возвращает 0/1.
+_profile_cli_create_one() {
+  local pname="$1" transport="$2" fixed_port="${3:-}"
+  local uuid sub_token grpc_service_name xhttp_path port default_sni
+  uuid=$(uuidgen)
+  sub_token=$(openssl rand -hex 16)
+  if [[ ! "$sub_token" =~ ^[a-f0-9]{32}$ ]]; then
+    echo -e "${RED}✗ Не удалось сгенерировать sub_token${NC}" >&2
+    return 1
+  fi
+
+  if [[ -n "$fixed_port" ]]; then
+    port="$fixed_port"
+  else
+    local defaults
+    defaults=$(build_transport_defaults "$transport") || return 1
+    IFS='|' read -r port grpc_service_name xhttp_path <<< "$defaults"
+    reserve_port "$port"
+  fi
+
+  case "$transport" in
+    grpc)
+      [[ -z "$grpc_service_name" ]] && grpc_service_name="grpc"
+      ;;
+    xhttp)
+      [[ -z "$xhttp_path" ]] && xhttp_path="/xhttp"
+      ;;
+  esac
+
+  default_sni=$(_default_sni_for_transport "$transport")
+  local fingerprint="$DEFAULT_CLIENT_FINGERPRINT"
+
+  local jq_args=(
+    --arg name "$pname"
+    --arg uuid "$uuid"
+    --arg transport "$transport"
+    --argjson port "$port"
+    --arg fingerprint "$fingerprint"
+    --arg sni "$default_sni"
+    --arg sub_token "$sub_token"
+    --arg created "$(date +%Y-%m-%d\ %H:%M:%S)"
+  )
+  local jq_expr='{name: $name, uuid: $uuid, transport: $transport, port: $port, fingerprint: $fingerprint, sni: $sni'
+  if [[ "$transport" == "grpc" ]]; then
+    jq_args+=(--arg grpc_service_name "$grpc_service_name")
+    jq_expr+=', grpc_service_name: $grpc_service_name'
+  elif [[ "$transport" == "xhttp" ]]; then
+    jq_args+=(--arg xhttp_path "$xhttp_path")
+    jq_expr+=', xhttp_path: $xhttp_path'
+    jq_args+=(--argjson schema_v 2 --argjson pq_enabled true)
+    jq_expr+=', schema_version: $schema_v, pq_enabled: $pq_enabled'
+  fi
+  jq_expr+=', sub_token: $sub_token, created: $created}'
+  if ! jq -n "${jq_args[@]}" "$jq_expr" > "$PROFILES_DIR/$pname.json"; then
+    rm -f "$PROFILES_DIR/$pname.json"
+    echo -e "${RED}✗ Не удалось создать JSON профиля${NC}" >&2
+    return 1
+  fi
+
+  local rollback_config=""
+  if ! backup_config "cli_create_$pname" rollback_config; then
+    rm -f "$PROFILES_DIR/$pname.json"
+    return 1
+  fi
+
+  if ! add_inbound "$uuid" "$transport" "$port" "$default_sni" "$fingerprint" "$grpc_service_name" "$xhttp_path"; then
+    rm -f "$PROFILES_DIR/$pname.json"
+    echo -e "${RED}✗ Inbound не создан — профиль удалён${NC}" >&2
+    return 1
+  fi
+
+  if ! safe_restart_xray "$rollback_config"; then
+    rm -f "$PROFILES_DIR/$pname.json"
+    close_firewall_port "$port"
+    echo -e "${RED}✗ Xray не принял конфиг — профиль удалён, конфиг откачен${NC}" >&2
+    return 1
+  fi
+
+  fix_xray_permissions
+  local sub_url=""
+  if _profile_cli_subscription_url "$sub_token" >/dev/null 2>&1; then
+    sub_url="$(_subscription_base_url)/sub/${sub_token}"
+  fi
+  jq -n \
+    --arg name "$pname" --arg uuid "$uuid" --arg transport "$transport" \
+    --argjson port "$port" --arg fingerprint "$fingerprint" --arg sni "$default_sni" \
+    --arg sub_token "$sub_token" --arg subscription_url "$sub_url" \
+    '{name: $name, uuid: $uuid, transport: $transport, port: $port,
+      fingerprint: $fingerprint, sni: $sni, sub_token: $sub_token,
+      subscription_url: $subscription_url}' >> "$1"
+  return 0
+}
+
+# xrayebator profile-delete --name NAME
+profile_delete_command() {
+  export TERM=dumb
+  export XRAYEBATOR_NONINTERACTIVE=1
+
+  local name=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --name) name="$2"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+  [[ -n "$name" ]] || { echo '{"ok":false,"error":"Не указано имя профиля (--name)"}'; return 1; }
+
+  local profile_file="$PROFILES_DIR/$name.json"
+  if [[ ! -f "$profile_file" ]]; then
+    echo '{"ok":false,"error":"Профиль не найден"}'
+    return 1
+  fi
+
+  local uuid route_count ports_json
+  uuid=$(jq -r '.uuid // empty' "$profile_file")
+  route_count=$(_profile_route_count "$profile_file")
+  if [[ "$route_count" =~ ^[0-9]+$ ]] && [[ "$route_count" -gt 0 ]]; then
+    ports_json=$(jq -c '[.routes[]?.port | select(type == "number")] | unique' "$profile_file" 2>/dev/null)
+  else
+    ports_json=$(jq -c '[.port | select(type == "number")] | unique' "$profile_file" 2>/dev/null)
+  fi
+
+  if [[ -z "$uuid" || "$uuid" == "null" ]] ||
+     ! jq -e 'type == "array" and length > 0' <<< "$ports_json" >/dev/null 2>&1; then
+    echo '{"ok":false,"error":"Профиль повреждён: нет корректных uuid/port"}'
+    return 1
+  fi
+
+  local rollback_config=""
+  if ! backup_config "cli_delete_$name" rollback_config; then
+    echo '{"ok":false,"error":"Не удалось создать бэкап config.json"}'
+    return 1
+  fi
+
+  # CLI-режим: статусы helpers (backup_config, safe_restart_xray, close_firewall_port)
+  # печатают цветной мусор в stdout и ломали JSON-парсинг в GUI — душим их в stderr.
+  exec 3>&1
+  exec 1>&2
+
+  if ! _remove_profile_uuid_from_config "$uuid" "$ports_json"; then
+    echo '{"ok":false,"error":"Ошибка обновления конфига"}' >&3
+    exec 1>&3 3>&-
+    return 1
+  fi
+
+  fix_xray_permissions
+  if ! safe_restart_xray "$rollback_config"; then
+    echo '{"ok":false,"error":"Xray не принял конфиг — изменения откачены"}' >&3
+    exec 1>&3 3>&-
+    return 1
+  fi
+
+  exec 1>&3 3>&-
+
+  if ! rm -f "$profile_file" || [[ -e "$profile_file" ]]; then
+    echo '{"ok":false,"error":"Не удалось удалить profile JSON"}'
+    return 1
+  fi
+
+  local p
+  while IFS= read -r p; do
+    if ! close_firewall_port "$p" >&2; then
+      echo "{\"ok\":true,\"name\":\"$name\",\"warning\":\"Не удалось закрыть порт $p\"}"
+      return 0
+    fi
+  done < <(jq -r '.[]' <<< "$ports_json")
+
+  fix_xray_permissions
+  echo "{\"ok\":true,\"name\":\"$name\"}"
+  return 0
+}
+
 # Без аргументов → interactive main_menu (legacy behaviour).
 # При source-режиме (Phase 7, REQ-C10) dispatch пропускается — sourcing-скрипт сам решает,
 # что делать с определёнными функциями.
@@ -10129,6 +10454,18 @@ if [[ "$XRAYEBATOR_SOURCED" -eq 0 ]]; then
       shift
       probe_test_command
       ;;
+    profiles)
+      shift
+      profiles_command
+      ;;
+    profile-create)
+      shift
+      profile_create_command "$@"
+      ;;
+    profile-delete)
+      shift
+      profile_delete_command "$@"
+      ;;
     ""|menu)
       main_menu
       ;;
@@ -10141,6 +10478,10 @@ if [[ "$XRAYEBATOR_SOURCED" -eq 0 ]]; then
       echo -e "  ${CYAN}sudo xrayebator quickstart --email EMAIL${NC}  — авторазвёртывание: подписка+IP-TLS+HAPP profile"
       echo -e "  ${CYAN}sudo xrayebator happ-setup${NC}       — создать/переиспользовать HAPP multi-route профиль"
       echo -e "  ${CYAN}sudo xrayebator probe-test${NC}       — проверить доступность SNI с VPS"
+      echo -e "  ${CYAN}sudo xrayebator profiles${NC}          — JSON-список профилей"
+      echo -e "  ${CYAN}sudo xrayebator profile-create --name N [--transport T] [--port P] [--count N]${NC}"
+      echo -e "                               — создать профиль/семейство профилей (JSON)"
+      echo -e "  ${CYAN}sudo xrayebator profile-delete --name N${NC} — удалить профиль (JSON)"
       echo ""
       echo -e "${YELLOW}Файлы:${NC}"
       echo -e "  config:    /usr/local/etc/xray/config.json"

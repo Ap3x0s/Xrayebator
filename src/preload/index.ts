@@ -3,7 +3,11 @@ import type {
   DeployEvent,
   DeployStartPayload,
   ElectronAPI,
+  ProfileCreateInput,
+  ProfileCreateResult,
+  ProfileDeleteResult,
   Server,
+  ServerProfile,
   SubscriptionResult
 } from '@shared/types'
 
@@ -31,6 +35,26 @@ const api: ElectronAPI = {
   subscription: {
     fetch: (serverId: string): Promise<SubscriptionResult> =>
       ipcRenderer.invoke('subscription:fetch', serverId)
+  },
+
+  profiles: {
+    list: (
+      serverId: string,
+      password: string
+    ): Promise<{ ok: boolean; profiles: ServerProfile[]; error?: string }> =>
+      ipcRenderer.invoke('profiles:list', serverId, password),
+    create: (
+      serverId: string,
+      password: string,
+      input: ProfileCreateInput
+    ): Promise<ProfileCreateResult> =>
+      ipcRenderer.invoke('profiles:create', serverId, password, input),
+    remove: (
+      serverId: string,
+      password: string,
+      name: string
+    ): Promise<ProfileDeleteResult> =>
+      ipcRenderer.invoke('profiles:remove', serverId, password, name)
   },
 
   app: {

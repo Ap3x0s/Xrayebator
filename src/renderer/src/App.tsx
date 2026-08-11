@@ -2,12 +2,14 @@ import { useEffect, useState } from 'react'
 import { Dashboard } from './pages/Dashboard'
 import { AddServer } from './pages/AddServer'
 import { ServerKeys } from './pages/ServerKeys'
+import { ServerSettings } from './pages/ServerSettings'
 import type { Server } from '@shared/types'
 
 type View =
   | { name: 'dashboard' }
   | { name: 'add' }
   | { name: 'keys'; server: Server }
+  | { name: 'settings'; server: Server }
 
 export default function App(): React.JSX.Element {
   const [view, setView] = useState<View>({ name: 'dashboard' })
@@ -38,11 +40,21 @@ export default function App(): React.JSX.Element {
     )
   }
 
+  if (view.name === 'settings') {
+    return (
+      <ServerSettings
+        server={view.server}
+        onBack={() => setView({ name: 'dashboard' })}
+      />
+    )
+  }
+
   return (
     <Dashboard
       servers={servers}
       onAdd={() => setView({ name: 'add' })}
       onOpen={(server) => setView({ name: 'keys', server })}
+      onSettings={(server) => setView({ name: 'settings', server })}
       onRemove={async (id) => {
         await window.api.servers.remove(id)
         setServers((prev) => prev.filter((s) => s.id !== id))

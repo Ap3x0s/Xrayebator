@@ -1,4 +1,5 @@
 import { Button, Chip } from '@heroui/react'
+import { Settings2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { Server } from '@shared/types'
 import { CountryFlag } from '../components/CountryFlag'
@@ -8,6 +9,7 @@ interface DashboardProps {
   servers: Server[]
   onAdd: () => void
   onOpen: (server: Server) => void
+  onSettings: (server: Server) => void
   onRemove: (id: string) => void
 }
 
@@ -15,6 +17,7 @@ export function Dashboard({
   servers,
   onAdd,
   onOpen,
+  onSettings,
   onRemove
 }: DashboardProps): React.JSX.Element {
   const { t } = useTranslation()
@@ -57,6 +60,10 @@ export function Dashboard({
             <div className={styles.cardActions}>
               <Button size="sm" variant="secondary" onPress={() => onOpen(server)}>
                 {t('dashboard.keys')}
+              </Button>
+              <Button size="sm" variant="secondary" onPress={() => onSettings(server)}>
+                <Settings2 size={16} />
+                {t('dashboard.settings')}
               </Button>
               <Button
                 size="sm"

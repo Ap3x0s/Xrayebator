@@ -26,6 +26,40 @@ export interface SubscriptionResult {
   keys: VlessLink[]
 }
 
+export interface ServerProfile {
+  name: string
+  uuid: string
+  transport: string
+  port: number
+  fingerprint: string
+  sni: string
+  created: string
+  sub_token: string
+  multi_route: boolean
+  routes: number
+  pq_enabled: boolean
+  subscription_url: string
+}
+
+export interface ProfileCreateInput {
+  name: string
+  transport: string
+  port?: number
+  count?: number
+}
+
+export interface ProfileCreateResult {
+  ok: boolean
+  names: string[]
+  errors: string[]
+}
+
+export interface ProfileDeleteResult {
+  ok: boolean
+  name?: string
+  error?: string
+}
+
 export type DeployStep =
   | 'ssh'
   | 'os_check'
@@ -81,6 +115,22 @@ export interface ElectronAPI {
   }
   subscription: {
     fetch: (serverId: string) => Promise<SubscriptionResult>
+  }
+  profiles: {
+    list: (
+      serverId: string,
+      password: string
+    ) => Promise<{ ok: boolean; profiles: ServerProfile[]; error?: string }>
+    create: (
+      serverId: string,
+      password: string,
+      input: ProfileCreateInput
+    ) => Promise<ProfileCreateResult>
+    remove: (
+      serverId: string,
+      password: string,
+      name: string
+    ) => Promise<ProfileDeleteResult>
   }
   app: {
     getVersion: () => Promise<string>
