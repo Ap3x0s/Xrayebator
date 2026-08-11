@@ -98,21 +98,63 @@ _step_marker() { echo "${STEP_DIR}/.install_step_$1_ok"; }
 _step_done()  { [[ -f "$(_step_marker "$1")" ]]; }
 _step_mark()  { mkdir -p "$STEP_DIR" 2>/dev/null; touch "$(_step_marker "$1")"; }
 
-# P2-fix: регистрируем правило UFW, открытое именно Xrayebator, в root-owned манифесте
-# /usr/local/etc/xray/.ufw_owned. uninstall.sh удалит ТОЛЬКО порты отсюда и динамические
-# порты из config.json — чужие правила 443/8443/8080 не затрагиваются.
-# Аргументы: $1=string "port/proto". Идемпотентно.
+# Регистрируем только правило UFW, реально созданное Xrayebator. Наличие порта в
+# config.json не доказывает ownership и никогда не используется при удалении.
+# Формат: "port/proto/action"; старый "port/proto" читается как allow.
 _ufw_own_entry() {
   local entry="$1"
   local manifest="${UFW_OWNED_MANIFEST:-/usr/local/etc/xray/.ufw_owned}"
-  mkdir -p /usr/local/etc/xray 2>/dev/null || true
+  [[ "$entry" =~ ^([0-9]{1,5})/(tcp|udp)/(allow|limit)$ ]] || return 1
+  (( 10#${BASH_REMATCH[1]} >= 1 && 10#${BASH_REMATCH[1]} <= 65535 )) || return 1
+  mkdir -p "$(dirname "$manifest")" 2>/dev/null || return 1
   if [[ ! -f "$manifest" ]]; then
-    printf '%s\n' "$entry" > "$manifest"
+    printf '%s\n' "$entry" > "$manifest" || return 1
   else
-    grep -qxF "$entry" "$manifest" 2>/dev/null || printf '%s\n' "$entry" >> "$manifest"
+    grep -qxF "$entry" "$manifest" 2>/dev/null ||
+      printf '%s\n' "$entry" >> "$manifest" || return 1
   fi
-  chmod 644 "$manifest" 2>/dev/null || true
-  chown root:root "$manifest" 2>/dev/null || true
+  chmod 644 "$manifest" 2>/dev/null || return 1
+  if [[ $EUID -eq 0 ]]; then
+    chown root:root "$manifest" 2>/dev/null || return 1
+  fi
+}
+
+_ufw_rule_exists() {
+  local port="$1" protocol="${2:-tcp}"
+  ufw status 2>/dev/null |
+    awk -v rule="${port}/${protocol}" '$1 == rule && ($2 == "ALLOW" || $2 == "LIMIT") { found=1 } END { exit !found }' &&
+    return 0
+  ufw show added 2>/dev/null |
+    grep -qE "^ufw (allow|limit) ${port}/${protocol}([[:space:]]|$)"
+}
+
+_extract_sshd_port_from_ss() {
+  local line field candidate
+  while IFS= read -r line; do
+    [[ "$line" == *LISTEN* && "$line" == *sshd* ]] || continue
+    for field in $line; do
+      candidate="${field%%[,;]*}"
+      if [[ "$candidate" =~ ^(\*|[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+|\[[0-9a-fA-F:]+\]):([0-9]+)$ ]]; then
+        printf '%s\n' "${BASH_REMATCH[2]}"
+        return 0
+      fi
+    done
+  done
+  return 1
+}
+
+_install_backup_existing_config() {
+  local source_file="$1" backup_dir="$2" backup_path
+  [[ -s "$source_file" ]] || return 0
+  mkdir -p "$backup_dir" || return 1
+  backup_path=$(mktemp "$backup_dir/pre-fresh-$(date +%Y%m%d-%H%M%S).XXXXXX.json") ||
+    return 1
+  if ! cp -a -- "$source_file" "$backup_path" 2>/dev/null ||
+     [[ ! -s "$backup_path" ]] || ! cmp -s -- "$source_file" "$backup_path"; then
+    rm -f -- "$backup_path"
+    return 1
+  fi
+  printf '%s\n' "$backup_path"
 }
 
 _first_pending_step() {
@@ -859,16 +901,22 @@ if _detect_ipv6_only; then
   dns_main_doh="https+local://dns.google/dns-query"
 fi
 
-# A1-fix: при переустановке сохраняем существующий конфиг перед перезаписью,
-# чтобы не потерять боевые inbound/профили (иначе сервер остаётся без инбаундов).
+# При переустановке обязательный backup работает fail-closed: если точная копия
+# существующего config.json не подтверждена, live-файл не изменяется.
 if [[ -s "$CONFIG_FILE" ]]; then
   local_backup_dir="${BACKUP_DIR:-/usr/local/etc/xray/backups}"
-  mkdir -p "$local_backup_dir"
-  cp -a "$CONFIG_FILE" "$local_backup_dir/pre-fresh-$(date +%Y%m%d-%H%M%S).json" 2>/dev/null || true
-  echo -e "${YELLOW}⚠ Существующий config.json сохранён в $local_backup_dir (бэкап перед переустановкой)${NC}"
+  if ! config_backup=$(_install_backup_existing_config "$CONFIG_FILE" "$local_backup_dir"); then
+    echo -e "${RED}✗ Не удалось создать проверенный backup config.json — live-конфиг не изменён${NC}"
+    exit 1
+  fi
+  echo -e "${YELLOW}⚠ Существующий config.json сохранён: $config_backup${NC}"
 fi
 
-cat > "$CONFIG_FILE" << EOF
+config_tmp=$(mktemp "${CONFIG_FILE}.tmp.XXXXXX") || {
+  echo -e "${RED}✗ Не удалось создать временный config.json${NC}"
+  exit 1
+}
+if ! cat > "$config_tmp" << EOF
 {
   "log": {
     "loglevel": "warning",
@@ -934,10 +982,26 @@ cat > "$CONFIG_FILE" << EOF
   }
 }
 EOF
+then
+  rm -f -- "$config_tmp"
+  echo -e "${RED}✗ Не удалось записать временный config.json${NC}"
+  exit 1
+fi
 
-# Privilege boundary (P0-fix): config.json читается xray (644), владелец root:root.
-chown root:root "$CONFIG_FILE"
-chmod 644 "$CONFIG_FILE"
+# Проверяем JSON и Xray до атомарной замены live-конфига. Временный файл лежит
+# рядом с target, поэтому mv остаётся атомарным в пределах одной ФС.
+if ! jq -e . "$config_tmp" >/dev/null 2>&1 ||
+   ! xray run -test -config "$config_tmp" 2>&1 | grep -q '^Configuration OK\.$'; then
+  rm -f -- "$config_tmp"
+  echo -e "${RED}✗ Сгенерированный config.json не прошёл валидацию — live-конфиг не изменён${NC}"
+  exit 1
+fi
+if ! chown root:root "$config_tmp" || ! chmod 644 "$config_tmp" ||
+   ! mv -f -- "$config_tmp" "$CONFIG_FILE"; then
+  rm -f -- "$config_tmp"
+  echo -e "${RED}✗ Не удалось атомарно установить config.json — live-конфиг не изменён${NC}"
+  exit 1
+fi
 # Mark config as already optimized (skip migration on first launch)
 touch /usr/local/etc/xray/.config_optimized
 chown root:root /usr/local/etc/xray/.config_optimized
@@ -958,30 +1022,30 @@ echo -e "${BLUE}[7/9]${NC} ${YELLOW}Настройка firewall...${NC}"
 # и когда порт/правило не удалось определить — НЕ включаем UFW (иначе lockout).
 sfw_ssh_port=""
 if command -v ss >/dev/null 2>&1; then
-  # ss -tlnp построчно: ищем строки с флагом LISTEN и процессом sshd, извлекаем
-  # локальный порт из последнего ':'-сегмента адреса (0.0.0.0:2222, *:2222, [::]:2222).
-  sfw_ssh_port=$(ss -tlnp 2>/dev/null | awk '
-    /LISTEN/ && /sshd/ {
-      for (i=1; i<=NF; i++) {
-        if ($i ~ /^(\[?\*|\[?[0-9a-fA-F:.]+):[0-9]+$/) {
-          split($i, a, ":")
-          print a[length(a)]
-          exit
-        }
-      }
-    }')
-  sfw_ssh_port="${sfw_ssh_port%%[,;]*}"
+  sfw_ssh_port=$(ss -tlnp 2>/dev/null | _extract_sshd_port_from_ss) || sfw_ssh_port=""
 fi
 if [[ -z "$sfw_ssh_port" ]] || ! [[ "$sfw_ssh_port" =~ ^[0-9]+$ ]]; then
-  # Fallback: читаем ListenAddress sshd_config.
-  sfw_ssh_port=$(grep -h '^Port\s' /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf 2>/dev/null | awk '{print $2}' | head -1)
+  # sshd -T учитывает Include и неявный default 22; raw config остаётся fallback.
+  if command -v sshd >/dev/null 2>&1; then
+    sfw_ssh_port=$(sshd -T 2>/dev/null | awk '$1 == "port" { print $2; exit }')
+  fi
+fi
+if [[ -z "$sfw_ssh_port" ]] || ! [[ "$sfw_ssh_port" =~ ^[0-9]+$ ]]; then
+  sfw_ssh_port=$(grep -hE '^[[:space:]]*Port[[:space:]]+[0-9]+' \
+    /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf 2>/dev/null |
+    awk '{print $2; exit}')
 fi
 
 # Определили ли мы SSH-порт? Если нет и нельзя открыть правило — UFW не включаем
 # (default policy = deny, lockout). Лучше оставить UFW выключенным, чем запереть себя.
 sfw_ufw_safe=0
-if [[ -n "$sfw_ssh_port" ]] && [[ "$sfw_ssh_port" =~ ^[0-9]+$ ]]; then
-  if ufw allow "${sfw_ssh_port}/tcp" > /dev/null 2>&1; then
+if command -v ufw >/dev/null 2>&1 &&
+   [[ -n "$sfw_ssh_port" ]] && [[ "$sfw_ssh_port" =~ ^[0-9]+$ ]]; then
+  if _ufw_rule_exists "$sfw_ssh_port" tcp; then
+    sfw_ufw_safe=1
+    echo -e "${CYAN}  SSH-порт ${sfw_ssh_port}/tcp уже разрешён; ownership не присваивается${NC}"
+  elif ufw allow "${sfw_ssh_port}/tcp" > /dev/null 2>&1 &&
+       _ufw_own_entry "${sfw_ssh_port}/tcp/allow"; then
     sfw_ufw_safe=1
     echo -e "${CYAN}  SSH-порт ${sfw_ssh_port}/tcp открыт перед включением UFW${NC}"
   else
@@ -1009,15 +1073,17 @@ UFW_ERRORS=0
 # уже существовало ДО нас — не трогаем и не регистрируем.
 if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
 for ufw_port in 22 80 443 8443 2053 2083 2087 8080 2096 8880 9443; do
-  if ufw status 2>/dev/null | grep -qE "^${ufw_port}/tcp.*ALLOW"; then
+  if _ufw_rule_exists "$ufw_port" tcp; then
     continue  # уже открыто кем-то до нас — чужие правила не присваиваем
   fi
   if ! ufw allow "${ufw_port}/tcp" > /dev/null 2>&1; then
     echo -e "${YELLOW}  ⚠ Не удалось открыть порт ${ufw_port}/tcp${NC}"
     ((UFW_ERRORS++))
   else
-    # P2-fix: манифест root:root 644 — только правила, открытые Xrayebator.
-    _ufw_own_entry "${ufw_port}/tcp"
+    if ! _ufw_own_entry "${ufw_port}/tcp/allow"; then
+      echo -e "${YELLOW}  ⚠ Порт ${ufw_port}/tcp открыт, но ownership не записан; правило оставлено для безопасности${NC}"
+      ((UFW_ERRORS++))
+    fi
   fi
 done
 
