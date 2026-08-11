@@ -133,6 +133,11 @@ Apart from the interactive menu (`sudo xrayebator`), the script exposes subcomma
 - `xrayebator quickstart --email <email>` — UI CLI used by the desktop app: installs the subscription server, obtains an IP-TLS cert via certbot, creates the **multi-route** HAPP profile (7 routes, includes `xhttp-legacy`), prints JSON `{"ok":true,...,config_url":"https://IP:8443/sub/<token>"}`.
 - `xrayebator happ-setup` — ensured the HAPP multi-route profile exists, restarts the subscription service, prints the same JSON payload.
 - `xrayebator probe-test` — probe-test candidate SNIs from `sni_list.txt` and print reachability scores.
+- `xrayebator profiles` — print all profiles as a flat JSON array (used by the GUI "Server settings" page).
+- `xrayebator profile-create --name NAME [--transport T] [--port P] [--count N]` — create 1..N profiles non-interactively (names `name`, `name-2`, ...). Emits `{"ok":true,"names":[...],"errors":[...]}`; `ok` stays `true` even when some profiles already exist (they land in `errors`).
+- `xrayebator profile-delete --name NAME` — delete a profile, emits `{"ok":true,"name":"..."}`. Inbound/firewall cleanup happens automatically.
+
+CLI JSON hygiene: `profile-create`/`profile-delete` **must** print only JSON on stdout. The shared helpers (`backup_config`, `add_inbound`, `open_firewall_port`, `safe_restart_xray`, `close_firewall_port`) print colored status lines that would corrupt the parse, so the CLI paths redirect stdout→stderr around those calls (`exec 3>&1; exec 1>&2 ... exec 1>&3`). Keep it that way when editing.
 
 ### HAPP profile vs GUI quickstart — a subtle case
 
