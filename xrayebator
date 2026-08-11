@@ -9954,14 +9954,23 @@ NGINXHTTP
   # IP-серты shortlived (~6 дн.); renew-таймер продлевает их в фоне.
   local cert_dir="/etc/letsencrypt/live/$server_ip"
   local cert_expiry_ok=0
+  local cert_end="" cert_now="" cert_epoch=""
   if [[ -f "$cert_dir/fullchain.pem" && -f "$cert_dir/privkey.pem" ]]; then
     if command -v openssl >/dev/null 2>&1; then
-      cert_end=$(openssl x509 -enddate -noout -in "$cert_dir/fullchain.pem" 2>/dev/null | sed 's/notAfter=//')
-      cert_now=$(date -u +%s)
-      cert_epoch=$(date -u -d "$cert_end" +%s 2>/dev/null || echo 0)
-      if [[ -n "$cert_epoch" && "$cert_epoch" -gt "$cert_now" ]]; then
-        cert_expiry_ok=1
-        echo "  -> Сертификат для $server_ip уже действует — переиспользую (без нового certonly)" >&2
+      # Сертификат должен быть выпущен именно для этого IP (проверка SAN).
+      # Иначе переиспользуем чужой/старый серт от другого адреса — подписка
+      # умрёт на первом же клиенте, а renew-таймер не сможет её оживить.
+      local cert_san
+      cert_san=$(openssl x509 -in "$cert_dir/fullchain.pem" -noout -ext subjectAltName 2>/dev/null)
+      if echo "$cert_san" | grep -qE "IP( Address)?:${server_ip}(,|$)"; then
+        cert_end=$(openssl x509 -enddate -noout -in "$cert_dir/fullchain.pem" 2>/dev/null | sed 's/notAfter=//')
+        cert_now=$(date -u +%s)
+        cert_epoch=$(date -u -d "$cert_end" +%s 2>/dev/null || echo 0)
+        # Запас >= 6 часов: renew-таймер (цикл 12ч) успеет обновить серт раньше.
+        if [[ -n "$cert_epoch" && "$cert_epoch" -gt $((cert_now + 21600)) ]]; then
+          cert_expiry_ok=1
+          echo "  -> Сертификат для $server_ip уже действует (до ${cert_end}) — переиспользую, без нового certonly" >&2
+        fi
       fi
     else
       cert_expiry_ok=1
@@ -9982,17 +9991,26 @@ NGINXHTTP
         >/tmp/certbot-ip.log 2>&1; then
       local certbot_reason
       certbot_reason=$(_certbot_failure_reason /tmp/certbot-ip.log)
-      if [[ -n "$certbot_reason" ]]; then
-        echo "{\"ok\":false,\"error\":\"certbot failed: ${certbot_reason}\"}"
+      # Fallback: certonly упёрся в rate limit (или временную сетевую ошибку), но
+      # старый серт всё ещё числится действительным — переиспользуем его, чтобы
+      # quickstart не падал, а renew-таймер продолжит попытки продления в фоне.
+      if [[ -f "$cert_dir/fullchain.pem" && -f "$cert_dir/privkey.pem" ]] && \
+         [[ -n "$cert_epoch" && "$cert_epoch" -gt "$cert_now" ]]; then
+        echo "  -> certbot не смог выпустить новый серт, но действующий есть — переиспользую его (${cert_end})" >&2
       else
-        echo '{"ok":false,"error":"certbot failed. Log: /tmp/certbot-ip.log"}'
+        if [[ -n "$certbot_reason" ]]; then
+          echo "{\"ok\":false,\"error\":\"certbot failed: ${certbot_reason}\"}"
+        else
+          echo '{"ok":false,"error":"certbot failed. Log: /tmp/certbot-ip.log"}'
+        fi
+        _qs_nginx_rollback
+        return 1
       fi
-      _qs_nginx_rollback
-      return 1
+    else
+      echo "  TLS сертификат получен" >&2
+      # P0-certbot-fix: регистрируем cert в root-owned манифесте (uninstall удалит только его).
+      _certbot_register "$server_ip"
     fi
-    echo "  TLS сертификат получен" >&2
-    # P0-certbot-fix: регистрируем cert в root-owned манифесте (uninstall удалит только его).
-    _certbot_register "$server_ip"
   fi
 
   # A3-fix: идемпотентность. Проверяем, что порт 8443 не занят ЧУЖИМ процессом.
