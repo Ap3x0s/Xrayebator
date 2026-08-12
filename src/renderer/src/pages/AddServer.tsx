@@ -44,6 +44,12 @@ export function AddServer({ onDone, onBack }: AddServerProps): React.JSX.Element
   const [log, setLog] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
   const currentStepRef = useRef<DeployStep | null>(null)
+  const logPanelRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const panel = logPanelRef.current
+    if (panel) panel.scrollTop = panel.scrollHeight
+  }, [log, error])
 
   useEffect(() => {
     if (!deploying) return
@@ -112,7 +118,12 @@ export function AddServer({ onDone, onBack }: AddServerProps): React.JSX.Element
   return (
     <div className={styles.root}>
       <header className={styles.header}>
-        <Button variant="secondary" size="sm" onPress={onBack}>
+        <Button
+          variant="secondary"
+          size="sm"
+          isDisabled={deploying}
+          onPress={onBack}
+        >
           {t('dashboard.back')}
         </Button>
         <h1 className={styles.title}>{t('deploy.title')}</h1>
@@ -188,7 +199,7 @@ export function AddServer({ onDone, onBack }: AddServerProps): React.JSX.Element
           </ol>
 
           <div className={styles.logTitle}>{t('deploy.log')}</div>
-          <div className={styles.logPanel}>
+          <div className={styles.logPanel} ref={logPanelRef}>
             {log.length === 0 && !error && (
               <div className={styles.logLine}>{t('deploy.waiting')}</div>
             )}

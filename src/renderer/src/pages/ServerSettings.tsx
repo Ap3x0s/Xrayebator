@@ -217,7 +217,12 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
   return (
     <div className={styles.root}>
       <header className={styles.header}>
-        <Button variant="secondary" size="sm" onPress={onBack}>
+        <Button
+          variant="secondary"
+          size="sm"
+          isDisabled={busy}
+          onPress={onBack}
+        >
           {t('dashboard.back')}
         </Button>
         <h1 className={styles.title}>
