@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button, Chip, AlertDialog } from '@heroui/react'
 import { Settings2, Trash2, TriangleAlert } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -23,6 +23,20 @@ export function Dashboard({
 }: DashboardProps): React.JSX.Element {
   const { t } = useTranslation()
   const [pendingRemove, setPendingRemove] = useState<Server | null>(null)
+  const [online, setOnline] = useState<Record<string, boolean>>({})
+
+  useEffect(() => {
+    const result: Record<string, boolean> = {}
+    const checks = servers.map((server) =>
+      window.api.servers.check(server.id).then((ok) => {
+        result[server.id] = ok
+      })
+    )
+    Promise.all(checks).then(() => setOnline(result))
+    return () => {
+      setOnline({})
+    }
+  }, [servers])
 
   const confirmRemove = (): void => {
     if (!pendingRemove) return
@@ -45,7 +59,11 @@ export function Dashboard({
         {servers.map((server) => (
           <div key={server.id} className={styles.card}>
             <div className={styles.cardHeader}>
-              <span className={styles.statusDot} />
+              <span
+                className={`${styles.statusDot} ${
+                  online[server.id] ? styles.statusDotOnline : styles.statusDotOffline
+                }`}
+              />
               <div className={styles.cardInfo}>
                 <div className={styles.cardTitle}>
                   <CountryFlag flag={server.flag} className={styles.flag} />
