@@ -45,7 +45,15 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
     const modal = document.createElement('div')
     modal.className = styles.qrModal
     modal.innerHTML = `<img src="${dataUrl}" alt="QR" />`
-    modal.onclick = () => modal.remove()
+    const close = (): void => {
+      document.removeEventListener('keydown', onEsc)
+      modal.remove()
+    }
+    const onEsc = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') close()
+    }
+    modal.onclick = close
+    document.addEventListener('keydown', onEsc)
     document.body.appendChild(modal)
   }
 
@@ -57,6 +65,8 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
         </Button>
         <h1 className={styles.title}>{server.name}</h1>
       </header>
+
+      <p className={styles.hint}>{t('keys.hint')}</p>
 
       <div className={styles.content}>
         {keys.length === 0 && <div className={styles.empty}>{t('keys.none')}</div>}

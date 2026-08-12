@@ -57,6 +57,7 @@
   },
   "keys": {
     "title": "Keys for HAPP",
+    "hint": "Open the link in HAPP, Hiddify or any other VPN client.",
     "copy": "Copy",
     "copy_all": "Copy all",
     "copied": "Copied!",

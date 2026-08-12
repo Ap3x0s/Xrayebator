@@ -25,6 +25,12 @@
   align-items: center;
 }
 
+.hint {
+  font-size: 13px;
+  color: var(--text-2);
+  line-height: 1.5;
+}
+
 .content {
   display: flex;
   flex-direction: column;
