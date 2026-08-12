@@ -1,4 +1,5 @@
 import { ipcMain, BrowserWindow } from 'electron'
+import net from 'node:net'
 import type { Server, ServerMaintenanceResult } from '@shared/types'
 import type { ServerStore } from './core/servers'
 import { Deployer } from './core/deployer'
@@ -21,6 +22,34 @@ export function registerIpcHandlers({ store }: IpcContext): void {
   })
   ipcMain.handle('servers:remove', (_e, id: string): void => {
     store.remove(id)
+  })
+
+  ipcMain.handle('servers:check', (_e, id: string): Promise<boolean> => {
+    const server = store.get(id)
+    if (!server) return Promise.resolve(false)
+    return new Promise((resolve) => {
+      const socket = net.connect(443, server.host)
+      const timer = setTimeout(() => {
+        socket.destroy()
+        resolve(false)
+      }, 5000)
+      socket.setTimeout(5000)
+      socket.once('connect', () => {
+        clearTimeout(timer)
+        socket.destroy()
+        resolve(true)
+      })
+      socket.once('timeout', () => {
+        clearTimeout(timer)
+        socket.destroy()
+        resolve(false)
+      })
+      socket.once('error', () => {
+        clearTimeout(timer)
+        socket.destroy()
+        resolve(false)
+      })
+    })
   })
 
   ipcMain.on('deploy:start', (event, payload) => {

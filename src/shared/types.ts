@@ -114,6 +114,7 @@ export interface ElectronAPI {
     add: (input: Omit<Server, 'id' | 'createdAt'>) => Promise<Server>
     remove: (id: string) => Promise<void>
     get: (id: string) => Promise<Server | null>
+    check: (id: string) => Promise<boolean>
   }
   deploy: {
     start: (payload: DeployStartPayload) => void
@@ -152,13 +153,5 @@ export interface ElectronAPI {
   app: {
     getVersion: () => Promise<string>
     onUpdateAvailable: (callback: (version: string) => void) => () => void
-  }
-  theme: {
-    set: (theme: 'light' | 'dark') => Promise<void>
-    get: () => Promise<'light' | 'dark'>
-  }
-  language: {
-    set: (lang: 'ru' | 'en' | 'zh') => Promise<void>
-    get: () => Promise<'ru' | 'en' | 'zh'>
   }
 }
