@@ -6,6 +6,7 @@ import { Deployer } from './core/deployer'
 import { fetchSubscription } from './core/subscription'
 import { ProfileManager } from './core/profiles'
 import { ServerManager } from './core/server-manager'
+import { probePortsFor } from './core/probe-ports'
 
 interface IpcContext {
   store: ServerStore
@@ -27,29 +28,7 @@ export function registerIpcHandlers({ store }: IpcContext): void {
   ipcMain.handle('servers:check', (_e, id: string): Promise<boolean> => {
     const server = store.get(id)
     if (!server) return Promise.resolve(false)
-    return new Promise((resolve) => {
-      const socket = net.connect(443, server.host)
-      const timer = setTimeout(() => {
-        socket.destroy()
-        resolve(false)
-      }, 5000)
-      socket.setTimeout(5000)
-      socket.once('connect', () => {
-        clearTimeout(timer)
-        socket.destroy()
-        resolve(true)
-      })
-      socket.once('timeout', () => {
-        clearTimeout(timer)
-        socket.destroy()
-        resolve(false)
-      })
-      socket.once('error', () => {
-        clearTimeout(timer)
-        socket.destroy()
-        resolve(false)
-      })
-    })
+    return checkServerReachable(server)
   })
 
   ipcMain.on('deploy:start', (event, payload) => {
@@ -184,4 +163,36 @@ export function registerIpcHandlers({ store }: IpcContext): void {
   )
 
   ipcMain.handle('app:version', () => process.env.npm_package_version ?? '0.1.0')
+}
+
+function checkServerReachable(server: Server): Promise<boolean> {
+  const ports = probePortsFor(server)
+  const deadline = Date.now() + 7000
+  return tryConnectPorts(server.host, ports, deadline)
+}
+
+function tcpReachable(host: string, port: number, timeoutMs: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = net.connect(port, host)
+    socket.setTimeout(timeoutMs)
+    let done = false
+    const finish = (ok: boolean): void => {
+      if (done) return
+      done = true
+      socket.destroy()
+      resolve(ok)
+    }
+    socket.once('connect', () => finish(true))
+    socket.once('timeout', () => finish(false))
+    socket.once('error', () => finish(false))
+  })
+}
+
+async function tryConnectPorts(host: string, ports: number[], deadline: number): Promise<boolean> {
+  for (const port of ports) {
+    if (Date.now() > deadline) return false
+    const remaining = Math.max(300, deadline - Date.now())
+    if (await tcpReachable(host, port, remaining)) return true
+  }
+  return false
 }
