@@ -3,7 +3,8 @@
 [← 返回 README](../../README.zh-CN.md) · [English](../configuration.md) · [Русский](../ru/configuration.md)
 
 章节：[环境变量](#安装脚本的环境变量) · [防火墙与主机网络设置](#防火墙与主机网络设置) ·
-[主菜单](#主菜单) · [命令](#命令) · [分流路由](#分流路由) · [级联](#级联与上游节点) ·
+[主菜单](#主菜单) · [命令](#命令) · [桌面图形界面](#桌面图形界面) · [分流路由](#分流路由) ·
+[级联](#级联与上游节点) ·
 [Self-steal](#自有域名与-self-steal-挡板) · [域名与 DNS](#域名与-dns)
 
 ---
@@ -82,6 +83,14 @@ UFW 由安装脚本自行管理：安装 `ufw` 包，若 UFW 未启用则执行 
 | `sudo xrayebator profiles` | 以 JSON 数组输出服务器全部配置档（供桌面 GUI「服务器设置」页使用） |
 | `sudo xrayebator profile-create --name 名称 [--transport tcp\|tcp-utls\|tcp-xudp\|tcp-mux\|grpc\|xhttp] [--port P] [--count N]` | 非交互式创建单个或多个配置档，打印 `{"ok":true,"names":[...],"errors":[...]}` |
 | `sudo xrayebator profile-delete --name 名称` | 非交互式删除配置档，打印 `{"ok":true,"name":"..."}` |
+| `sudo xrayebator fp-change --name 名称 [--route R] --fp 指纹` | 修改配置档的指纹，打印 JSON 结果 |
+| `sudo xrayebator sni-change --name 名称 [--route R] --sni SNI` | 修改配置档的 SNI，并同步更新同一端口上的所有配置档，打印 JSON 结果 |
+| `sudo xrayebator port-change --name 名称 [--route R] --port 端口\|random` | 修改配置档的端口；更新入站、防火墙与订阅。客户端需要重新连接，打印 JSON 结果 |
+| `sudo xrayebator bypass list` | 按分组列出当前分流规则（JSON） |
+| `sudo xrayebator bypass add --domain D` | 向分流规则添加一个域名（JSON） |
+| `sudo xrayebator bypass remove --domain D` | 从分流规则移除一个域名（JSON） |
+| `sudo xrayebator bypass reset` | 清空所有自定义分流规则（JSON） |
+| `sudo xrayebator bypass bundle [--group a,b,c]` | 应用默认分流分组；不带 `--group` 时重新应用全部分组（JSON） |
 | `sudo xrayebator-update` | 按 `.current_branch` 记录的分支更新 **Xrayebator 本身** |
 | `sudo xrayebator-update main` | 强制从 `main` 分支更新 Xrayebator 本身 |
 | `sudo xrayebator-uninstall` | 移除服务与配置 |
@@ -95,6 +104,29 @@ UFW 由安装脚本自行管理：安装 `ufw` 包，若 UFW 未启用则执行 
 | 参数 | 不接受 | 接受分支名：`main`、`dev`、`experimental` 或其他 |
 | 影响 | 内核版本、传输方式、协议 | 菜单、迁移、订阅生成 |
 | 副作用 | 配置校验后重启 Xray | 下次打开菜单时执行迁移 |
+
+## 桌面图形界面
+
+桌面应用（`src/`，Electron + React）通过 SSH 连接 VPS，并调用上述已文档化的 CLI —— 它从不直接
+修改 `config.json`。`backup_config`、`safe_jq_write` 与 `safe_restart_xray` 的所有安全保证照常生效。
+
+| 页面 | 用途 |
+|---|---|
+| Dashboard | 服务器卡片、连通性检查、打开/设置/删除、语言切换 |
+| 添加服务器 | 通过 SSH 完整部署，带步骤进度：`os check → upload → install → binary → quickstart` |
+| 服务器密钥 | 刷新订阅、复制链接、显示 `vless://` 链接与二维码 |
+| 服务器设置 | 在 SSH 密码保护下管理配置档：列出/创建/删除、`fp-change`、`sni-change`、`port-change`，以及更新/卸载服务器 |
+
+界面语言（Русский / English / 简体中文）在 Dashboard 页眉切换，并保存在 `localStorage` 的
+`xrayebator-language` 键中。构建与运行：
+
+```bash
+npm install
+npm run dev          # Electron + Vite 开发模式
+npm run build        # 编译 renderer 与 main process
+npm test             # Vitest 单元测试
+npm run typecheck    # TypeScript 检查
+```
 
 ## 分流路由
 

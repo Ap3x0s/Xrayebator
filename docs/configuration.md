@@ -4,7 +4,8 @@
 
 Sections: [Environment variables](#installer-environment-variables) ·
 [Firewall and host networking](#firewall-and-host-networking) · [Main menu](#main-menu) ·
-[Commands](#commands) · [Bypass routing](#bypass-routing) · [Cascade](#cascade-and-upstream-nodes) ·
+[Commands](#commands) · [Desktop GUI](#desktop-gui) · [Bypass routing](#bypass-routing) ·
+[Cascade](#cascade-and-upstream-nodes) ·
 [Self-steal](#custom-domain-and-self-steal-stub) · [Domain and DNS](#domain-and-dns)
 
 ---
@@ -89,6 +90,14 @@ change, force a subscription refresh in the client or fetch the raw route again 
 | `sudo xrayebator profiles` | Print all server profiles as a JSON array (used by the desktop GUI "Server settings" page) |
 | `sudo xrayebator profile-create --name NAME [--transport tcp|tcp-utls|tcp-xudp|tcp-mux|grpc|xhttp] [--port P] [--count N]` | Create one or more profiles non-interactively. Prints a JSON result line `{"ok":true,"names":[...],"errors":[...]}` |
 | `sudo xrayebator profile-delete --name NAME` | Delete a profile non-interactively. Prints `{"ok":true,"name":"..."}` |
+| `sudo xrayebator fp-change --name NAME [--route R] --fp FINGERPRINT` | Change the fingerprint for a profile. Prints a JSON result line |
+| `sudo xrayebator sni-change --name NAME [--route R] --sni SNI` | Change the SNI for a profile. Updates all profiles on the same port. Prints a JSON result line |
+| `sudo xrayebator port-change --name NAME [--route R] --port PORT\|random` | Change the port for a profile; updates the inbound, firewall and subscription. Client reconnection is required. Prints a JSON result line |
+| `sudo xrayebator bypass list` | Print the current bypass domain rules, grouped (JSON) |
+| `sudo xrayebator bypass add --domain D` | Add a domain to the bypass rules (JSON) |
+| `sudo xrayebator bypass remove --domain D` | Remove a domain from the bypass rules (JSON) |
+| `sudo xrayebator bypass reset` | Clear all custom bypass rules (JSON) |
+| `sudo xrayebator bypass bundle [--group a,b,c]` | Apply the default bypass groups; without `--group`, re-applies all groups (JSON) |
 | `sudo xrayebator-update` | Update **Xrayebator itself** from the branch stored in `.current_branch` |
 | `sudo xrayebator-update main` | Update Xrayebator itself, forced from the `main` branch |
 | `sudo xrayebator-uninstall` | Remove the service and configuration |
@@ -102,6 +111,30 @@ change, force a subscription refresh in the client or fetch the raw route again 
 | Argument | Takes none | Takes a branch name: `main`, `dev`, `experimental` or any other |
 | Affects | Core version, transports, protocols | Menu, migrations, subscription generation |
 | Side effect | Xray restart after config validation | Migrations run on the next menu launch |
+
+## Desktop GUI
+
+The desktop app (`src/`, Electron + React) talks to a VPS over SSH and drives the documented CLI
+above — it never touches `config.json` directly. All safety guarantees of `backup_config`,
+`safe_jq_write` and `safe_restart_xray` apply unchanged.
+
+| Page | Purpose |
+|---|---|
+| Dashboard | Server cards, reachability check, open/settings/delete, language switch |
+| Add server | Full deploy over SSH with a step progress: `os check → upload → install → binary → quickstart` |
+| Server keys | Refresh the subscription, copy URL, show `vless://` links and QR codes |
+| Server settings | Profile management under an SSH password: list/create/delete, `fp-change`, `sni-change`, `port-change`, plus server update/uninstall |
+
+Interface language (Русский / English / 简体中文) is switched in the Dashboard header and persisted in
+`localStorage` under `xrayebator-language`. Build and run:
+
+```bash
+npm install
+npm run dev          # Electron + Vite dev mode
+npm run build        # compile renderer and main process
+npm test             # Vitest unit tests
+npm run typecheck    # TypeScript surface check
+```
 
 ## Bypass routing
 

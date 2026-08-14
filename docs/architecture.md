@@ -3,7 +3,8 @@
 [← Back to README](../README.md) · [Русский](ru/architecture.md) · [简体中文](zh-CN/architecture.md)
 
 Sections: [Repository](#repository) · [On-server state](#on-server-state) ·
-[Inbound versus profile](#inbound-versus-profile) · [How the subscription works](#how-the-subscription-works)
+[Inbound versus profile](#inbound-versus-profile) · [How the subscription works](#how-the-subscription-works) ·
+[Desktop GUI](#desktop-gui)
 
 ---
 
@@ -15,6 +16,15 @@ Xrayebator/
 ├── install.sh            # installs the core, service, permissions, geo databases, lifecycle commands
 ├── update.sh             # updates Xrayebator itself from the selected branch
 ├── uninstall.sh          # removes the service and configuration
+├── src/                  # desktop GUI (Electron + React)
+│   ├── main/             # main process: window, tray, auto-update, IPC handlers
+│   │   ├── core/         # SSH client, deployer, profile manager, server manager, subscription
+│   │   │                #   server store (electron-store)
+│   ├── preload/          # contextBridge between the renderer and the main process
+│   ├── renderer/         # React UI: Dashboard, AddServer, ServerKeys, ServerSettings
+│   │   └── src/i18n/     # ru.json, en.json, zh.json; localStorage language switch
+│   └── shared/           # TypeScript types shared between main and renderer
+├── tests/                # Vitest unit tests for the GUI helpers
 ├── validation/           # static and local regression tests
 ├── docs/                 # documentation: en, ru, zh-CN
 ├── sni_list.txt          # SNI candidates
@@ -103,3 +113,36 @@ safe_restart_xray ► xray run -test -config → systemctl restart
 
 Migrations run once and are recorded by marker files in `/usr/local/etc/xray/`. The scheme is always
 the same: marker missing → backup → edit → restart → create the marker.
+
+## Desktop GUI
+
+The desktop app (`src/`) is a password-driven CLI front-end over SSH. It never edits `config.json`
+directly — every operation maps to a documented CLI command executed on the server:
+
+| GUI action | Server command |
+|---|---|
+| Add server / deploy | upload `install.sh` + `xrayebator` → `bash install.sh` → `xrayebator quickstart --email <email>` |
+| Refresh subscription | HTTP GET the saved subscription URL |
+| List profiles | `xrayebator profiles` |
+| Create profile | `xrayebator profile-create --name N [--transport T] [--port P] [--count N]` |
+| Delete profile | `xrayebator profile-delete --name N` |
+| Change fingerprint | `xrayebator fp-change --name N [--route R] --fp F` |
+| Change SNI | `xrayebator sni-change --name N [--route R] --sni S` |
+| Change port | `xrayebator port-change --name N [--route R] --port P` |
+| Update server | `xrayebator update <branch>` (self-update + core) |
+| Uninstall | upload `uninstall.sh` → `yes | bash uninstall.sh` |
+
+The renderer talks to the main process only through `window.api` (exposed by the preload bridge via
+`contextBridge`, `contextIsolation: true`). The main process owns the only copy of the SSH library
+(`ssh2`); the renderer never sees credentials outside the single IPC call that needs them. Server
+metadata is persisted with `electron-store` in the application data directory; the SSH password is
+kept in memory for the duration of one operation only.
+
+Process boundaries:
+
+```text
+renderer (React)
+    │  window.api (preload bridge, contextIsolated)
+    ▼
+main process  ──►  ssh2 (SSH)  ──►  xrayebator CLI on the VPS
+```

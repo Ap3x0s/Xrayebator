@@ -4,7 +4,8 @@
 
 Разделы: [Переменные окружения](#переменные-окружения-установщика) ·
 [Firewall и параметры хоста](#firewall-и-параметры-хоста) · [Главное меню](#главное-меню) ·
-[Команды](#команды) · [Bypass routing](#bypass-routing) · [Каскад](#каскад-и-upstream-ноды) ·
+[Команды](#команды) · [Десктоп-GUI](#десктоп-gui) · [Bypass routing](#bypass-routing) ·
+[Каскад](#каскад-и-upstream-ноды) ·
 [Self-steal](#собственный-домен-и-self-steal-заглушка) · [Домен и DNS](#домен-и-dns)
 
 ---
@@ -89,6 +90,14 @@ UFW установщик настраивает сам: ставит пакет 
 | `sudo xrayebator profiles` | Вывести все профили сервера JSON-массивом (используется страницей «Настройки сервера» десктопного GUI) |
 | `sudo xrayebator profile-create --name ИМЯ [--transport tcp\|tcp-utls\|tcp-xudp\|tcp-mux\|grpc\|xhttp] [--port P] [--count N]` | Создать один или несколько профилей без интерактива. Печатает JSON `{"ok":true,"names":[...],"errors":[...]}` |
 | `sudo xrayebator profile-delete --name ИМЯ` | Удалить профиль без интерактива. Печатает `{"ok":true,"name":"..."}` |
+| `sudo xrayebator fp-change --name ИМЯ [--route R] --fp ОТПЕЧАТОК` | Сменить fingerprint профиля. Печатает JSON-результат |
+| `sudo xrayebator sni-change --name ИМЯ [--route R] --sni SNI` | Сменить SNI профиля. Обновляет все профили на том же порту. Печатает JSON-результат |
+| `sudo xrayebator port-change --name ИМЯ [--route R] --port ПОРТ\|random` | Сменить порт профиля; обновляет инбаунд, firewall и подписку. Клиентам нужно переподключиться. Печатает JSON-результат |
+| `sudo xrayebator bypass list` | Показать текущие bypass-правила по группам (JSON) |
+| `sudo xrayebator bypass add --domain D` | Добавить домен в bypass-правила (JSON) |
+| `sudo xrayebator bypass remove --domain D` | Убрать домен из bypass-правил (JSON) |
+| `sudo xrayebator bypass reset` | Сбросить все кастомные bypass-правила (JSON) |
+| `sudo xrayebator bypass bundle [--group a,b,c]` | Применить дефолтные группы bypass; без `--group` — все группы заново (JSON) |
 | `sudo xrayebator-update` | Обновить **сам Xrayebator** из ветки, запомненной в `.current_branch` |
 | `sudo xrayebator-update main` | Обновить сам Xrayebator принудительно из ветки `main` |
 | `sudo xrayebator-uninstall` | Снять сервис и конфигурацию |
@@ -103,6 +112,30 @@ UFW установщик настраивает сам: ставит пакет 
 | Аргумент | Не принимает | Принимает имя ветки: `main`, `dev`, `experimental` или любую другую |
 | На что влияет | Версия ядра, транспорты, протоколы | Меню, миграции, генерация подписки |
 | Побочный эффект | Перезапуск Xray после проверки конфига | Прогон миграций при следующем запуске меню |
+
+## Десктоп-GUI
+
+Десктоп-приложение (`src/`, Electron + React) подключено к VPS по SSH и гоняет документированный CLI
+выше — оно никогда не трогает `config.json` напрямую. Все гарантии безопасности `backup_config`,
+`safe_jq_write` и `safe_restart_xray` действуют без изменений.
+
+| Страница | Назначение |
+|---|---|
+| Dashboard | Карточки серверов, проверка доступности, открыть/настройки/удалить, переключатель языка |
+| Добавить сервер | Полный деплой по SSH с прогрессом шагов: `os check → upload → install → binary → quickstart` |
+| Ключи сервера | Обновить подписку, скопировать URL, показать ссылки `vless://` и QR-коды |
+| Настройки сервера | Управление профилями под SSH-паролем: список/создание/удаление, `fp-change`, `sni-change`, `port-change`, плюс обновление/удаление сервера |
+
+Язык интерфейса (Русский / English / 简体中文) переключается в шапке Dashboard и хранится в
+`localStorage` под ключом `xrayebator-language`. Сборка и запуск:
+
+```bash
+npm install
+npm run dev          # Electron + Vite dev mode
+npm run build        # скомпилировать renderer и main process
+npm test             # unit-тесты Vitest
+npm run typecheck    # проверка TypeScript
+```
 
 ## Bypass routing
 

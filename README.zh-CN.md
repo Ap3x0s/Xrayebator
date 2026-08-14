@@ -33,7 +33,7 @@ Xrayebator 安装 Xray-core，在随机端口上建立 Reality 入站，创建�
 
 ```bash
 curl -fsSLo ./xrayebator-install.sh \
-  https://raw.githubusercontent.com/howdeploy/Xrayebator/main/install.sh
+  https://raw.githubusercontent.com/Ap3x0s/Xrayebator/main/install.sh
 less ./xrayebator-install.sh          # 运行前请先审阅脚本
 sudo bash ./xrayebator-install.sh
 
@@ -202,7 +202,7 @@ XHTTP 候选下发。配置档 JSON 中仍然保留全部七条。
 
 ```bash
 curl -fsSLo ./xrayebator-install.sh \
-  https://raw.githubusercontent.com/howdeploy/Xrayebator/main/install.sh
+  https://raw.githubusercontent.com/Ap3x0s/Xrayebator/main/install.sh
 less ./xrayebator-install.sh
 sudo bash ./xrayebator-install.sh
 ```
@@ -240,6 +240,47 @@ Routing 并使用 Global Proxy；如果存在 `xrayebator-default`，也可以�
 如需手工控制 SNI、传输方式或单条线路，请使用 `1) Создать новый профиль`。
 
 > 终端界面为俄语。本文档逐项说明了所有菜单条目，因此界面语言不构成障碍。
+
+---
+
+## 桌面图形界面
+
+除了终端菜单，还有一个可选桌面应用（Electron + React，位于 `src/`），通过 SSH 管理 VPS。
+它并不替代 bash 引擎——服务器上的所有操作仍由 `xrayebator` 完成，图形界面只是通过 SSH
+调用同一组命令。
+
+```text
+桌面应用 (Electron · React)
+    │  SSH + 已文档化的 CLI
+    ▼
+xrayebator (bash)   ──►  /usr/local/etc/xray/
+```
+
+界面语言（Русский / English / 简体中文）在主屏幕页眉切换，并保存在 `localStorage` 中。
+终端菜单仍为俄语。
+
+GUI 的功能：
+
+| 页面 | 操作 |
+|---|---|
+| Dashboard | 服务器卡片与连通状态：打开、设置、删除；语言切换 |
+| 添加服务器 | 部署新 VPS：上传 `install.sh` 与 `xrayebator`，运行安装，放置二进制，执行 `quickstart --email`，保存服务器与订阅链接 |
+| 服务器密钥 | 刷新订阅、复制链接、显示 `vless://` 链接与二维码 |
+| 服务器设置 | 需要密码的配置档管理：列出/创建/删除配置档，修改指纹、SNI 和端口，以及更新或卸载服务器上的 Xrayebator |
+
+GUI 每次操作都会发送 SSH 密码，并且只在调用期间保存在内存中。服务器元数据（主机、端口、
+订阅链接、线路列表）存放在桌面应用的本地存储中；凭据从不落盘。
+
+开发模式下的构建与运行：
+
+```bash
+npm install
+npm run dev          # Electron + Vite dev server
+npm run build        # 编译 renderer 与 main process
+```
+
+GUI 测试：`npm test` (Vitest) 运行 `tests/` 中的单元测试；`npm run typecheck` 检查 TypeScript。
+参见 [测试](docs/zh-CN/testing.md#桌面图形界面)。
 
 ---
 

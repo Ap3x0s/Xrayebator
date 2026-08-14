@@ -54,3 +54,23 @@ jq -r '.routes[] | [.label,.transport,.port,(.pq_enabled // false)] | @tsv' \
 
 If UFW is already active, compare the numbered rules before and after the operation: an install must
 not re-enable the firewall or change its default policy.
+
+## Desktop GUI
+
+The GUI (`src/`) has its own Vitest unit tests in `tests/` and CI that runs them on every push
+affecting the GUI code.
+
+```bash
+npm run typecheck     # TypeScript surface of main, preload, renderer and shared
+npm test              # Vitest unit tests
+```
+
+| Test | What it checks |
+|---|---|
+| `tests/unit/subscription.test.ts` | Subscription URL and profile-key extraction |
+| `tests/unit/probe-ports.test.ts` | Reachability probing used by the Dashboard status dot |
+| `tests/unit/extractJson.test.ts` | Parsing of JSON from the `xrayebator` command output |
+| `tests/unit/countryFlag.test.ts` | Country-flag lookup for server cards |
+
+UI logic (renders, interaction, deploy step flow, i18n switching) is covered by `npm run build`
+producing a release bundle and by manual verification against a live server.

@@ -54,3 +54,23 @@ jq -r '.routes[] | [.label,.transport,.port,(.pq_enabled // false)] | @tsv' \
 
 Если UFW уже активен, сравните numbered rules до и после операции: установка не должна включать
 firewall заново и менять политику по умолчанию.
+
+## Десктоп-GUI
+
+У GUI (`src/`) свои Vitest unit-тесты в `tests/`, и CI прогоняет их на каждый push, затрагивающий
+код GUI.
+
+```bash
+npm run typecheck     # проверка TypeScript: main, preload, renderer, shared
+npm test              # Vitest unit-тесты
+```
+
+| Тест | Что проверяет |
+|---|---|
+| `tests/unit/subscription.test.ts` | Извлечение ссылки подписки и ключей профиля |
+| `tests/unit/probe-ports.test.ts` | Зондажи доступности, которые использует статусная точка на Dashboard |
+| `tests/unit/extractJson.test.ts` | Разбор JSON из вывода команд `xrayebator` |
+| `tests/unit/countryFlag.test.ts` | Подбор флага страны для карточек серверов |
+
+UI-логика (рендер, взаимодействие, поток шагов деплоя, переключение i18n) покрывается
+`npm run build` (сборка релизного бандла) и ручной проверкой на живом сервере.

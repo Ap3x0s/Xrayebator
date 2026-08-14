@@ -54,3 +54,22 @@ jq -r '.routes[] | [.label,.transport,.port,(.pq_enabled // false)] | @tsv' \
 
 如果 UFW 已经启用，请对比操作前后的 numbered rules：安装不应重新启用防火墙，
 也不应更改其默认策略。
+
+## 桌面图形界面
+
+GUI（`src/`）在 `tests/` 中有独立的 Vitest 单元测试，CI 在每次涉及 GUI 代码的推送时都会运行它们。
+
+```bash
+npm run typecheck     # 检查 TypeScript：main、preload、renderer、shared
+npm test              # Vitest 单元测试
+```
+
+| 测试 | 检查内容 |
+|---|---|
+| `tests/unit/subscription.test.ts` | 订阅链接与配置档密钥的提取 |
+| `tests/unit/probe-ports.test.ts` | Dashboard 状态点使用的可达性探测 |
+| `tests/unit/extractJson.test.ts` | 从 `xrayebator` 命令输出中解析 JSON |
+| `tests/unit/countryFlag.test.ts` | 服务器卡片的国家旗帜查找 |
+
+UI 逻辑（渲染、交互、部署步骤流程、i18n 切换）由 `npm run build` 生成发布包
+以及针对线上服务器的手工验证来覆盖。
