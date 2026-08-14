@@ -8,7 +8,6 @@ import {
   Lock,
   CloudDownload,
   CloudOff,
-  Globe,
   Fingerprint,
   Globe2,
   EthernetPort,
@@ -42,17 +41,6 @@ export const FINGERPRINTS = [
   'random'
 ] as const
 
-export const BYPASS_GROUPS = [
-  'yandex',
-  'vk',
-  'mailru',
-  'banks',
-  'marketplaces',
-  'ru_services',
-  'streaming',
-  'steam'
-] as const
-
 export const SNI_CATEGORIES = [
   'ru_whitelist',
   'yandex_cdn',
@@ -84,12 +72,6 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
   const [fpRoute, setFpRoute] = useState<number>(1)
   const [fpValue, setFpValue] = useState<string>('firefox')
   const [fpBusy, setFpBusy] = useState(false)
-
-  const [bypassDomains, setBypassDomains] = useState<string[] | null>(null)
-  const [bypassGroups, setBypassGroups] = useState<string[]>([])
-  const [bypassDomainInput, setBypassDomainInput] = useState('')
-  const [bypassBusy, setBypassBusy] = useState(false)
-  const [confirmBypassReset, setConfirmBypassReset] = useState(false)
 
   const [sniTarget, setSniTarget] = useState<ServerProfile | null>(null)
   const [sniRoute, setSniRoute] = useState<number>(1)
@@ -299,111 +281,6 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setPortBusy(false)
-    }
-  }
-
-  const loadBypass = async (): Promise<void> => {
-    if (!password.trim()) return
-    setBypassBusy(true)
-    setError(null)
-    try {
-      const result = await window.api.profiles.bypass.list(server.id, password)
-      if (result.ok) {
-        const domains = (result.domains ?? []).map((d) => d.replace(/^domain:/, ''))
-        setBypassDomains(domains)
-      } else {
-        setError(result.error ?? t('settings.bypassFailed'))
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setBypassBusy(false)
-    }
-  }
-
-  const applyBypassGroups = async (): Promise<void> => {
-    if (!password.trim()) return
-    setBypassBusy(true)
-    setError(null)
-    try {
-      const result = await window.api.profiles.bypass.bundle(server.id, password, {
-        groups: bypassGroups
-      })
-      if (result.ok) {
-        toastText(t('settings.bypassApplied', { count: result.domains ?? 0 }))
-        setBypassGroups([])
-        await loadBypass()
-      } else {
-        setError(result.error ?? t('settings.bypassFailed'))
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setBypassBusy(false)
-    }
-  }
-
-  const addBypassDomain = async (): Promise<void> => {
-    const domain = bypassDomainInput.trim().replace(/^domain:/, '')
-    if (!domain || !password.trim()) return
-    setBypassBusy(true)
-    setError(null)
-    try {
-      const result = await window.api.profiles.bypass.add(server.id, password, domain)
-      if (result.ok) {
-        toastText(
-          result.duplicate
-            ? t('settings.bypassDup', { domain })
-            : t('settings.bypassAdded', { domain })
-        )
-        setBypassDomainInput('')
-        await loadBypass()
-      } else {
-        setError(result.error ?? t('settings.bypassFailed'))
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setBypassBusy(false)
-    }
-  }
-
-  const removeBypassDomain = async (domain: string): Promise<void> => {
-    if (!password.trim()) return
-    setBypassBusy(true)
-    setError(null)
-    try {
-      const result = await window.api.profiles.bypass.remove(server.id, password, domain)
-      if (result.ok) {
-        toastText(t('settings.bypassRemoved', { domain }))
-        await loadBypass()
-      } else {
-        setError(result.error ?? t('settings.bypassFailed'))
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setBypassBusy(false)
-    }
-  }
-
-  const resetBypass = async (): Promise<void> => {
-    setConfirmBypassReset(false)
-    if (!password.trim()) return
-    setBypassBusy(true)
-    setError(null)
-    try {
-      const result = await window.api.profiles.bypass.reset(server.id, password)
-      if (result.ok) {
-        toastText(t('settings.bypassResetDone'))
-        await loadBypass()
-      } else {
-        setError(result.error ?? t('settings.bypassFailed'))
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setBypassBusy(false)
     }
   }
 
@@ -732,126 +609,6 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
                   </div>
                 </div>
               ))}
-            </section>
-
-            <section className={styles.listCard}>
-              <h2 className={styles.sectionTitle}>
-                <Globe size={16} className={styles.sectionTitleIcon} />
-                {t('settings.bypassTitle')}
-              </h2>
-              <p className={styles.sectionHint}>{t('settings.bypassHint')}</p>
-
-              {bypassDomains === null && (
-                <div className={styles.bypassLoadRow}>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    isDisabled={bypassBusy}
-                    onPress={loadBypass}
-                  >
-                    {bypassBusy ? <Spinner size="sm" /> : <RefreshCw size={14} />}
-                    {t('settings.connect')}
-                  </Button>
-                </div>
-              )}
-
-              {bypassDomains !== null && (
-                <div className={styles.bypassCard}>
-                  <div className={styles.bypassGroups}>
-                    {BYPASS_GROUPS.map((group) => {
-                      const active = bypassGroups.includes(group)
-                      return (
-                        <button
-                          key={group}
-                          type="button"
-                          className={`${styles.bypassGroup} ${
-                            active ? styles.bypassGroupActive : ''
-                          }`}
-                          disabled={bypassBusy}
-                          onClick={() => {
-                            setBypassGroups((prev) =>
-                              active
-                                ? prev.filter((g) => g !== group)
-                                : [...prev, group]
-                            )
-                          }}
-                        >
-                          <span className={styles.bypassGroupCheck}>
-                            {active ? '✓' : ''}
-                          </span>
-                          {t(`settings.bypassGroups.${group}`)}
-                        </button>
-                      )
-                    })}
-                  </div>
-
-                  <div className={styles.bypassActions}>
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      isDisabled={bypassBusy || bypassGroups.length === 0}
-                      onPress={applyBypassGroups}
-                    >
-                      {bypassBusy && <Spinner size="sm" />}
-                      {t('settings.bypassApply')}
-                    </Button>
-                    <Button
-                      variant="danger-soft"
-                      size="sm"
-                      isDisabled={bypassBusy}
-                      onPress={() => setConfirmBypassReset(true)}
-                    >
-                      {t('settings.bypassReset')}
-                    </Button>
-                  </div>
-
-                  <div className={styles.bypassAddRow}>
-                    <TextField variant="secondary" className={styles.bypassDomainField}>
-                      <Input
-                        value={bypassDomainInput}
-                        disabled={bypassBusy}
-                        placeholder={t('settings.bypassDomainPlaceholder')}
-                        onChange={(e) => setBypassDomainInput(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') void addBypassDomain()
-                        }}
-                      />
-                    </TextField>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      isDisabled={bypassBusy || !bypassDomainInput.trim()}
-                      onPress={addBypassDomain}
-                    >
-                      {t('settings.bypassAdd')}
-                    </Button>
-                  </div>
-
-                  <div className={styles.bypassCurrent}>
-                    <span className={styles.bypassCurrentLabel}>{t('settings.bypassCurrent')}</span>
-                    {bypassDomains.length === 0 ? (
-                      <span className={styles.bypassNone}>{t('settings.bypassNone')}</span>
-                    ) : (
-                      <div className={styles.bypassChips}>
-                        {bypassDomains.map((domain) => (
-                          <span key={domain} className={styles.bypassChip}>
-                            {domain}
-                            <button
-                              type="button"
-                              className={styles.bypassChipX}
-                              disabled={bypassBusy}
-                              aria-label={t('settings.deleteKey')}
-                              onClick={() => void removeBypassDomain(domain)}
-                            >
-                              ✕
-                            </button>
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
             </section>
           </>
         )}
@@ -1227,39 +984,6 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
                 >
                   {portBusy && <Spinner size="sm" />}
                   {t('settings.changePort')}
-                </Button>
-              </AlertDialog.Footer>
-            </AlertDialog.Dialog>
-          </AlertDialog.Container>
-        </AlertDialog.Backdrop>
-      </AlertDialog.Root>
-
-      <AlertDialog.Root
-        isOpen={confirmBypassReset}
-        onOpenChange={(open) => {
-          if (!open) setConfirmBypassReset(false)
-        }}
-      >
-        <AlertDialog.Backdrop>
-          <AlertDialog.Container>
-            <AlertDialog.Dialog className={styles.confirmDialog}>
-              <AlertDialog.Header>
-                <AlertDialog.Icon status="danger">
-                  <Trash2 size={20} />
-                </AlertDialog.Icon>
-                <AlertDialog.Heading>
-                  {t('settings.bypassResetTitle')}
-                </AlertDialog.Heading>
-              </AlertDialog.Header>
-              <AlertDialog.Body>
-                {t('settings.bypassResetBody')}
-              </AlertDialog.Body>
-              <AlertDialog.Footer>
-                <Button variant="secondary" onPress={() => setConfirmBypassReset(false)}>
-                  {t('dashboard.cancel')}
-                </Button>
-                <Button variant="danger" onPress={resetBypass}>
-                  {t('settings.bypassReset')}
                 </Button>
               </AlertDialog.Footer>
             </AlertDialog.Dialog>

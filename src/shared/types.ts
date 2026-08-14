@@ -125,25 +125,6 @@ export interface SniListResult {
   error?: string
 }
 
-export interface BypassListResult {
-  ok: boolean
-  domains?: string[]
-  error?: string
-}
-
-export interface BypassResult {
-  ok: boolean
-  domain?: string
-  duplicate?: boolean
-  groups?: string[]
-  domains?: number
-  error?: string
-}
-
-export interface BypassBundleInput {
-  groups?: string[]
-}
-
 export interface ServerMaintenanceResult {
   ok: boolean
   output?: string
@@ -238,25 +219,6 @@ export interface ElectronAPI {
       password: string,
       input: ProfilePortInput
     ) => Promise<ProfilePortResult>
-    bypass: {
-      list: (serverId: string, password: string) => Promise<BypassListResult>
-      add: (
-        serverId: string,
-        password: string,
-        domain: string
-      ) => Promise<BypassResult>
-      remove: (
-        serverId: string,
-        password: string,
-        domain: string
-      ) => Promise<BypassResult>
-      reset: (serverId: string, password: string) => Promise<BypassResult>
-      bundle: (
-        serverId: string,
-        password: string,
-        input: BypassBundleInput
-      ) => Promise<BypassResult>
-    }
   }
   server: {
     update: (
