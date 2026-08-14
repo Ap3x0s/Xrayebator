@@ -3,7 +3,7 @@
 # ═══════════════════════════════════════════════════════════
 # XRAYEBATOR UPDATE SCRIPT v3.0
 # Обновление Xrayebator до последней версии
-# GitHub: https://github.com/howdeploy/Xrayebator
+# GitHub: https://github.com/Ap3x0s/Xrayebator
 # ═══════════════════════════════════════════════════════════
 
 # Цвета
@@ -16,7 +16,7 @@ MAGENTA='\033[0;35m'
 NC='\033[0m'
 
 # GitHub репозиторий
-GITHUB_USER="howdeploy"
+GITHUB_USER="Ap3x0s"
 GITHUB_REPO="Xrayebator"
 
 # ═══ Детекция IPv6-only VPS (shared helper) ═══
