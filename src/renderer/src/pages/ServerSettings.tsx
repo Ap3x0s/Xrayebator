@@ -10,7 +10,8 @@ import {
   CloudOff,
   Globe,
   Fingerprint,
-  Globe2
+  Globe2,
+  Radio
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { Server, ServerProfile, SniEntry } from '@shared/types'
@@ -57,6 +58,8 @@ export const SNI_CATEGORIES = [
   'fallback'
 ] as const
 
+export const PORT_PRESETS = [443, 8443, 2053, 2083, 2087, 2096, 9443, 8080] as const
+
 export function ServerSettings({ server, onBack }: ServerSettingsProps): React.JSX.Element {
   const { t } = useTranslation()
   const [password, setPassword] = useState('')
@@ -91,6 +94,12 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
   const [sniValue, setSniValue] = useState('')
   const [sniBusy, setSniBusy] = useState(false)
   const [sniList, setSniList] = useState<SniEntry[] | null>(null)
+
+  const [portTarget, setPortTarget] = useState<ServerProfile | null>(null)
+  const [portRoute, setPortRoute] = useState<number>(1)
+  const [portMode, setPortMode] = useState<'preset' | 'custom' | 'random'>('random')
+  const [portValue, setPortValue] = useState('')
+  const [portBusy, setPortBusy] = useState(false)
 
   const connected = profiles !== null
 
@@ -262,6 +271,32 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setSniBusy(false)
+    }
+  }
+
+  const changePort = async (): Promise<void> => {
+    if (!portTarget || !password.trim()) return
+    setPortBusy(true)
+    setError(null)
+    const input = {
+      name: portTarget.name,
+      port: portMode === 'random' ? ('random' as const) : Number(portValue),
+      ...(portTarget.multi_route ? { route: portRoute } : {})
+    }
+    try {
+      const result = await window.api.profiles.changePort(server.id, password, input)
+      if (result.ok) {
+        toastText(t('settings.portChanged', { name: portTarget.name, port: result.port ?? input.port }))
+        const fresh = await window.api.profiles.list(server.id, password)
+        setProfiles(fresh.profiles ?? [])
+        setPortTarget(null)
+      } else {
+        setError(result.error ?? t('settings.portFailed'))
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setPortBusy(false)
     }
   }
 
@@ -654,6 +689,20 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
                     >
                       <Fingerprint size={14} />
                       {t('settings.changeFingerprint')}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      isDisabled={busy}
+                      onPress={() => {
+                        setPortTarget(profile)
+                        setPortRoute(1)
+                        setPortMode('random')
+                        setPortValue('')
+                      }}
+                    >
+                      <Radio size={14} />
+                      {t('settings.changePort')}
                     </Button>
                     {profile.subscription_url && (
                       <Button size="sm" variant="secondary" onPress={() => copyUrl(profile)}>
@@ -1050,6 +1099,130 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
                 >
                   {sniBusy && <Spinner size="sm" />}
                   {t('settings.changeSni')}
+                </Button>
+              </AlertDialog.Footer>
+            </AlertDialog.Dialog>
+          </AlertDialog.Container>
+        </AlertDialog.Backdrop>
+      </AlertDialog.Root>
+
+      <AlertDialog.Root
+        isOpen={portTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !portBusy) setPortTarget(null)
+        }}
+      >
+        <AlertDialog.Backdrop>
+          <AlertDialog.Container>
+            <AlertDialog.Dialog className={styles.confirmDialog}>
+              <AlertDialog.Header>
+                <AlertDialog.Heading>
+                  {t('settings.portTitle')} — {portTarget?.name ?? ''}
+                </AlertDialog.Heading>
+              </AlertDialog.Header>
+              <AlertDialog.Body>
+                <p className={styles.portWarning}>{t('settings.portWarning')}</p>
+                {portTarget && (
+                  <p className={styles.fpCurrent}>
+                    {t('settings.portCurrent', { port: portTarget.port ?? '—' })}
+                  </p>
+                )}
+                {portTarget?.multi_route && (
+                  <div className={styles.fpField}>
+                    <span className={styles.fieldLabel}>{t('settings.fpRoute')}</span>
+                    <div className={styles.fpRouteGrid}>
+                      {Array.from({ length: portTarget.routes }, (_, i) => i + 1).map((r) => (
+                        <button
+                          key={r}
+                          type="button"
+                          className={`${styles.fpRouteCard} ${
+                            portRoute === r ? styles.fpRouteCardActive : ''
+                          }`}
+                          disabled={portBusy}
+                          onClick={() => setPortRoute(r)}
+                        >
+                          {r}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div className={styles.fpField}>
+                  <span className={styles.fieldLabel}>{t('settings.portSelect')}</span>
+                  <div className={styles.portGrid}>
+                    <button
+                      type="button"
+                      className={`${styles.portCard} ${
+                        portMode === 'random' ? styles.portCardActive : ''
+                      }`}
+                      disabled={portBusy}
+                      onClick={() => {
+                        setPortMode('random')
+                        setPortValue('')
+                      }}
+                    >
+                      <span className={styles.portCardName}>{t('settings.portRandom')}</span>
+                      <span className={styles.portCardDesc}>{t('settings.portRandomHint')}</span>
+                    </button>
+                    {PORT_PRESETS.map((p) => (
+                      <button
+                        key={p}
+                        type="button"
+                        className={`${styles.portCard} ${
+                          portMode === 'preset' && portValue === String(p)
+                            ? styles.portCardActive
+                            : ''
+                        }`}
+                        disabled={portBusy}
+                        onClick={() => {
+                          setPortMode('preset')
+                          setPortValue(String(p))
+                        }}
+                      >
+                        <span className={styles.portCardName}>{p}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className={styles.fpField}>
+                  <TextField variant="secondary" className={styles.bypassDomainField}>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={65535}
+                      value={portMode === 'custom' ? portValue : ''}
+                      disabled={portBusy}
+                      placeholder={t('settings.portCustomPlaceholder')}
+                      onChange={(e) => {
+                        setPortMode('custom')
+                        setPortValue(e.target.value)
+                      }}
+                      onFocus={() => {
+                        setPortMode('custom')
+                        setPortValue('')
+                      }}
+                    />
+                  </TextField>
+                </div>
+                <p className={styles.fpNote}>{t('settings.portReconnectHint')}</p>
+              </AlertDialog.Body>
+              <AlertDialog.Footer>
+                <Button variant="secondary" isDisabled={portBusy} onPress={() => setPortTarget(null)}>
+                  {t('dashboard.cancel')}
+                </Button>
+                <Button
+                  variant="primary"
+                  isDisabled={
+                    portBusy ||
+                    (portMode !== 'random' &&
+                      (!/^[0-9]+$/.test(portValue) ||
+                        Number(portValue) < 1 ||
+                        Number(portValue) > 65535))
+                  }
+                  onPress={changePort}
+                >
+                  {portBusy && <Spinner size="sm" />}
+                  {t('settings.changePort')}
                 </Button>
               </AlertDialog.Footer>
             </AlertDialog.Dialog>

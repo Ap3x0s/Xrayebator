@@ -11027,6 +11027,322 @@ sni_list_command() {
   return 0
 }
 
+# ═══════════════════════════════════════════════════════════
+# CLI для смены порта профиля/маршрута — GUI вызывает по SSH.
+# Сложнейшая операция: три сценария (move в существующий inbound /
+# shared inbound → новый inbound / единичный inbound → rename порта),
+# каждому — свой атомарный jq-коммит. Вся операция защищена
+# backup_config + snapshot профилей; на любой неудаче — полный откат.
+# Порт 443 не требует Vision-подтверждения для CLI-неинтерактива, но
+# для TCP-профилей возвращает warning вместо ошибки.
+# ═══════════════════════════════════════════════════════════
+port_change_command() {
+  export TERM=dumb
+  export XRAYEBATOR_NONINTERACTIVE=1
+
+  local name="" route_index="" port_spec=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --name) name="$2"; shift 2 ;;
+      --route) route_index="$2"; shift 2 ;;
+      --port) port_spec="$2"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+
+  if [[ -z "$name" ]] || ! [[ "$name" =~ ^[a-zA-Z0-9_-]{1,48}$ ]]; then
+    echo '{"ok":false,"error":"Некорректное имя профиля (1-48 симв.: a-z, 0-9, _ -)"}'
+    return 1
+  fi
+  if [[ -z "$port_spec" ]]; then
+    echo '{"ok":false,"error":"Укажите --port N или --port random"}'
+    return 1
+  fi
+  if [[ -n "$route_index" ]] && ! [[ "$route_index" =~ ^[0-9]+$ ]]; then
+    echo '{"ok":false,"error":"Некорректный --route (целое число, 0-based)"}'
+    return 1
+  fi
+
+  local profile_file="$PROFILES_DIR/$name.json"
+  if [[ ! -f "$profile_file" ]]; then
+    echo "{\"ok\":false,\"error\":\"Профиль $name не найден\"}"
+    return 1
+  fi
+
+  local route_count route_label old_port
+  route_count=$(_profile_route_count "$profile_file")
+  [[ "$route_count" =~ ^[0-9]+$ ]] || route_count=0
+
+  if [[ "$route_count" -gt 0 ]]; then
+    if [[ -z "$route_index" ]]; then
+      echo "{\"ok\":false,\"error\":\"Профиль multi-route ($route_count маршрутов): укажите --route N\"}"
+      return 1
+    fi
+    if [[ "$route_index" -ge "$route_count" ]]; then
+      echo "{\"ok\":false,\"error\":\"Некорректный --route: в профиле $route_count маршрутов\"}"
+      return 1
+    fi
+    route_label=$(jq -r --argjson i "$route_index" '.routes[$i].label // .routes[$i].transport // ""' "$profile_file" 2>/dev/null)
+    old_port=$(jq -r --argjson i "$route_index" '.routes[$i].port // empty' "$profile_file" 2>/dev/null)
+  else
+    route_label=""
+    old_port=$(jq -r '.port // empty' "$profile_file" 2>/dev/null)
+  fi
+
+  if [[ -z "$old_port" || "$old_port" == "null" ]]; then
+    echo '{"ok":false,"error":"Не удалось определить текущий порт профиля"}'
+    return 1
+  fi
+
+  if ! _profile_route_matches_live_inbound "$profile_file" "$route_index"; then
+    echo '{"ok":false,"error":"Profile JSON не совпадает с live inbound — смена порта остановлена"}'
+    return 1
+  fi
+
+  local new_port=""
+  if [[ "$port_spec" == "random" ]]; then
+    if ! new_port=$(find_available_random_port); then
+      echo '{"ok":false,"error":"Не удалось найти свободный порт"}'
+      return 1
+    fi
+    reserve_port "$new_port"
+  else
+    new_port="$port_spec"
+  fi
+
+  if [[ ! "$new_port" =~ ^[0-9]+$ ]] || [[ $new_port -lt 1 ]] || [[ $new_port -gt 65535 ]]; then
+    echo '{"ok":false,"error":"Некорректный порт (1-65535)"}'
+    return 1
+  fi
+  if [[ "$new_port" == "$old_port" ]]; then
+    echo "{\"ok\":true,\"name\":\"$name\",\"port\":$new_port,\"route\":\"$route_label\",\"unchanged\":true}"
+    return 0
+  fi
+  if [[ -n "$route_index" ]] && jq -e --argjson i "$route_index" --argjson port "$new_port" '
+    any((.routes // []) | to_entries[]; (.key != $i) and (.value.port == $port))
+  ' "$profile_file" >/dev/null 2>&1; then
+    echo '{"ok":false,"error":"Этот порт уже используется другим маршрутом этого же профиля"}'
+    return 1
+  fi
+
+  local profile_uuid profile_transport profile_grpc_service_name="" profile_xhttp_path=""
+  local profile_fingerprint profile_pq_enabled="false" profile_sni=""
+  local profile_metadata=""
+
+  profile_uuid=$(jq -r '.uuid' "$profile_file")
+  if [[ -n "$route_index" ]]; then
+    profile_transport=$(jq -r --argjson i "$route_index" '.routes[$i].transport // empty' "$profile_file")
+    profile_grpc_service_name=$(jq -r --argjson i "$route_index" '.routes[$i].grpc_service_name // ""' "$profile_file")
+    profile_xhttp_path=$(jq -r --argjson i "$route_index" '.routes[$i].xhttp_path // ""' "$profile_file")
+    profile_fingerprint=$(jq -r --argjson i "$route_index" '.routes[$i].fingerprint // .fingerprint // "firefox"' "$profile_file")
+    profile_pq_enabled=$(jq -r --argjson i "$route_index" '.routes[$i].pq_enabled // false' "$profile_file")
+    profile_sni=$(jq -r --argjson i "$route_index" '. as $root | .routes[$i].sni // $root.sni // empty' "$profile_file")
+  else
+    profile_transport=$(jq -r '.transport' "$profile_file")
+    profile_fingerprint=$(jq -r '.fingerprint // "firefox"' "$profile_file")
+    profile_pq_enabled=$(jq -r '.pq_enabled // false' "$profile_file")
+    profile_sni=$(jq -r '.sni // empty' "$profile_file")
+    profile_metadata=$(read_profile_transport_metadata "$profile_file")
+    IFS='|' read -r profile_grpc_service_name profile_xhttp_path <<< "$profile_metadata"
+  fi
+
+  # Vision на 443: для TCP-профилей не блокируем, но честно предупреждаем.
+  local vision_warning=false
+  if [[ "$new_port" == "443" ]] && [[ "$profile_transport" == "tcp" || "$profile_transport" == "tcp-utls" || "$profile_transport" == "tcp-xudp" ]]; then
+    vision_warning=true
+  fi
+
+  local target_inbound_tag target_inbound_transport="" target_inbound_sni=""
+  local target_inbound_metadata="" target_inbound_grpc_service_name="" target_inbound_xhttp_path=""
+  local target_inbound_pq_enabled="false" move_to_existing=false
+
+  target_inbound_tag=$(jq -r --argjson port "$new_port" '.inbounds[] | select(.port == $port) | .tag' "$CONFIG_FILE" 2>/dev/null)
+
+  if [[ -n "$target_inbound_tag" ]]; then
+    target_inbound_transport=$(jq -r --argjson port "$new_port" '.inbounds[] | select(.port == $port) | .streamSettings.network' "$CONFIG_FILE")
+    target_inbound_sni=$(jq -r --argjson port "$new_port" '.inbounds[] | select(.port == $port) | .streamSettings.realitySettings.serverNames[0]' "$CONFIG_FILE")
+    target_inbound_metadata=$(read_inbound_transport_metadata "$new_port" "$profile_transport")
+    IFS='|' read -r target_inbound_grpc_service_name target_inbound_xhttp_path <<< "$target_inbound_metadata"
+    if [[ "$target_inbound_transport" == "xhttp" ]]; then
+      local target_decryption
+      target_decryption=$(jq -r --argjson port "$new_port" \
+        '.inbounds[] | select(.port == $port) | .settings.decryption // "none"' \
+        "$CONFIG_FILE" 2>/dev/null)
+      if [[ -n "$target_decryption" && "$target_decryption" != "none" ]]; then
+        target_inbound_pq_enabled="true"
+      fi
+    fi
+
+    local profile_network="$profile_transport"
+    case "$profile_transport" in
+      tcp|tcp-utls|tcp-xudp|tcp-mux) profile_network="tcp" ;;
+    esac
+
+    if [[ "$profile_network" != "$target_inbound_transport" ]]; then
+      echo "{\"ok\":false,\"error\":\"Порт $new_port занят несовместимым транспортом ($target_inbound_transport против $profile_transport)\"}"
+      return 1
+    fi
+    if [[ "$profile_network" == "xhttp" && "$profile_pq_enabled" != "$target_inbound_pq_enabled" ]]; then
+      echo "{\"ok\":false,\"error\":\"Порт $new_port использует несовместимый режим XHTTP encryption/PQ (профиль PQ=$profile_pq_enabled, inbound PQ=$target_inbound_pq_enabled)\"}"
+      return 1
+    fi
+
+    move_to_existing=true
+  fi
+
+  # CLI-режим: статусы helpers уходят в stderr.
+  exec 3>&1
+  exec 1>&2
+
+  local rollback_config=""
+  local profiles_snapshot=""
+  backup_config "change_port_${name}_${old_port}_to_${new_port}" rollback_config >&2 || {
+    exec 1>&3 3>&-
+    echo '{"ok":false,"error":"Не удалось создать бэкап config.json"}'
+    return 1
+  }
+  _snapshot_profiles profiles_snapshot >&2 || {
+    _restore_config_backup "$rollback_config" >&2 || true
+    exec 1>&3 3>&-
+    echo '{"ok":false,"error":"Не удалось создать снимок профилей"}'
+    return 1
+  }
+
+  local op_err=""
+  if [[ "$move_to_existing" == "true" ]]; then
+    local target_flow=""
+    case "$profile_transport" in
+      tcp|tcp-utls|tcp-xudp) target_flow="xtls-rprx-vision" ;;
+      tcp-mux|grpc|xhttp) target_flow="" ;;
+    esac
+
+    if ! _move_profile_client_between_inbounds \
+      "$profile_uuid" "$old_port" "$new_port" "$target_flow"; then
+      op_err="Не удалось атомарно переместить UUID"
+    elif [[ -n "$route_index" ]]; then
+      if ! safe_jq_write \
+        --argjson i "$route_index" \
+        --argjson port "$new_port" \
+        --arg sni "$target_inbound_sni" \
+        --arg fp "$profile_fingerprint" \
+        --arg grpc_service_name "$target_inbound_grpc_service_name" \
+        --arg xhttp_path "$target_inbound_xhttp_path" '
+          if (.routes[$i] // null) == null then error("route not found") else
+            .routes[$i].port = $port |
+            .routes[$i].sni = $sni |
+            .routes[$i].fingerprint = $fp |
+            if .routes[$i].transport == "grpc" then
+              .routes[$i].grpc_service_name = $grpc_service_name
+            elif .routes[$i].transport == "xhttp" then
+              .routes[$i].xhttp_path = $xhttp_path
+            else . end |
+            if $i == 0 then
+              .port = $port | .sni = $sni | .fingerprint = $fp |
+              if .routes[$i].transport == "grpc" then .grpc_service_name = $grpc_service_name
+              elif .routes[$i].transport == "xhttp" then .xhttp_path = $xhttp_path
+              else . end
+            else . end
+          end
+        ' "$profile_file"; then
+        op_err="Profile JSON не обновлён"
+      fi
+    elif ! safe_jq_write \
+        --argjson port "$new_port" \
+        --arg sni "$target_inbound_sni" \
+        --arg fp "$profile_fingerprint" \
+        --arg grpc_service_name "$target_inbound_grpc_service_name" \
+        --arg xhttp_path "$target_inbound_xhttp_path" '
+          .port = $port | .sni = $sni | .fingerprint = $fp |
+          if .transport == "grpc" then .grpc_service_name = $grpc_service_name
+          elif .transport == "xhttp" then .xhttp_path = $xhttp_path
+          else . end
+        ' "$profile_file"; then
+      op_err="Profile JSON не обновлён"
+    fi
+  else
+    local source_client_count
+    source_client_count=$(jq -r --argjson port "$old_port" \
+      '[.inbounds[] | select(.port == $port) | .settings.clients[]?] | length' \
+      "$CONFIG_FILE" 2>/dev/null)
+    if [[ ! "$source_client_count" =~ ^[0-9]+$ ]] || [[ "$source_client_count" -lt 1 ]]; then
+      op_err="Исходный inbound не содержит профиль"
+    elif [[ "$source_client_count" -gt 1 ]]; then
+      # Shared inbound: переносим только выбранный UUID.
+      if ! add_inbound \
+        "$profile_uuid" "$profile_transport" "$new_port" "$profile_sni" \
+        "$profile_fingerprint" "$profile_grpc_service_name" "$profile_xhttp_path" \
+        "$profile_pq_enabled"; then
+        op_err="Не удалось создать inbound на новом порту"
+      elif ! _remove_profile_uuid_from_config "$profile_uuid" "[$old_port]"; then
+        op_err="Не удалось извлечь профиль из общего inbound"
+      elif [[ -n "$route_index" ]]; then
+        if ! safe_jq_write --argjson i "$route_index" --argjson port "$new_port" '
+          .routes[$i].port = $port |
+          if $i == 0 then .port = $port else . end
+        ' "$profile_file"; then
+          op_err="Не удалось обновить route profile JSON"
+        fi
+      elif ! safe_jq_write --argjson port "$new_port" '.port = $port' "$profile_file"; then
+        op_err="Не удалось обновить profile JSON"
+      fi
+    else
+      if ! safe_jq_write --argjson old_port "$old_port" --argjson new_port "$new_port" '
+        if ([.inbounds[] | select(.port == $old_port)] | length) != 1 then
+          error("source inbound not unique")
+        else
+          (.inbounds[] | select(.port == $old_port) | .port) = $new_port |
+          (.inbounds[] | select(.port == $new_port) | .tag) = ("inbound-" + ($new_port | tostring))
+        end
+      ' "$CONFIG_FILE"; then
+        op_err="Ошибка смены порта в конфиге"
+      elif ! update_all_profiles_port_reference "$old_port" "$new_port"; then
+        op_err="Не удалось обновить все profile JSON"
+      fi
+    fi
+  fi
+
+  if [[ -n "$op_err" ]]; then
+    _restore_config_backup "$rollback_config" >&2 || true
+    _restore_profiles_snapshot "$profiles_snapshot" >&2 || true
+    _discard_profiles_snapshot "$profiles_snapshot"
+    exec 1>&3 3>&-
+    echo "{\"ok\":false,\"error\":\"$op_err\"}"
+    return 1
+  fi
+
+  fix_xray_permissions
+  if ! safe_restart_xray "$rollback_config"; then
+    _restore_profiles_snapshot "$profiles_snapshot" >&2 || true
+    _discard_profiles_snapshot "$profiles_snapshot"
+    exec 1>&3 3>&-
+    echo '{"ok":false,"error":"Xray не принял новый порт — config и profile JSON откачены"}'
+    return 1
+  fi
+  _discard_profiles_snapshot "$profiles_snapshot"
+
+  exec 1>&3 3>&-
+  local fw_warning=""
+  if ! open_firewall_port "$new_port" >/dev/null 2>&1; then
+    fw_warning="firewall"
+  fi
+  close_firewall_port "$old_port" >/dev/null 2>&1 || true
+
+  local warning_str=""
+  if [[ "$vision_warning" == "true" ]]; then
+    warning_str=", \"warning\":\"Порт 443 с TCP/Vision — рискованно, клиенты могут не подключиться\""
+  fi
+  if [[ -n "$fw_warning" ]]; then
+    warning_str="${warning_str:+$warning_str,}\"firewall_warning\":true"
+  fi
+  if [[ -n "$warning_str" ]]; then
+    warning_str="{\"ok\":true,\"name\":\"$name\",\"port\":$new_port,\"old_port\":$old_port,\"transport\":\"$profile_transport\",\"route\":\"$route_label\",\"reconnect\":true,${warning_str}}"
+  else
+    warning_str="{\"ok\":true,\"name\":\"$name\",\"port\":$new_port,\"old_port\":$old_port,\"transport\":\"$profile_transport\",\"route\":\"$route_label\",\"reconnect\":true}"
+  fi
+  echo "$warning_str"
+  return 0
+}
+
 # Без аргументов → interactive main_menu (legacy behaviour).
 # При source-режиме (Phase 7, REQ-C10) dispatch пропускается — sourcing-скрипт сам решает,
 # что делать с определёнными функциями.
@@ -11076,6 +11392,10 @@ if [[ "$XRAYEBATOR_SOURCED" -eq 0 ]]; then
       shift
       sni_list_command
       ;;
+    port-change)
+      shift
+      port_change_command "$@"
+      ;;
     ""|menu)
       main_menu
       ;;
@@ -11100,6 +11420,7 @@ if [[ "$XRAYEBATOR_SOURCED" -eq 0 ]]; then
       echo -e "  ${CYAN}sudo xrayebator bypass bundle [--group a,b,c]${NC} — применить группы доменов (JSON)"
       echo -e "  ${CYAN}sudo xrayebator sni-list${NC} — список допустимых SNI (JSON)"
       echo -e "  ${CYAN}sudo xrayebator sni-change --name N [--route R] --sni S${NC} — сменить SNI (JSON; обновит все профили на порту)"
+      echo -e "  ${CYAN}sudo xrayebator port-change --name N [--route R] --port P|random${NC} — сменить порт (JSON; reconnect клиентов)"
       echo ""
       echo -e "${YELLOW}Файлы:${NC}"
       echo -e "  config:    /usr/local/etc/xray/config.json"

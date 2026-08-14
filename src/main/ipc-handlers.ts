@@ -166,6 +166,19 @@ ipcMain.handle('profiles:remove', async (_e, serverId: string, password: string,
     return manager.sniList()
   })
 
+  ipcMain.handle(
+    'profiles:changePort',
+    async (
+      _e,
+      serverId: string,
+      password: string,
+      input: { name: string; route?: number; port: number | 'random' }
+    ) => {
+      const manager = profileManagerFor(serverId, password)
+      return manager.changePort(input)
+    }
+  )
+
   ipcMain.handle('bypass:list', async (_e, serverId: string, password: string) => {
     const manager = profileManagerFor(serverId, password)
     return manager.bypassList()

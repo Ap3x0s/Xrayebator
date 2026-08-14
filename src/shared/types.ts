@@ -93,6 +93,26 @@ export interface ProfileSniResult {
   error?: string
 }
 
+export interface ProfilePortInput {
+  name: string
+  route?: number
+  port: number | 'random'
+}
+
+export interface ProfilePortResult {
+  ok: boolean
+  name?: string
+  port?: number
+  old_port?: number
+  transport?: string
+  route?: string
+  unchanged?: boolean
+  reconnect?: boolean
+  warning?: string
+  firewall_warning?: boolean
+  error?: string
+}
+
 export interface SniEntry {
   sni: string
   category: string
@@ -213,6 +233,11 @@ export interface ElectronAPI {
       input: ProfileSniInput
     ) => Promise<ProfileSniResult>
     sniList: (serverId: string, password: string) => Promise<SniListResult>
+    changePort: (
+      serverId: string,
+      password: string,
+      input: ProfilePortInput
+    ) => Promise<ProfilePortResult>
     bypass: {
       list: (serverId: string, password: string) => Promise<BypassListResult>
       add: (

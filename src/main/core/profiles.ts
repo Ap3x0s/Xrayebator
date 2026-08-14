@@ -40,6 +40,20 @@ export interface ProfileSniOutput {
   error?: string
 }
 
+export interface ProfilePortOutput {
+  ok: boolean
+  name?: string
+  port?: number
+  old_port?: number
+  transport?: string
+  route?: string
+  unchanged?: boolean
+  reconnect?: boolean
+  warning?: string
+  firewall_warning?: boolean
+  error?: string
+}
+
 export interface SniListOutput {
   ok: boolean
   snis?: { sni: string; category: string; priority: string }[]
@@ -276,6 +290,52 @@ export class ProfileManager {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       return { ok: false, snis: [], error: message }
+    }
+  }
+
+  async changePort(input: {
+    name: string
+    route?: number
+    port: number | 'random'
+  }): Promise<ProfilePortOutput> {
+    try {
+      const args = [
+        `--name "${input.name}"`,
+        typeof input.route === 'number' ? `--route ${input.route}` : '',
+        input.port === 'random' ? '--port random' : `--port ${input.port}`
+      ]
+        .filter(Boolean)
+        .join(' ')
+      const stdout = await this.run(`port-change ${args}`)
+      const payload = extractJson(stdout) as {
+        ok?: boolean
+        name?: string
+        port?: number
+        old_port?: number
+        transport?: string
+        route?: string
+        unchanged?: boolean
+        reconnect?: boolean
+        warning?: string
+        firewall_warning?: boolean
+        error?: string
+      }
+      return {
+        ok: payload.ok === true,
+        name: payload.name,
+        port: payload.port,
+        old_port: payload.old_port,
+        transport: payload.transport,
+        route: payload.route,
+        unchanged: payload.unchanged,
+        reconnect: payload.reconnect,
+        warning: payload.warning,
+        firewall_warning: payload.firewall_warning,
+        error: payload.error
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return { ok: false, error: message }
     }
   }
 

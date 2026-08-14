@@ -11,6 +11,8 @@ import type {
   ProfileDeleteResult,
   ProfileFingerprintInput,
   ProfileFingerprintResult,
+  ProfilePortInput,
+  ProfilePortResult,
   ProfileSniInput,
   ProfileSniResult,
   SniListResult,
@@ -79,6 +81,12 @@ const api: ElectronAPI = {
       ipcRenderer.invoke('profiles:changeSni', serverId, password, input),
     sniList: (serverId: string, password: string): Promise<SniListResult> =>
       ipcRenderer.invoke('profiles:sniList', serverId, password),
+    changePort: (
+      serverId: string,
+      password: string,
+      input: ProfilePortInput
+    ): Promise<ProfilePortResult> =>
+      ipcRenderer.invoke('profiles:changePort', serverId, password, input),
     bypass: {
       list: (serverId: string, password: string): Promise<BypassListResult> =>
         ipcRenderer.invoke('bypass:list', serverId, password),

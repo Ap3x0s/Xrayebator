@@ -711,6 +711,60 @@
   color: var(--text-0);
 }
 
+.portWarning {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--danger);
+  margin-bottom: 10px;
+}
+
+.portGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.portCard {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-1);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.portCard:hover:not(:disabled) {
+  border-color: var(--border-strong);
+}
+
+.portCardActive {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.portCard:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.portCardName {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-0);
+}
+
+.portCardDesc {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-2);
+}
+
 @media (max-width: 900px) {
   .transportGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
