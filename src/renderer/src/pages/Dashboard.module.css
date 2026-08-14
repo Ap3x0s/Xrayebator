@@ -71,6 +71,25 @@
   gap: 12px;
 }
 
+.langPopup[data-slot='dropdown-popover'] {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--shadow-lg);
+  min-width: 120px;
+}
+
+.langPopup[data-slot='dropdown-popover'] [data-slot='menu-item'] {
+  border-radius: 10px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+.langPopup[data-slot='dropdown-popover'] [data-slot='menu-item']:hover,
+.langPopup[data-slot='dropdown-popover'] [data-slot='menu-item'][data-hovered='true'] {
+  background: var(--bg-3);
+}
+
 .langItemLabel {
   font-size: 13px;
   font-weight: 500;

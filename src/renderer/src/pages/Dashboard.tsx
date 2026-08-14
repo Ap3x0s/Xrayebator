@@ -73,7 +73,7 @@ export function Dashboard({
               </span>
               <ChevronDown size={14} className={styles.langSelectChevron} />
             </Dropdown.Trigger>
-            <Dropdown.Popover>
+            <Dropdown.Popover placement="bottom end" className={styles.langPopup}>
               <Dropdown.Menu>
                 {supportedLngs.map((lng) => (
                   <DropdownItem
