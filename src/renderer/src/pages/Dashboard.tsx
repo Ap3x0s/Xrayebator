@@ -15,8 +15,8 @@ import { CountryFlag } from '../components/CountryFlag'
 import styles from './Dashboard.module.css'
 
 const LANG_LABELS: Record<SupportedLng, string> = {
-  ru: 'Русский',
-  en: 'English',
+  ru: 'RU',
+  en: 'EN',
   zh: '中文'
 }
 
@@ -64,17 +64,14 @@ export function Dashboard({
         <h1 className={styles.title}>{t('dashboard.title')}</h1>
         <div className={styles.headerActions}>
           <Dropdown>
-            <Dropdown.Trigger>
-              <button
-                type="button"
-                className={styles.langSelect}
-                aria-label={t('settings.language')}
-              >
-                <span className={styles.langSelectValue}>
-                  {LANG_LABELS[i18n.language as SupportedLng] ?? 'Русский'}
-                </span>
-                <ChevronDown size={14} className={styles.langSelectChevron} />
-              </button>
+            <Dropdown.Trigger
+              className={styles.langSelect}
+              aria-label={t('settings.language')}
+            >
+              <span className={styles.langSelectValue}>
+                {LANG_LABELS[i18n.language as SupportedLng] ?? 'RU'}
+              </span>
+              <ChevronDown size={14} className={styles.langSelectChevron} />
             </Dropdown.Trigger>
             <Dropdown.Popover>
               <Dropdown.Menu>

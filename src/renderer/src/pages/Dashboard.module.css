@@ -23,34 +23,45 @@
 }
 
 .langSelect {
-  display: flex;
+  display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   background: var(--bg-2);
   border: 1px solid var(--border);
   border-radius: 10px;
   color: var(--text);
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 600;
   line-height: 1;
   padding: 9px 10px;
   cursor: pointer;
-  transition: border-color 0.15s ease, background 0.15s ease;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+  text-transform: uppercase;
+  transform: none !important;
 }
 
 .langSelect:hover {
-  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
   background: var(--bg-3);
 }
 
+.langSelect[data-pressed='true'],
+.langSelect[data-focus-visible='true'],
+.langSelect:active {
+  transform: none !important;
+  scale: none !important;
+}
+
 .langSelectValue {
-  min-width: 52px;
-  text-align: left;
+  min-width: 20px;
+  text-align: center;
   white-space: nowrap;
 }
 
 .langSelectChevron {
   color: var(--text-2);
+  flex-shrink: 0;
 }
 
 .langItem {
