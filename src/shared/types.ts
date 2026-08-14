@@ -74,6 +74,37 @@ export interface ProfileFingerprintResult {
   error?: string
 }
 
+export interface ProfileSniInput {
+  name: string
+  route?: number
+  sni: string
+}
+
+export interface ProfileSniResult {
+  ok: boolean
+  name?: string
+  sni?: string
+  port?: number
+  transport?: string
+  route?: string
+  affected?: string[]
+  unchanged?: boolean
+  reconnect?: boolean
+  error?: string
+}
+
+export interface SniEntry {
+  sni: string
+  category: string
+  priority: string
+}
+
+export interface SniListResult {
+  ok: boolean
+  snis?: SniEntry[]
+  error?: string
+}
+
 export interface BypassListResult {
   ok: boolean
   domains?: string[]
@@ -176,6 +207,12 @@ export interface ElectronAPI {
       password: string,
       input: ProfileFingerprintInput
     ) => Promise<ProfileFingerprintResult>
+    changeSni: (
+      serverId: string,
+      password: string,
+      input: ProfileSniInput
+    ) => Promise<ProfileSniResult>
+    sniList: (serverId: string, password: string) => Promise<SniListResult>
     bypass: {
       list: (serverId: string, password: string) => Promise<BypassListResult>
       add: (

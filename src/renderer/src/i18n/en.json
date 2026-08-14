@@ -163,6 +163,19 @@
     "bypassCurrent": "Current bypass domains",
     "bypassNone": "No bypass rules — all traffic goes through the VPN",
     "bypassFailed": "Failed to update bypass rules",
-    "bypassDup": "{{domain}} is already bypassed"
+    "bypassDup": "{{domain}} is already bypassed",
+    "changeSni": "Change SNI",
+    "sniTitle": "Change SNI",
+    "sniWarning": "SNI is bound to the port, not the profile. Changing it updates ALL profiles on this port and requires a NEW link — active connections will be dropped.",
+    "sniCurrent": "Current SNI: {{sni}}",
+    "sniChanged": "SNI of «{{name}}» changed to {{sni}}",
+    "sniFailed": "Failed to change SNI",
+    "sniReconnectHint": "Get a new link after the change and update the configuration in clients.",
+    "sniCategories": {
+      "ru_whitelist": "RU whitelist (priority)",
+      "yandex_cdn": "Yandex CDN",
+      "foreign": "Foreign (may not always pass)",
+      "fallback": "Fallback (often probed)"
+    }
   }
 }

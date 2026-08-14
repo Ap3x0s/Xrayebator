@@ -1,8 +1,19 @@
 import { useMemo, useState } from 'react'
 import { Button, TextField, Label, Input, Chip, Spinner, AlertDialog } from '@heroui/react'
-import { Settings2, Play, Trash2, RefreshCw, Lock, CloudDownload, CloudOff, Globe } from 'lucide-react'
+import {
+  Settings2,
+  Play,
+  Trash2,
+  RefreshCw,
+  Lock,
+  CloudDownload,
+  CloudOff,
+  Globe,
+  Fingerprint,
+  Globe2
+} from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import type { Server, ServerProfile } from '@shared/types'
+import type { Server, ServerProfile, SniEntry } from '@shared/types'
 import styles from './ServerSettings.module.css'
 
 interface ServerSettingsProps {
@@ -39,6 +50,13 @@ export const BYPASS_GROUPS = [
   'steam'
 ] as const
 
+export const SNI_CATEGORIES = [
+  'ru_whitelist',
+  'yandex_cdn',
+  'foreign',
+  'fallback'
+] as const
+
 export function ServerSettings({ server, onBack }: ServerSettingsProps): React.JSX.Element {
   const { t } = useTranslation()
   const [password, setPassword] = useState('')
@@ -67,6 +85,12 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
   const [bypassDomainInput, setBypassDomainInput] = useState('')
   const [bypassBusy, setBypassBusy] = useState(false)
   const [confirmBypassReset, setConfirmBypassReset] = useState(false)
+
+  const [sniTarget, setSniTarget] = useState<ServerProfile | null>(null)
+  const [sniRoute, setSniRoute] = useState<number>(1)
+  const [sniValue, setSniValue] = useState('')
+  const [sniBusy, setSniBusy] = useState(false)
+  const [sniList, setSniList] = useState<SniEntry[] | null>(null)
 
   const connected = profiles !== null
 
@@ -212,6 +236,32 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setFpBusy(false)
+    }
+  }
+
+  const changeSni = async (): Promise<void> => {
+    if (!sniTarget || !sniValue.trim()) return
+    setSniBusy(true)
+    setError(null)
+    const input = {
+      name: sniTarget.name,
+      sni: sniValue.trim(),
+      ...(sniTarget.multi_route ? { route: sniRoute } : {})
+    }
+    try {
+      const result = await window.api.profiles.changeSni(server.id, password, input)
+      if (result.ok) {
+        toastText(t('settings.sniChanged', { name: sniTarget.name, sni: result.sni ?? input.sni }))
+        const fresh = await window.api.profiles.list(server.id, password)
+        setProfiles(fresh.profiles ?? [])
+        setSniTarget(null)
+      } else {
+        setError(result.error ?? t('settings.sniFailed'))
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSniBusy(false)
     }
   }
 
@@ -583,11 +633,26 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
                       variant="secondary"
                       isDisabled={busy}
                       onPress={() => {
+                        setSniTarget(profile)
+                        setSniValue(profile.sni ?? '')
+                        setSniRoute(1)
+                        setSniList(null)
+                      }}
+                    >
+                      <Globe2 size={14} />
+                      {t('settings.changeSni')}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      isDisabled={busy}
+                      onPress={() => {
                         setFpTarget(profile)
                         setFpValue(profile.fingerprint || 'firefox')
                         setFpRoute(1)
                       }}
                     >
+                      <Fingerprint size={14} />
                       {t('settings.changeFingerprint')}
                     </Button>
                     {profile.subscription_url && (
@@ -854,6 +919,137 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
                 >
                   {fpBusy && <Spinner size="sm" />}
                   {t('settings.changeFingerprint')}
+                </Button>
+              </AlertDialog.Footer>
+            </AlertDialog.Dialog>
+          </AlertDialog.Container>
+        </AlertDialog.Backdrop>
+      </AlertDialog.Root>
+
+      <AlertDialog.Root
+        isOpen={sniTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !sniBusy) setSniTarget(null)
+        }}
+      >
+        <AlertDialog.Backdrop>
+          <AlertDialog.Container>
+            <AlertDialog.Dialog className={styles.confirmDialog}>
+              <AlertDialog.Header>
+                <AlertDialog.Heading>
+                  {t('settings.sniTitle')} — {sniTarget?.name ?? ''}
+                </AlertDialog.Heading>
+              </AlertDialog.Header>
+              <AlertDialog.Body>
+                <p className={styles.sniWarning}>{t('settings.sniWarning')}</p>
+                {sniTarget && (
+                  <p className={styles.fpCurrent}>
+                    {t('settings.sniCurrent', { sni: sniTarget.sni || '—' })}
+                  </p>
+                )}
+                {sniTarget?.multi_route && (
+                  <div className={styles.fpField}>
+                    <span className={styles.fieldLabel}>{t('settings.fpRoute')}</span>
+                    <div className={styles.fpRouteGrid}>
+                      {Array.from({ length: sniTarget.routes }, (_, i) => i + 1).map((r) => (
+                        <button
+                          key={r}
+                          type="button"
+                          className={`${styles.fpRouteCard} ${
+                            sniRoute === r ? styles.fpRouteCardActive : ''
+                          }`}
+                          disabled={sniBusy}
+                          onClick={() => setSniRoute(r)}
+                        >
+                          {r}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div className={styles.fpField}>
+                  <span className={styles.fieldLabel}>{t('settings.protocol')}</span>
+                  {sniList === null ? (
+                    <div className={styles.bypassLoadRow}>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        isDisabled={sniBusy}
+                        onPress={async () => {
+                          setSniBusy(true)
+                          setError(null)
+                          try {
+                            const result = await window.api.profiles.sniList(server.id, password)
+                            if (result.ok) {
+                              setSniList(result.snis ?? [])
+                            } else {
+                              setError(result.error ?? t('settings.sniFailed'))
+                            }
+                          } catch (err) {
+                            setError(err instanceof Error ? err.message : String(err))
+                          } finally {
+                            setSniBusy(false)
+                          }
+                        }}
+                      >
+                        {sniBusy ? <Spinner size="sm" /> : <RefreshCw size={14} />}
+                        {t('settings.connect')}
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className={styles.sniList}>
+                      {SNI_CATEGORIES.map((category) => {
+                        const items = sniList.filter((s) => s.category === category)
+                        if (items.length === 0) return null
+                        return (
+                          <div key={category} className={styles.sniCat}>
+                            <span className={styles.sniCatLabel}>
+                              {t(`settings.sniCategories.${category}`)}
+                            </span>
+                            <div className={styles.sniGrid}>
+                              {items.map((item) => (
+                                <button
+                                  key={item.sni}
+                                  type="button"
+                                  className={`${styles.sniCard} ${
+                                    sniValue === item.sni ? styles.sniCardActive : ''
+                                  }`}
+                                  disabled={sniBusy}
+                                  onClick={() => setSniValue(item.sni)}
+                                >
+                                  <span className={styles.sniCardName}>{item.sni}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+                <div className={styles.fpField}>
+                  <TextField variant="secondary" className={styles.bypassDomainField}>
+                    <Input
+                      value={sniValue}
+                      disabled={sniBusy}
+                      placeholder="www.example.com"
+                      onChange={(e) => setSniValue(e.target.value)}
+                    />
+                  </TextField>
+                </div>
+                <p className={styles.fpNote}>{t('settings.sniReconnectHint')}</p>
+              </AlertDialog.Body>
+              <AlertDialog.Footer>
+                <Button variant="secondary" isDisabled={sniBusy} onPress={() => setSniTarget(null)}>
+                  {t('dashboard.cancel')}
+                </Button>
+                <Button
+                  variant="primary"
+                  isDisabled={sniBusy || !sniValue.trim()}
+                  onPress={changeSni}
+                >
+                  {sniBusy && <Spinner size="sm" />}
+                  {t('settings.changeSni')}
                 </Button>
               </AlertDialog.Footer>
             </AlertDialog.Dialog>

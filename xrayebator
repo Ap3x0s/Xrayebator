@@ -10838,6 +10838,195 @@ bypass_command() {
   esac
 }
 
+# ═══════════════════════════════════════════════════════════
+# CLI для смены SNI профиля/маршрута — GUI вызывает по SSH.
+# SNI привязан к ПОРТУ (Reality serverNames), поэтому операция обновляет
+# конфиг инбаунда и, через update_all_profiles_on_port, ВСЕ профили на порту.
+# Транзакция: backup_config → snapshot профилей → update config →
+# safe_restart_xray → update profiles; на любой неудаче — полный откат.
+# ═══════════════════════════════════════════════════════════
+sni_change_command() {
+  export TERM=dumb
+  export XRAYEBATOR_NONINTERACTIVE=1
+
+  local name="" route_index="" new_sni=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --name) name="$2"; shift 2 ;;
+      --route) route_index="$2"; shift 2 ;;
+      --sni) new_sni="$2"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+
+  if [[ -z "$name" ]] || ! [[ "$name" =~ ^[a-zA-Z0-9_-]{1,48}$ ]]; then
+    echo '{"ok":false,"error":"Некорректное имя профиля (1-48 симв.: a-z, 0-9, _ -)"}'
+    return 1
+  fi
+  if [[ -z "$new_sni" ]] || ! [[ "$new_sni" =~ ^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?\.[a-zA-Z]{2,}$ ]]; then
+    echo '{"ok":false,"error":"Некорректный SNI (полное доменное имя)"}'
+    return 1
+  fi
+  if [[ -n "$route_index" ]] && ! [[ "$route_index" =~ ^[0-9]+$ ]]; then
+    echo '{"ok":false,"error":"Некорректный --route (целое число, 0-based)"}'
+    return 1
+  fi
+
+  local profile_file="$PROFILES_DIR/$name.json"
+  if [[ ! -f "$profile_file" ]]; then
+    echo "{\"ok\":false,\"error\":\"Профиль $name не найден\"}"
+    return 1
+  fi
+
+  local route_count port transport current_sni route_label
+  route_count=$(_profile_route_count "$profile_file")
+  [[ "$route_count" =~ ^[0-9]+$ ]] || route_count=0
+
+  if [[ "$route_count" -gt 0 ]]; then
+    if [[ -z "$route_index" ]]; then
+      echo "{\"ok\":false,\"error\":\"Профиль multi-route ($route_count маршрутов): укажите --route N\"}"
+      return 1
+    fi
+    if [[ "$route_index" -ge "$route_count" ]]; then
+      echo "{\"ok\":false,\"error\":\"Некорректный --route: в профиле $route_count маршрутов\"}"
+      return 1
+    fi
+    route_label=$(jq -r --argjson i "$route_index" '.routes[$i].label // .routes[$i].transport // ""' "$profile_file" 2>/dev/null)
+    port=$(jq -r --argjson i "$route_index" '.routes[$i].port // empty' "$profile_file" 2>/dev/null)
+    transport=$(jq -r --argjson i "$route_index" '.routes[$i].transport // .transport // "tcp"' "$profile_file" 2>/dev/null)
+    current_sni=$(jq -r --argjson i "$route_index" '.routes[$i].sni // .sni // "www.ozon.ru"' "$profile_file" 2>/dev/null)
+  else
+    route_label=""
+    port=$(jq -r '.port // empty' "$profile_file" 2>/dev/null)
+    transport=$(jq -r '.transport // "tcp"' "$profile_file" 2>/dev/null)
+    current_sni=$(jq -r '.sni // "www.ozon.ru"' "$profile_file" 2>/dev/null)
+  fi
+
+  if [[ -z "$port" || "$port" == "null" ]]; then
+    echo '{"ok":false,"error":"Не удалось определить порт профиля"}'
+    return 1
+  fi
+
+  if [[ "$new_sni" == "$current_sni" ]]; then
+    echo "{\"ok\":true,\"name\":\"$name\",\"sni\":\"$new_sni\",\"port\":$port,\"transport\":\"$transport\",\"route\":\"$route_label\",\"unchanged\":true}"
+    return 0
+  fi
+
+  # gRPC требует HTTP/2 (зарубежные сайты). Проверяем только для gRPC.
+  if [[ "$transport" == "grpc" ]] && ! [[ "$new_sni" =~ github\.com$|cloudflare\.com$|amazonaws\.com$|aws\.amazon\.com$|cloudflare\.net$|microsoft\.com$|live\.com$ ]]; then
+    echo '{"ok":false,"error":"gRPC требует зарубежный SNI с поддержкой HTTP/2 (github.com, cloudflare.com, aws.amazon.com и т.п.)"}'
+    return 1
+  fi
+
+  local profiles_on_port
+  profiles_on_port=$(get_profiles_on_port "$port")
+
+  # CLI-режим: статусы helpers уходят в stderr.
+  exec 3>&1
+  exec 1>&2
+
+  local rollback_config=""
+  local profiles_snapshot=""
+  backup_config "sni_change_${port}" rollback_config >&2 || {
+    exec 1>&3 3>&-
+    echo '{"ok":false,"error":"Не удалось создать бэкап конфига"}'
+    return 1
+  }
+  _snapshot_profiles profiles_snapshot >&2 || {
+    _restore_config_backup "$rollback_config" >&2 || true
+    exec 1>&3 3>&-
+    echo '{"ok":false,"error":"Не удалось создать снимок профилей"}'
+    return 1
+  }
+
+  if ! update_transport_settings_for_sni "$port" "$new_sni" "$CONFIG_FILE"; then
+    _restore_config_backup "$rollback_config" >&2 || true
+    _restore_profiles_snapshot "$profiles_snapshot" >&2 || true
+    _discard_profiles_snapshot "$profiles_snapshot"
+    exec 1>&3 3>&-
+    echo '{"ok":false,"error":"Ошибка обновления config.json"}'
+    return 1
+  fi
+
+  if ! safe_restart_xray "$rollback_config"; then
+    _restore_profiles_snapshot "$profiles_snapshot" >&2 || true
+    _discard_profiles_snapshot "$profiles_snapshot"
+    exec 1>&3 3>&-
+    echo '{"ok":false,"error":"Xray не принял конфиг — изменения откачены"}'
+    return 1
+  fi
+
+  if ! update_all_profiles_on_port "$port" "sni" "$new_sni"; then
+    _restore_profiles_snapshot "$profiles_snapshot" >&2 || true
+    if _restore_config_backup "$rollback_config" >&2; then
+      safe_restart_xray "$rollback_config" || true
+    fi
+    _discard_profiles_snapshot "$profiles_snapshot"
+    exec 1>&3 3>&-
+    echo '{"ok":false,"error":"Ошибка обновления профилей"}'
+    return 1
+  fi
+  _discard_profiles_snapshot "$profiles_snapshot"
+
+  exec 1>&3 3>&-
+  fix_xray_permissions
+
+  local affected="[]"
+  if [[ -n "$profiles_on_port" ]]; then
+    affected=$(printf '%s\n' ${profiles_on_port} | jq -R . | jq -s . 2>/dev/null)
+  fi
+  echo "{\"ok\":true,\"name\":\"$name\",\"sni\":\"$new_sni\",\"port\":$port,\"transport\":\"$transport\",\"route\":\"$route_label\",\"affected\":$affected,\"reconnect\":true}"
+  return 0
+}
+
+# Список допустимых SNI из sni_list.txt — категории для GUI.
+sni_list_command() {
+  export TERM=dumb
+  export XRAYEBATOR_NONINTERACTIVE=1
+
+  local sni_file="$SNI_LIST"
+  if [[ ! -f "$sni_file" && -f /usr/local/etc/xray/sni_list.txt ]]; then
+    sni_file="/usr/local/etc/xray/sni_list.txt"
+  fi
+  if [[ ! -f "$sni_file" ]]; then
+    echo '{"ok":false,"error":"sni_list.txt не найден"}'
+    return 1
+  fi
+
+  local sni category priority rows
+  rows=$(awk -F'|' '
+    /^[[:space:]]*#/ { next }
+    /^[[:space:]]*$/ { next }
+    NF < 3 { next }
+    { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $1);
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2);
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", $3);
+      printf "%s|%s|%s\n", $1, $2, $3 }
+  ' "$sni_file" 2>/dev/null)
+
+  local -a items=()
+  local line s c p
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    s="${line%%|*}"
+    rest="${line#*|}"
+    c="${rest%%|*}"
+    p="${rest#*|}"
+    items+=("{\"sni\":\"$s\",\"category\":\"$c\",\"priority\":\"$p\"}")
+  done <<< "$rows"
+
+  if [[ ${#items[@]} -eq 0 ]]; then
+    echo '{"ok":true,"snis":[]}'
+    return 0
+  fi
+
+  local joined
+  joined=$(printf '%s,' "${items[@]}")
+  joined="${joined%,}"
+  echo "{\"ok\":true,\"snis\":[$joined]}"
+  return 0
+}
+
 # Без аргументов → interactive main_menu (legacy behaviour).
 # При source-режиме (Phase 7, REQ-C10) dispatch пропускается — sourcing-скрипт сам решает,
 # что делать с определёнными функциями.
@@ -10879,6 +11068,14 @@ if [[ "$XRAYEBATOR_SOURCED" -eq 0 ]]; then
       shift
       bypass_command "$@"
       ;;
+    sni-change)
+      shift
+      sni_change_command "$@"
+      ;;
+    sni-list)
+      shift
+      sni_list_command
+      ;;
     ""|menu)
       main_menu
       ;;
@@ -10901,6 +11098,8 @@ if [[ "$XRAYEBATOR_SOURCED" -eq 0 ]]; then
       echo -e "  ${CYAN}sudo xrayebator bypass remove --domain D${NC} — убрать домен из обхода (JSON)"
       echo -e "  ${CYAN}sudo xrayebator bypass reset${NC} — сбросить все bypass-правила (JSON)"
       echo -e "  ${CYAN}sudo xrayebator bypass bundle [--group a,b,c]${NC} — применить группы доменов (JSON)"
+      echo -e "  ${CYAN}sudo xrayebator sni-list${NC} — список допустимых SNI (JSON)"
+      echo -e "  ${CYAN}sudo xrayebator sni-change --name N [--route R] --sni S${NC} — сменить SNI (JSON; обновит все профили на порту)"
       echo ""
       echo -e "${YELLOW}Файлы:${NC}"
       echo -e "  config:    /usr/local/etc/xray/config.json"

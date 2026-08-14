@@ -163,6 +163,19 @@
     "bypassCurrent": "当前绕过域名",
     "bypassNone": "没有绕过规则 — 所有流量都通过 VPN",
     "bypassFailed": "更新绕过规则失败",
-    "bypassDup": "{{domain}} 已在绕过中"
+    "bypassDup": "{{domain}} 已在绕过中",
+    "changeSni": "更改 SNI",
+    "sniTitle": "更改 SNI",
+    "sniWarning": "SNI 绑定到端口而非配置文件。更改将更新该端口上的所有配置文件，并且需要新的链接 — 现有连接将断开。",
+    "sniCurrent": "当前 SNI：{{sni}}",
+    "sniChanged": "「{{name}}」的 SNI 已更改为 {{sni}}",
+    "sniFailed": "无法更改 SNI",
+    "sniReconnectHint": "更改后获取新链接并在客户端中更新配置。",
+    "sniCategories": {
+      "ru_whitelist": "俄罗斯白名单（优先）",
+      "yandex_cdn": "Yandex CDN",
+      "foreign": "国外（不一定总是可用）",
+      "fallback": "备用（常被探测）"
+    }
   }
 }

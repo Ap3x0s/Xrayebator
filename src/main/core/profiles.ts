@@ -27,6 +27,25 @@ export interface ProfileFingerprintOutput {
   error?: string
 }
 
+export interface ProfileSniOutput {
+  ok: boolean
+  name?: string
+  sni?: string
+  port?: number
+  transport?: string
+  route?: string
+  affected?: string[]
+  unchanged?: boolean
+  reconnect?: boolean
+  error?: string
+}
+
+export interface SniListOutput {
+  ok: boolean
+  snis?: { sni: string; category: string; priority: string }[]
+  error?: string
+}
+
 export interface BypassListOutput {
   ok: boolean
   domains?: string[]
@@ -194,6 +213,69 @@ export class ProfileManager {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       return { ok: false, error: message }
+    }
+  }
+
+  async changeSni(input: {
+    name: string
+    route?: number
+    sni: string
+  }): Promise<ProfileSniOutput> {
+    try {
+      const args = [
+        `--name "${input.name}"`,
+        typeof input.route === 'number' ? `--route ${input.route}` : '',
+        `--sni ${input.sni}`
+      ]
+        .filter(Boolean)
+        .join(' ')
+      const stdout = await this.run(`sni-change ${args}`)
+      const payload = extractJson(stdout) as {
+        ok?: boolean
+        name?: string
+        sni?: string
+        port?: number
+        transport?: string
+        route?: string
+        affected?: string[]
+        unchanged?: boolean
+        reconnect?: boolean
+        error?: string
+      }
+      return {
+        ok: payload.ok === true,
+        name: payload.name,
+        sni: payload.sni,
+        port: payload.port,
+        transport: payload.transport,
+        route: payload.route,
+        affected: payload.affected,
+        unchanged: payload.unchanged,
+        reconnect: payload.reconnect,
+        error: payload.error
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return { ok: false, error: message }
+    }
+  }
+
+  async sniList(): Promise<SniListOutput> {
+    try {
+      const stdout = await this.run('sni-list')
+      const payload = extractJson(stdout) as {
+        ok?: boolean
+        snis?: { sni: string; category: string; priority: string }[]
+        error?: string
+      }
+      return {
+        ok: payload.ok === true,
+        snis: payload.snis ?? [],
+        error: payload.error
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return { ok: false, snis: [], error: message }
     }
   }
 
