@@ -11,7 +11,9 @@ import {
   Globe,
   Fingerprint,
   Globe2,
-  Radio
+  EthernetPort,
+  Copy,
+  KeyRound
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { Server, ServerProfile, SniEntry } from '@shared/types'
@@ -658,7 +660,8 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
                     </div>
                     {profile.subscription_url && (
                       <div className={styles.profileUrl} title={profile.subscription_url}>
-                        {profile.subscription_url}
+                        <KeyRound size={13} className={styles.profileUrlIcon} />
+                        <span className={styles.profileUrlText}>{profile.subscription_url}</span>
                       </div>
                     )}
                   </div>
@@ -675,7 +678,7 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
                       }}
                     >
                       <Globe2 size={14} />
-                      {t('settings.changeSni')}
+                      {t('settings.sniBtn')}
                     </Button>
                     <Button
                       size="sm"
@@ -688,7 +691,7 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
                       }}
                     >
                       <Fingerprint size={14} />
-                      {t('settings.changeFingerprint')}
+                      {t('settings.fpBtn')}
                     </Button>
                     <Button
                       size="sm"
@@ -701,11 +704,12 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
                         setPortValue('')
                       }}
                     >
-                      <Radio size={14} />
-                      {t('settings.changePort')}
+                      <EthernetPort size={14} />
+                      {t('settings.portBtn')}
                     </Button>
                     {profile.subscription_url && (
                       <Button size="sm" variant="secondary" onPress={() => copyUrl(profile)}>
+                        <Copy size={13} />
                         {t('settings.copy')}
                       </Button>
                     )}
