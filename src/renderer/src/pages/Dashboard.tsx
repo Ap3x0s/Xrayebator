@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Button, Chip, AlertDialog } from '@heroui/react'
-import { Settings2, Trash2, TriangleAlert } from 'lucide-react'
+import { Settings2, Trash2, TriangleAlert, KeyRound } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { Server } from '@shared/types'
 import { CountryFlag } from '../components/CountryFlag'
@@ -85,6 +85,7 @@ export function Dashboard({
             </div>
             <div className={styles.cardActions}>
               <Button size="sm" variant="secondary" onPress={() => onOpen(server)}>
+                <KeyRound size={16} />
                 {t('dashboard.keys')}
               </Button>
               <Button size="sm" variant="secondary" onPress={() => onSettings(server)}>
