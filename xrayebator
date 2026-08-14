@@ -1687,7 +1687,7 @@ update_all_profiles_on_port() {
     local pfile="$PROFILES_DIR/$pname.json"
     if safe_jq_write --argjson port "$port" --arg f "$field" --arg v "$value" '
       if .port == $port then .[$f] = $v else . end |
-      (.routes // []) |= map(if .port == $port then .[$f] = $v else . end)
+      if has("routes") then .routes |= map(if .port == $port then .[$f] = $v else . end) else . end
     ' "$pfile"; then
       echo -e "${CYAN}  → Обновлен: ${YELLOW}$pname${NC}"
     else
@@ -1732,7 +1732,7 @@ update_all_profiles_port_reference() {
     local pfile="$PROFILES_DIR/$pname.json"
     if safe_jq_write --argjson old_port "$old_port" --argjson new_port "$new_port" '
       if .port == $old_port then .port = $new_port else . end |
-      (.routes // []) |= map(if .port == $old_port then .port = $new_port else . end)
+      if has("routes") then .routes |= map(if .port == $old_port then .port = $new_port else . end) else . end
     ' "$pfile"; then
       echo -e "${CYAN}  → Обновлен порт: ${YELLOW}$pname${NC}"
     else
