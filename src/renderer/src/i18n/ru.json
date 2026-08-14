@@ -138,6 +138,32 @@
     },
     "fpChanged": "Fingerprint «{{name}}» изменён на {{fp}}",
     "fpFailed": "Не удалось сменить fingerprint",
-    "fpRemember": "Обновите подписку в HAPP или другом клиенте после смены."
+    "fpRemember": "Обновите подписку в HAPP или другом клиенте после смены.",
+    "bypassTitle": "Обход VPN (для RU-сервисов)",
+    "bypassHint": "Выберите группы доменов или введите отдельный домен, который будет уходить в интернет напрямую, минуя VPN. Реализуется routing-правилом direct — без изменения портов и ключей.",
+    "bypassGroups": {
+      "yandex": "Yandex (экосистема)",
+      "vk": "VKontakte",
+      "mailru": "VK Group / Mail.ru",
+      "banks": "RU-банки и платежи",
+      "marketplaces": "RU-маркетплейсы и retail",
+      "ru_services": "Госуслуги и телеком",
+      "streaming": "RU-стриминг и медиа",
+      "steam": "Steam"
+    },
+    "bypassApply": "Применить выбранное",
+    "bypassReset": "Сбросить все",
+    "bypassResetTitle": "Сбросить все правила обхода?",
+    "bypassResetBody": "Удалит все домены обхода VPN. Дефолтные правила сервера (блокировка рекламы, private IP, BitTorrent) останутся нетронутыми.",
+    "bypassApplied": "В обход добавлено {{count}} доменов",
+    "bypassResetDone": "Все правила обхода удалены",
+    "bypassAdd": "Добавить",
+    "bypassDomainPlaceholder": "example.com",
+    "bypassAdded": "{{domain}} добавлен в обход",
+    "bypassRemoved": "{{domain}} удалён из обхода",
+    "bypassCurrent": "Текущие домены в обходе",
+    "bypassNone": "Нет правил обхода — весь трафик идёт через VPN",
+    "bypassFailed": "Не удалось обновить правила обхода",
+    "bypassDup": "{{domain}} уже в обходе"
   }
 }

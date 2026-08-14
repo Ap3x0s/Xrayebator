@@ -137,6 +137,32 @@
     },
     "fpChanged": "「{{name}}」的指纹已更改为 {{fp}}",
     "fpFailed": "无法更改指纹",
-    "fpRemember": "更改后请在 HAPP 或其他客户端中刷新订阅。"
+    "fpRemember": "更改后请在 HAPP 或其他客户端中刷新订阅。",
+    "bypassTitle": "VPN 绕过（用于俄罗斯服务）",
+    "bypassHint": "选择域名组或输入单个域名，让流量绕过 VPN 直连互联网。通过 direct 路由规则实现 — 不影响端口和密钥。",
+    "bypassGroups": {
+      "yandex": "Yandex（生态系统）",
+      "vk": "VKontakte",
+      "mailru": "VK Group / Mail.ru",
+      "banks": "俄罗斯银行与支付",
+      "marketplaces": "俄罗斯电商与零售",
+      "ru_services": "政府服务与运营商",
+      "streaming": "俄罗斯流媒体",
+      "steam": "Steam"
+    },
+    "bypassApply": "应用所选",
+    "bypassReset": "全部重置",
+    "bypassResetTitle": "重置所有绕过规则？",
+    "bypassResetBody": "将删除所有 VPN 绕过域名。服务器默认规则（广告拦截、私有 IP、BitTorrent）保持不变。",
+    "bypassApplied": "已添加 {{count}} 个域名到绕过",
+    "bypassResetDone": "所有绕过规则已删除",
+    "bypassAdd": "添加",
+    "bypassDomainPlaceholder": "example.com",
+    "bypassAdded": "{{domain}} 已添加到绕过",
+    "bypassRemoved": "{{domain}} 已从绕过中删除",
+    "bypassCurrent": "当前绕过域名",
+    "bypassNone": "没有绕过规则 — 所有流量都通过 VPN",
+    "bypassFailed": "更新绕过规则失败",
+    "bypassDup": "{{domain}} 已在绕过中"
   }
 }

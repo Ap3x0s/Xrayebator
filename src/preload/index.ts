@@ -1,5 +1,8 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
+  BypassBundleInput,
+  BypassListResult,
+  BypassResult,
   DeployEvent,
   DeployStartPayload,
   ElectronAPI,
@@ -64,7 +67,23 @@ const api: ElectronAPI = {
       password: string,
       input: ProfileFingerprintInput
     ): Promise<ProfileFingerprintResult> =>
-      ipcRenderer.invoke('profiles:changeFingerprint', serverId, password, input)
+      ipcRenderer.invoke('profiles:changeFingerprint', serverId, password, input),
+    bypass: {
+      list: (serverId: string, password: string): Promise<BypassListResult> =>
+        ipcRenderer.invoke('bypass:list', serverId, password),
+      add: (serverId: string, password: string, domain: string): Promise<BypassResult> =>
+        ipcRenderer.invoke('bypass:add', serverId, password, domain),
+      remove: (serverId: string, password: string, domain: string): Promise<BypassResult> =>
+        ipcRenderer.invoke('bypass:remove', serverId, password, domain),
+      reset: (serverId: string, password: string): Promise<BypassResult> =>
+        ipcRenderer.invoke('bypass:reset', serverId, password),
+      bundle: (
+        serverId: string,
+        password: string,
+        input: BypassBundleInput
+      ): Promise<BypassResult> =>
+        ipcRenderer.invoke('bypass:bundle', serverId, password, input)
+    }
   },
 
   server: {

@@ -27,6 +27,21 @@ export interface ProfileFingerprintOutput {
   error?: string
 }
 
+export interface BypassListOutput {
+  ok: boolean
+  domains?: string[]
+  error?: string
+}
+
+export interface BypassOutput {
+  ok: boolean
+  domain?: string
+  duplicate?: boolean
+  groups?: string[]
+  domains?: number
+  error?: string
+}
+
 export function extractJson(raw: string): unknown {
   // Серверный CLI может печатать ANSI-статусы (backup_config, open_firewall_port,
   // safe_restart_xray) в stdout перед JSON. \033[0;36m содержит '[', из-за чего
@@ -174,6 +189,98 @@ export class ProfileManager {
         name: payload.name,
         fingerprint: payload.fingerprint,
         route: payload.route,
+        error: payload.error
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return { ok: false, error: message }
+    }
+  }
+
+  async bypassList(): Promise<BypassListOutput> {
+    try {
+      const stdout = await this.run('bypass list')
+      const payload = extractJson(stdout) as {
+        ok?: boolean
+        domains?: string[]
+        error?: string
+      }
+      return {
+        ok: payload.ok === true,
+        domains: payload.domains ?? [],
+        error: payload.error
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return { ok: false, domains: [], error: message }
+    }
+  }
+
+  async bypassAdd(domain: string): Promise<BypassOutput> {
+    try {
+      const stdout = await this.run(`bypass add --domain "${domain}"`)
+      const payload = extractJson(stdout) as {
+        ok?: boolean
+        domain?: string
+        duplicate?: boolean
+        error?: string
+      }
+      return {
+        ok: payload.ok === true,
+        domain: payload.domain,
+        duplicate: payload.duplicate,
+        error: payload.error
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return { ok: false, error: message }
+    }
+  }
+
+  async bypassRemove(domain: string): Promise<BypassOutput> {
+    try {
+      const stdout = await this.run(`bypass remove --domain "${domain}"`)
+      const payload = extractJson(stdout) as {
+        ok?: boolean
+        domain?: string
+        error?: string
+      }
+      return {
+        ok: payload.ok === true,
+        domain: payload.domain,
+        error: payload.error
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return { ok: false, error: message }
+    }
+  }
+
+  async bypassReset(): Promise<BypassOutput> {
+    try {
+      const stdout = await this.run('bypass reset')
+      const payload = extractJson(stdout) as { ok?: boolean; error?: string }
+      return { ok: payload.ok === true, error: payload.error }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return { ok: false, error: message }
+    }
+  }
+
+  async bypassBundle(groups?: string[]): Promise<BypassOutput> {
+    try {
+      const args = groups && groups.length > 0 ? `--group ${groups.join(',')}` : ''
+      const stdout = await this.run(`bypass bundle ${args}`.trim())
+      const payload = extractJson(stdout) as {
+        ok?: boolean
+        groups?: string[]
+        domains?: number
+        error?: string
+      }
+      return {
+        ok: payload.ok === true,
+        groups: payload.groups,
+        domains: payload.domains,
         error: payload.error
       }
     } catch (err) {

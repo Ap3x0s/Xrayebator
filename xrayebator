@@ -10620,6 +10620,224 @@ fp_change_command() {
   return 0
 }
 
+# ═══════════════════════════════════════════════════════════
+# CLI для обхода VPN (bypass routing) — GUI вызывает эти команды по SSH.
+# Все команды печатают только JSON на stdout; статусы helpers
+# (_apply_bypass_rule, backup_config, safe_restart_xray) уходят в stderr.
+# ═══════════════════════════════════════════════════════════
+
+# bypass list — JSON-массив текущих bypass-доменов (с префиксом domain:).
+_bypass_cli_list() {
+  local current json
+  current=$(_bypass_list_current)
+  if [[ -z "$current" ]]; then
+    echo '{"ok":true,"domains":[]}'
+    return 0
+  fi
+  if json=$(printf '%s\n' "$current" | jq -R . | jq -s . 2>/dev/null); then
+    echo "{\"ok\":true,\"domains\":$json}"
+  else
+    echo '{"ok":false,"error":"Не удалось распарсить текущие bypass-правила"}'
+    return 1
+  fi
+}
+
+# bypass add --domain D — добавить домен в обход (проверка SNI-конфликта).
+_bypass_cli_add() {
+  local domain=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --domain) domain="$2"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+
+  if [[ -z "$domain" ]]; then
+    echo '{"ok":false,"error":"Укажите --domain DOMAIN"}'
+    return 1
+  fi
+  domain="${domain#domain:}"
+  if [[ ! "$domain" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}$ ]]; then
+    echo '{"ok":false,"error":"Некорректный домен"}'
+    return 1
+  fi
+
+  if _bypass_list_current | grep -Fqx "domain:$domain" >/dev/null 2>&1; then
+    echo "{\"ok\":true,\"domain\":\"$domain\",\"duplicate\":true}"
+    return 0
+  fi
+
+  local out rc
+  out=$(_apply_bypass_rule "[\"domain:${domain}\"]" 2>&1)
+  rc=$?
+  if [[ $rc -eq 0 ]]; then
+    echo "{\"ok\":true,\"domain\":\"$domain\"}"
+    return 0
+  fi
+  if grep -q "Конфликт" <<< "$out"; then
+    local conflict_dom
+    conflict_dom=$(grep -oP 'Конфликт: \K[^ ]+' <<< "$out" 2>/dev/null | head -1)
+    echo "{\"ok\":false,\"error\":\"$conflict_dom используется как Reality SNI — добавление сломает handshake\"}"
+    return 1
+  fi
+  echo '{"ok":false,"error":"Не удалось добавить домен в обход"}'
+  return 1
+}
+
+# bypass remove --domain D — удалить домен из обхода.
+_bypass_cli_remove() {
+  local domain=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --domain) domain="$2"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+
+  if [[ -z "$domain" ]]; then
+    echo '{"ok":false,"error":"Укажите --domain DOMAIN"}'
+    return 1
+  fi
+  domain="${domain#domain:}"
+
+  local out rc
+  out=$(_bypass_remove_rule "$domain" 2>&1)
+  rc=$?
+  if [[ $rc -eq 0 ]]; then
+    echo "{\"ok\":true,\"domain\":\"$domain\"}"
+    return 0
+  fi
+  echo '{"ok":false,"error":"Не удалось удалить домен из обхода"}'
+  return 1
+}
+
+# bypass reset — удалить ВСЕ domain bypass-правила (дефолтные rules install.sh остаются).
+_bypass_cli_reset() {
+  local out rc
+  out=$(_bypass_reset_all 2>&1)
+  rc=$?
+  if [[ $rc -eq 0 ]]; then
+    echo '{"ok":true}'
+    return 0
+  fi
+  echo '{"ok":false,"error":"Не удалось сбросить bypass-правила"}'
+  return 1
+}
+
+# bypass bundle [--group a,b,c] — применить группы доменов из _bypass_bundle_groups.
+# Без --group применяются ВСЕ группы. Возвращает количество добавленных доменов.
+_bypass_cli_bundle() {
+  local groups_csv=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --group) groups_csv="$2"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+
+  local -a all_ids=()
+  local -a all_names=()
+  local -a all_doms=()
+  local gid gname doms_csv
+  while IFS='|' read -r gid gname doms_csv; do
+    [[ -z "$gid" ]] && continue
+    all_ids+=("$gid")
+    all_names+=("$gname")
+    all_doms+=("$doms_csv")
+  done < <(_bypass_bundle_groups)
+
+  local -a wanted=()
+  local g
+  if [[ -n "$groups_csv" ]]; then
+    IFS=',' read -r -a wanted <<< "$groups_csv"
+    local gid_l
+    for gid_l in "${wanted[@]}"; do
+      gid_l="${gid_l// /}"
+      [[ -z "$gid_l" ]] && continue
+      local found=false i
+      for i in "${!all_ids[@]}"; do
+        [[ "${all_ids[$i]}" == "$gid_l" ]] && found=true
+      done
+      if [[ "$found" == "false" ]]; then
+        echo "{\"ok\":false,\"error\":\"Неизвестная группа: $gid_l. Доступны: ${all_ids[*]}\"}"
+        return 1
+      fi
+    done
+  else
+    wanted=("${all_ids[@]}")
+  fi
+
+  local all_doms_csv=""
+  local i idx
+  for gid_l in "${wanted[@]}"; do
+    for i in "${!all_ids[@]}"; do
+      [[ "${all_ids[$i]}" == "$gid_l" ]] && break
+    done
+    all_doms_csv="${all_doms_csv}${all_doms_csv:+,}${all_doms[$i]}"
+  done
+
+  if [[ -z "$all_doms_csv" ]]; then
+    echo '{"ok":false,"error":"Нет доменов для применения"}'
+    return 1
+  fi
+
+  local doms_json domain_count
+  doms_json=$(printf '%s' "$all_doms_csv" | tr ',' '\n' | sed '/^$/d' | jq -R '"domain:" + .' | jq -s '.')
+  domain_count=$(printf '%s' "$doms_json" | jq 'length' 2>/dev/null)
+
+  local out rc
+  out=$(_apply_bypass_rule "$doms_json" 2>&1)
+  rc=$?
+  if [[ $rc -eq 0 ]]; then
+    echo "{\"ok\":true,\"groups\":$(jq -cn --argjson a "$(printf '%s\n' "${wanted[@]}" | jq -R . | jq -s .)" '$a'),\"domains\":$domain_count}"
+    return 0
+  fi
+  if grep -q "Конфликт" <<< "$out"; then
+    local conflict_dom
+    conflict_dom=$(grep -oP 'Конфликт: \K[^ ]+' <<< "$out" 2>/dev/null | head -1)
+    echo "{\"ok\":false,\"error\":\"$conflict_dom используется как Reality SNI — правило не применено. Удалите этот домен из группы и попробуйте снова.\"}"
+    return 1
+  fi
+  echo '{"ok":false,"error":"Не удалось применить bundle"}'
+  return 1
+}
+
+bypass_command() {
+  export TERM=dumb
+  export XRAYEBATOR_NONINTERACTIVE=1
+
+  local sub="${1:-}"
+  case "$sub" in
+    list)
+      _bypass_cli_list
+      return $?
+      ;;
+    add)
+      shift
+      _bypass_cli_add "$@"
+      return $?
+      ;;
+    remove)
+      shift
+      _bypass_cli_remove "$@"
+      return $?
+      ;;
+    reset)
+      _bypass_cli_reset
+      return $?
+      ;;
+    bundle)
+      shift
+      _bypass_cli_bundle "$@"
+      return $?
+      ;;
+    *)
+      echo '{"ok":false,"error":"Использование: bypass list | bypass add --domain D | bypass remove --domain D | bypass reset | bypass bundle [--group a,b,c]"}'
+      return 1
+      ;;
+  esac
+}
+
 # Без аргументов → interactive main_menu (legacy behaviour).
 # При source-режиме (Phase 7, REQ-C10) dispatch пропускается — sourcing-скрипт сам решает,
 # что делать с определёнными функциями.
@@ -10657,6 +10875,10 @@ if [[ "$XRAYEBATOR_SOURCED" -eq 0 ]]; then
       shift
       fp_change_command "$@"
       ;;
+    bypass)
+      shift
+      bypass_command "$@"
+      ;;
     ""|menu)
       main_menu
       ;;
@@ -10674,6 +10896,11 @@ if [[ "$XRAYEBATOR_SOURCED" -eq 0 ]]; then
       echo -e "                               — создать профиль/семейство профилей (JSON)"
       echo -e "  ${CYAN}sudo xrayebator profile-delete --name N${NC} — удалить профиль (JSON)"
       echo -e "  ${CYAN}sudo xrayebator fp-change --name N [--route R] --fp FINGERPRINT${NC} — сменить fingerprint (JSON)"
+      echo -e "  ${CYAN}sudo xrayebator bypass list${NC} — список доменов в обходе (JSON)"
+      echo -e "  ${CYAN}sudo xrayebator bypass add --domain D${NC} — добавить домен в обход (JSON)"
+      echo -e "  ${CYAN}sudo xrayebator bypass remove --domain D${NC} — убрать домен из обхода (JSON)"
+      echo -e "  ${CYAN}sudo xrayebator bypass reset${NC} — сбросить все bypass-правила (JSON)"
+      echo -e "  ${CYAN}sudo xrayebator bypass bundle [--group a,b,c]${NC} — применить группы доменов (JSON)"
       echo ""
       echo -e "${YELLOW}Файлы:${NC}"
       echo -e "  config:    /usr/local/etc/xray/config.json"

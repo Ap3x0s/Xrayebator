@@ -148,6 +148,45 @@ ipcMain.handle('profiles:remove', async (_e, serverId: string, password: string,
     }
   )
 
+  ipcMain.handle('bypass:list', async (_e, serverId: string, password: string) => {
+    const manager = profileManagerFor(serverId, password)
+    return manager.bypassList()
+  })
+
+  ipcMain.handle(
+    'bypass:add',
+    async (_e, serverId: string, password: string, domain: string) => {
+      const manager = profileManagerFor(serverId, password)
+      return manager.bypassAdd(domain)
+    }
+  )
+
+  ipcMain.handle(
+    'bypass:remove',
+    async (_e, serverId: string, password: string, domain: string) => {
+      const manager = profileManagerFor(serverId, password)
+      return manager.bypassRemove(domain)
+    }
+  )
+
+  ipcMain.handle('bypass:reset', async (_e, serverId: string, password: string) => {
+    const manager = profileManagerFor(serverId, password)
+    return manager.bypassReset()
+  })
+
+  ipcMain.handle(
+    'bypass:bundle',
+    async (
+      _e,
+      serverId: string,
+      password: string,
+      input: { groups?: string[] }
+    ) => {
+      const manager = profileManagerFor(serverId, password)
+      return manager.bypassBundle(input?.groups)
+    }
+  )
+
   const serverManagerFor = (serverId: string, password: string): ServerManager => {
     const server = store.get(serverId)
     if (!server) throw new Error('Сервер не найден')
