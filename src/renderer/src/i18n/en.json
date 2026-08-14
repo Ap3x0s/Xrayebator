@@ -67,6 +67,7 @@
   },
   "settings": {
     "title": "Server profiles",
+    "language": "Interface language",
     "hint": "Connect to the server over SSH to manage profiles: create separate keys for devices or delete existing ones.",
     "sshPassword": "SSH password",
     "passwordNote": "The password is never stored — it is requested on every connection.",

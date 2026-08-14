@@ -67,6 +67,7 @@
   },
   "settings": {
     "title": "服务器配置文件",
+    "language": "界面语言",
     "hint": "通过 SSH 连接服务器以管理配置文件：为设备创建单独密钥或删除现有配置。",
     "sshPassword": "SSH 密码",
     "passwordNote": "密码不会保存——每次连接时都会重新询问。",

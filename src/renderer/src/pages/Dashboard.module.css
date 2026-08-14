@@ -16,6 +16,59 @@
   justify-content: space-between;
 }
 
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.langSelect {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  padding: 9px 10px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.langSelect:hover {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+  background: var(--bg-3);
+}
+
+.langSelectValue {
+  min-width: 52px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.langSelectChevron {
+  color: var(--text-2);
+}
+
+.langItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.langItemLabel {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.langItemCheck {
+  color: var(--accent);
+}
+
 .title {
   font-size: 24px;
   font-weight: 600;
