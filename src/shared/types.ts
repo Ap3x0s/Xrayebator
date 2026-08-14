@@ -60,6 +60,20 @@ export interface ProfileDeleteResult {
   error?: string
 }
 
+export interface ProfileFingerprintInput {
+  name: string
+  route?: number
+  fingerprint: string
+}
+
+export interface ProfileFingerprintResult {
+  ok: boolean
+  name?: string
+  fingerprint?: string
+  route?: string
+  error?: string
+}
+
 export interface ServerMaintenanceResult {
   ok: boolean
   output?: string
@@ -138,6 +152,11 @@ export interface ElectronAPI {
       password: string,
       name: string
     ) => Promise<ProfileDeleteResult>
+    changeFingerprint: (
+      serverId: string,
+      password: string,
+      input: ProfileFingerprintInput
+    ) => Promise<ProfileFingerprintResult>
   }
   server: {
     update: (

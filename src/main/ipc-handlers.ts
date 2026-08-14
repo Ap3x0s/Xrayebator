@@ -129,12 +129,24 @@ export function registerIpcHandlers({ store }: IpcContext): void {
     }
   )
 
-  ipcMain.handle('profiles:remove', async (_e, serverId: string, password: string, name: string) => {
+ipcMain.handle('profiles:remove', async (_e, serverId: string, password: string, name: string) => {
     const manager = profileManagerFor(serverId, password)
     const result = await manager.remove(name)
-    if (!result.ok) throw new Error(result.error ?? 'Не удалось удалить профиль')
     return result
   })
+
+  ipcMain.handle(
+    'profiles:changeFingerprint',
+    async (
+      _e,
+      serverId: string,
+      password: string,
+      input: { name: string; route?: number; fingerprint: string }
+    ) => {
+      const manager = profileManagerFor(serverId, password)
+      return manager.changeFingerprint(input)
+    }
+  )
 
   const serverManagerFor = (serverId: string, password: string): ServerManager => {
     const server = store.get(serverId)

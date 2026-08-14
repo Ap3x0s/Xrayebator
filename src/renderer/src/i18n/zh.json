@@ -121,6 +121,22 @@
     "uninstallFailed": "无法从服务器删除应用",
     "error": "错误",
     "errorPassword": "请输入 SSH 密码",
-    "errorName": "请输入配置文件名称"
+    "errorName": "请输入配置文件名称",
+    "changeFingerprint": "更改指纹",
+    "fpTitle": "更改指纹",
+    "fpHint": "指纹模拟浏览器 TLS 签名。这是客户端属性 — Xray 不会重启，其他路由不受影响。更改后请在 VPN 客户端中刷新订阅。",
+    "fpCurrent": "当前指纹：{{fp}}",
+    "fpRoute": "路由",
+    "fpOptions": {
+      "chrome": "Chrome（旧版，可能被屏蔽）",
+      "firefox": "Firefox（推荐）",
+      "safari": "Safari（适用于 iOS/macOS）",
+      "edge": "Edge（Chrome 的替代方案）",
+      "ios": "iOS（旧设备）",
+      "random": "Random（实验性）"
+    },
+    "fpChanged": "「{{name}}」的指纹已更改为 {{fp}}",
+    "fpFailed": "无法更改指纹",
+    "fpRemember": "更改后请在 HAPP 或其他客户端中刷新订阅。"
   }
 }

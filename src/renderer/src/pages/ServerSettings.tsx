@@ -19,6 +19,15 @@ const PROTOCOLS = [
   { id: 'grpc', label: 'gRPC' }
 ] as const
 
+export const FINGERPRINTS = [
+  'chrome',
+  'firefox',
+  'safari',
+  'edge',
+  'ios',
+  'random'
+] as const
+
 export function ServerSettings({ server, onBack }: ServerSettingsProps): React.JSX.Element {
   const { t } = useTranslation()
   const [password, setPassword] = useState('')
@@ -36,6 +45,11 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
   const [uninstalling, setUninstalling] = useState(false)
   const [confirmUninstall, setConfirmUninstall] = useState(false)
   const [confirmRemove, setConfirmRemove] = useState<ServerProfile | null>(null)
+
+  const [fpTarget, setFpTarget] = useState<ServerProfile | null>(null)
+  const [fpRoute, setFpRoute] = useState<number>(1)
+  const [fpValue, setFpValue] = useState<string>('firefox')
+  const [fpBusy, setFpBusy] = useState(false)
 
   const connected = profiles !== null
 
@@ -155,6 +169,32 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setBusy(false)
+    }
+  }
+
+  const changeFingerprint = async (): Promise<void> => {
+    if (!fpTarget || !password.trim()) return
+    setFpBusy(true)
+    setError(null)
+    const input = {
+      name: fpTarget.name,
+      fingerprint: fpValue,
+      ...(fpTarget.multi_route ? { route: fpRoute } : {})
+    }
+    try {
+      const result = await window.api.profiles.changeFingerprint(server.id, password, input)
+      if (result.ok) {
+        toastText(t('settings.fpChanged', { name: fpTarget.name, fp: result.fingerprint ?? fpValue }))
+        const fresh = await window.api.profiles.list(server.id, password)
+        setProfiles(fresh.profiles ?? [])
+        setFpTarget(null)
+      } else {
+        setError(result.error ?? t('settings.fpFailed'))
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setFpBusy(false)
     }
   }
 
@@ -416,6 +456,18 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
                     )}
                   </div>
                   <div className={styles.profileActions}>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      isDisabled={busy}
+                      onPress={() => {
+                        setFpTarget(profile)
+                        setFpValue(profile.fingerprint || 'firefox')
+                        setFpRoute(1)
+                      }}
+                    >
+                      {t('settings.changeFingerprint')}
+                    </Button>
                     {profile.subscription_url && (
                       <Button size="sm" variant="secondary" onPress={() => copyUrl(profile)}>
                         {t('settings.copy')}
@@ -480,6 +532,86 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
                   }}
                 >
                   {t('settings.deleteKey')}
+                </Button>
+              </AlertDialog.Footer>
+            </AlertDialog.Dialog>
+          </AlertDialog.Container>
+        </AlertDialog.Backdrop>
+      </AlertDialog.Root>
+
+      <AlertDialog.Root
+        isOpen={fpTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !fpBusy) setFpTarget(null)
+        }}
+      >
+        <AlertDialog.Backdrop>
+          <AlertDialog.Container>
+            <AlertDialog.Dialog className={styles.confirmDialog}>
+              <AlertDialog.Header>
+                <AlertDialog.Heading>
+                  {t('settings.fpTitle')} — {fpTarget?.name ?? ''}
+                </AlertDialog.Heading>
+              </AlertDialog.Header>
+              <AlertDialog.Body>
+                <p className={styles.fpHint}>{t('settings.fpHint')}</p>
+                {fpTarget && (
+                  <p className={styles.fpCurrent}>
+                    {t('settings.fpCurrent', { fp: fpTarget.fingerprint || '—' })}
+                  </p>
+                )}
+                {fpTarget?.multi_route && (
+                  <div className={styles.fpField}>
+                    <span className={styles.fieldLabel}>{t('settings.fpRoute')}</span>
+                    <div className={styles.fpRouteGrid}>
+                      {Array.from({ length: fpTarget.routes }, (_, i) => i + 1).map((r) => (
+                        <button
+                          key={r}
+                          type="button"
+                          className={`${styles.fpRouteCard} ${
+                            fpRoute === r ? styles.fpRouteCardActive : ''
+                          }`}
+                          disabled={fpBusy}
+                          onClick={() => setFpRoute(r)}
+                        >
+                          {r}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div className={styles.fpField}>
+                  <span className={styles.fieldLabel}>{t('settings.protocol')}</span>
+                  <div className={styles.fpGrid}>
+                    {FINGERPRINTS.map((fp) => (
+                      <button
+                        key={fp}
+                        type="button"
+                        className={`${styles.fpCard} ${
+                          fpValue === fp ? styles.fpCardActive : ''
+                        }`}
+                        disabled={fpBusy}
+                        onClick={() => setFpValue(fp)}
+                      >
+                        <span className={styles.fpCardName}>{fp}</span>
+                        <span className={styles.fpCardDesc}>{t(`settings.fpOptions.${fp}`)}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <p className={styles.fpNote}>{t('settings.fpRemember')}</p>
+              </AlertDialog.Body>
+              <AlertDialog.Footer>
+                <Button variant="secondary" isDisabled={fpBusy} onPress={() => setFpTarget(null)}>
+                  {t('dashboard.cancel')}
+                </Button>
+                <Button
+                  variant="primary"
+                  isDisabled={fpBusy || !fpValue}
+                  onPress={changeFingerprint}
+                >
+                  {fpBusy && <Spinner size="sm" />}
+                  {t('settings.changeFingerprint')}
                 </Button>
               </AlertDialog.Footer>
             </AlertDialog.Dialog>

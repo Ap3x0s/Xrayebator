@@ -10546,6 +10546,80 @@ profile_delete_command() {
   return 0
 }
 
+# Смена fingerprint профиля (клиентский TLS ClientHello, Xray не перезапускается).
+# Если профиль multi-route и --route не указан — профиль требует выбора маршрута.
+fp_change_command() {
+  export TERM=dumb
+  export XRAYEBATOR_NONINTERACTIVE=1
+
+  local name="" route_index="" fingerprint=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --name) name="$2"; shift 2 ;;
+      --route) route_index="$2"; shift 2 ;;
+      --fp) fingerprint="$2"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+
+  if [[ -z "$name" ]] || ! [[ "$name" =~ ^[a-zA-Z0-9_-]{1,48}$ ]]; then
+    echo '{"ok":false,"error":"Некорректное имя профиля (1-48 симв.: a-z, 0-9, _ -)"}'
+    return 1
+  fi
+  case "$fingerprint" in
+    chrome|firefox|safari|edge|ios|random) ;;
+    *)
+      echo '{"ok":false,"error":"Некорректный fingerprint: chrome|firefox|safari|edge|ios|random"}'
+      return 1
+      ;;
+  esac
+
+  if [[ -n "$route_index" ]] && ! [[ "$route_index" =~ ^[0-9]+$ ]]; then
+    echo '{"ok":false,"error":"Некорректный --route (целое число, 0-based)}'
+    return 1
+  fi
+
+  local profile_file="$PROFILES_DIR/$name.json"
+  if [[ ! -f "$profile_file" ]]; then
+    echo "{\"ok\":false,\"error\":\"Профиль $name не найден\"}"
+    return 1
+  fi
+
+  local route_count route_label
+  route_count=$(_profile_route_count "$profile_file")
+  [[ "$route_count" =~ ^[0-9]+$ ]] || route_count=0
+
+  if [[ "$route_count" -gt 0 ]]; then
+    if [[ -z "$route_index" ]]; then
+      echo "{\"ok\":false,\"error\":\"Профиль multi-route ($route_count маршрутов): укажите --route N\"}"
+      return 1
+    fi
+    if [[ "$route_index" -ge "$route_count" ]]; then
+      echo "{\"ok\":false,\"error\":\"Некорректный --route: в профиле $route_count маршрутов\"}"
+      return 1
+    fi
+    route_label=$(jq -r --argjson i "$route_index" '.routes[$i].label // .routes[$i].transport // ""' "$profile_file" 2>/dev/null)
+  else
+    route_index=""
+    route_label=""
+  fi
+
+  # CLI-режим: статусы safe_jq_write печатают мусор в stdout — душим в stderr.
+  exec 3>&1
+  exec 1>&2
+
+  if ! update_profile_fingerprint "$profile_file" "$route_index" "$fingerprint"; then
+    exec 1>&3 3>&-
+    echo "{\"ok\":false,\"error\":\"Не удалось обновить fingerprint профиля\"}"
+    return 1
+  fi
+
+  exec 1>&3 3>&-
+  fix_xray_permissions
+  echo "{\"ok\":true,\"name\":\"$name\",\"fingerprint\":\"$fingerprint\",\"route\":\"$route_label\"}"
+  return 0
+}
+
 # Без аргументов → interactive main_menu (legacy behaviour).
 # При source-режиме (Phase 7, REQ-C10) dispatch пропускается — sourcing-скрипт сам решает,
 # что делать с определёнными функциями.
@@ -10579,6 +10653,10 @@ if [[ "$XRAYEBATOR_SOURCED" -eq 0 ]]; then
       shift
       profile_delete_command "$@"
       ;;
+    fp-change)
+      shift
+      fp_change_command "$@"
+      ;;
     ""|menu)
       main_menu
       ;;
@@ -10595,6 +10673,7 @@ if [[ "$XRAYEBATOR_SOURCED" -eq 0 ]]; then
       echo -e "  ${CYAN}sudo xrayebator profile-create --name N [--transport T] [--port P] [--count N]${NC}"
       echo -e "                               — создать профиль/семейство профилей (JSON)"
       echo -e "  ${CYAN}sudo xrayebator profile-delete --name N${NC} — удалить профиль (JSON)"
+      echo -e "  ${CYAN}sudo xrayebator fp-change --name N [--route R] --fp FINGERPRINT${NC} — сменить fingerprint (JSON)"
       echo ""
       echo -e "${YELLOW}Файлы:${NC}"
       echo -e "  config:    /usr/local/etc/xray/config.json"

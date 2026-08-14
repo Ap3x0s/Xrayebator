@@ -121,6 +121,22 @@
     "uninstallFailed": "Failed to remove the app from the server",
     "error": "Error",
     "errorPassword": "Enter SSH password",
-    "errorName": "Enter profile name"
+    "errorName": "Enter profile name",
+    "changeFingerprint": "Change fingerprint",
+    "fpTitle": "Change fingerprint",
+    "fpHint": "Fingerprint imitates a browser TLS signature. It is a client-side property — Xray is not restarted, other routes are not affected. Refresh the subscription in your VPN client afterwards.",
+    "fpCurrent": "Current fingerprint: {{fp}}",
+    "fpRoute": "Route",
+    "fpOptions": {
+      "chrome": "Chrome (legacy, may be blocked)",
+      "firefox": "Firefox (recommended)",
+      "safari": "Safari (for iOS/macOS)",
+      "edge": "Edge (Chrome alternative)",
+      "ios": "iOS (older devices)",
+      "random": "Random (experimental)"
+    },
+    "fpChanged": "Fingerprint «{{name}}» changed to {{fp}}",
+    "fpFailed": "Failed to change fingerprint",
+    "fpRemember": "Refresh the subscription in HAPP or another client after the change."
   }
 }

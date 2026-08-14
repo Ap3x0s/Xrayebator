@@ -443,6 +443,85 @@
   outline: none;
 }
 
+.fpHint {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-2);
+  margin-bottom: 10px;
+}
+
+.fpCurrent {
+  font-size: 13px;
+  color: var(--text-1);
+  margin-bottom: 12px;
+}
+
+.fpField {
+  margin-top: 14px;
+}
+
+.fpGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.fpRouteGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.fpCard,
+.fpRouteCard {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-1);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.fpCardActive,
+.fpRouteCardActive {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.fpCardName {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-0);
+}
+
+.fpCardDesc {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-2);
+}
+
+.fpRouteCard {
+  min-width: 44px;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  color: var(--text-0);
+}
+
+.fpNote {
+  margin-top: 14px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-2);
+}
+
 @media (max-width: 900px) {
   .transportGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));

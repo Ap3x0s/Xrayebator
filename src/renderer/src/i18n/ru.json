@@ -122,6 +122,22 @@
     "uninstallFailed": "Не удалось удалить приложение с сервера",
     "error": "Ошибка",
     "errorPassword": "Введите SSH-пароль",
-    "errorName": "Введите имя профиля"
+    "errorName": "Введите имя профиля",
+    "changeFingerprint": "Сменить fingerprint",
+    "fpTitle": "Сменить fingerprint",
+    "fpHint": "Fingerprint имитирует TLS-отпечаток браузера. Это клиентское свойство — Xray не перезапускается, другие маршруты не затрагиваются. После смены обновите подписку в VPN-клиенте.",
+    "fpCurrent": "Текущий fingerprint: {{fp}}",
+    "fpRoute": "Маршрут",
+    "fpOptions": {
+      "chrome": "Chrome (legacy, может блокироваться)",
+      "firefox": "Firefox (рекомендуется)",
+      "safari": "Safari (для iOS/macOS)",
+      "edge": "Edge (альтернатива Chrome)",
+      "ios": "iOS (старые устройства)",
+      "random": "Random (экспериментально)"
+    },
+    "fpChanged": "Fingerprint «{{name}}» изменён на {{fp}}",
+    "fpFailed": "Не удалось сменить fingerprint",
+    "fpRemember": "Обновите подписку в HAPP или другом клиенте после смены."
   }
 }
