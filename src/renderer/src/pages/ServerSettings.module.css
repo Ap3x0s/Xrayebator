@@ -40,6 +40,13 @@
   }
 }
 
+.btnSuccess {
+  border-color: var(--success) !important;
+  color: var(--success) !important;
+  background: color-mix(in srgb, var(--success) 14%, var(--bg-2)) !important;
+  box-shadow: 0 0 14px color-mix(in srgb, var(--success) 30%, transparent);
+}
+
 .iconDownloading {
   animation: iconDown 1s ease-in-out infinite;
 }
@@ -177,7 +184,7 @@
   flex-direction: column;
   gap: 6px;
   text-align: left;
-  font-family: var(--font-sans);
+  font-family: var(--font);
   padding: 12px 14px;
   border-radius: 14px;
   border: 1px solid var(--border);
@@ -222,7 +229,7 @@
 }
 
 .transportCardTag {
-  font-family: var(--font-sans);
+  font-family: var(--font);
   font-size: 10px;
   font-weight: 600;
   line-height: 1;
@@ -386,12 +393,6 @@
   color: var(--text-2);
   line-height: 1.4;
   user-select: text;
-}
-
-.profileUrlIcon {
-  flex-shrink: 0;
-  margin-top: 1px;
-  color: var(--text-3);
 }
 
 .profileUrlText {
@@ -566,6 +567,27 @@
   max-height: 260px;
   overflow-y: auto;
   padding-right: 4px;
+  animation: fadeInUp 0.3s ease;
+}
+
+.sniSkeleton {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.sniSkeletonCard {
+  height: 34px;
+  border-radius: 8px;
+  background: linear-gradient(
+    90deg,
+    var(--bg-1) 25%,
+    color-mix(in srgb, var(--bg-3) 60%, var(--bg-1)) 50%,
+    var(--bg-1) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.2s ease-in-out infinite;
 }
 
 .sniCat {
@@ -635,7 +657,7 @@
 }
 
 .portCard:hover:not(:disabled) {
-  border-color: var(--border-strong);
+  border-color: var(--accent);
 }
 
 .portCardActive {

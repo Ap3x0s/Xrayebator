@@ -37,6 +37,13 @@
   gap: 12px;
 }
 
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+}
+
 .empty {
   padding: 40px;
   text-align: center;

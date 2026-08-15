@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import QRCode from 'qrcode'
-import { Button, Chip } from '@heroui/react'
+import { Button, Chip, Spinner } from '@heroui/react'
 import { useTranslation } from 'react-i18next'
 import type { Server, VlessLink } from '@shared/types'
 import styles from './ServerKeys.module.css'
@@ -15,10 +15,14 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
   const [keys, setKeys] = useState<VlessLink[]>(server.keys ?? [])
   const [subscriptionUrl, setSubscriptionUrl] = useState(server.subscriptionUrl)
   const [toast, setToast] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [qrUrl, setQrUrl] = useState<string | null>(null)
+  const [qrData, setQrData] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
     if (!server.subscriptionUrl) return
+    setLoading(true)
     window.api.subscription
       .fetch(server.id)
       .then((result) => {
@@ -29,10 +33,22 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
       .catch(() => {
         if (!cancelled) setKeys(server.keys ?? [])
       })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
     return () => {
       cancelled = true
     }
   }, [server.id])
+
+  useEffect(() => {
+    if (!qrUrl) return
+    const onEsc = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') closeQr()
+    }
+    document.addEventListener('keydown', onEsc)
+    return () => document.removeEventListener('keydown', onEsc)
+  }, [qrUrl])
 
   const copy = async (text: string): Promise<void> => {
     await navigator.clipboard.writeText(text)
@@ -40,21 +56,16 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
     setTimeout(() => setToast(null), 1500)
   }
 
+  const closeQr = (): void => {
+    setQrUrl(null)
+    setQrData(null)
+  }
+
   const showQr = async (url: string): Promise<void> => {
+    setQrUrl(url)
+    setQrData(null)
     const dataUrl = await QRCode.toDataURL(url, { width: 320, margin: 2 })
-    const modal = document.createElement('div')
-    modal.className = styles.qrModal
-    modal.innerHTML = `<img src="${dataUrl}" alt="QR" />`
-    const close = (): void => {
-      document.removeEventListener('keydown', onEsc)
-      modal.remove()
-    }
-    const onEsc = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') close()
-    }
-    modal.onclick = close
-    document.addEventListener('keydown', onEsc)
-    document.body.appendChild(modal)
+    setQrData(dataUrl)
   }
 
   return (
@@ -69,7 +80,12 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
       <p className={styles.hint}>{t('keys.hint')}</p>
 
       <div className={styles.content}>
-        {keys.length === 0 && <div className={styles.empty}>{t('keys.none')}</div>}
+        {loading && keys.length === 0 && (
+          <div className={styles.loading}>
+            <Spinner size="sm" />
+          </div>
+        )}
+        {!loading && keys.length === 0 && <div className={styles.empty}>{t('keys.none')}</div>}
 
         {keys.map((key) => (
           <div key={key.url} className={styles.keyCard}>
@@ -125,6 +141,18 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
       </div>
 
       {toast && <div className={styles.toast}>{toast}</div>}
+
+      {qrUrl && (
+        <div
+          className={styles.qrModal}
+          role="dialog"
+          aria-modal="true"
+          aria-label="QR"
+          onClick={closeQr}
+        >
+          {qrData ? <img src={qrData} alt="QR" /> : null}
+        </div>
+      )}
     </div>
   )
 }

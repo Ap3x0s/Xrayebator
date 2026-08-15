@@ -4,7 +4,7 @@ import {
   Settings2,
   Play,
   Trash2,
-  RefreshCw,
+  Power,
   Lock,
   CloudDownload,
   CloudOff,
@@ -12,7 +12,8 @@ import {
   Globe2,
   EthernetPort,
   Copy,
-  KeyRound
+  Download,
+  Check
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { Server, ServerProfile, SniEntry } from '@shared/types'
@@ -72,11 +73,13 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
   const [fpRoute, setFpRoute] = useState<number>(1)
   const [fpValue, setFpValue] = useState<string>('firefox')
   const [fpBusy, setFpBusy] = useState(false)
+  const [fpDone, setFpDone] = useState(false)
 
   const [sniTarget, setSniTarget] = useState<ServerProfile | null>(null)
   const [sniRoute, setSniRoute] = useState<number>(1)
   const [sniValue, setSniValue] = useState('')
   const [sniBusy, setSniBusy] = useState(false)
+  const [sniDone, setSniDone] = useState(false)
   const [sniList, setSniList] = useState<SniEntry[] | null>(null)
 
   const [portTarget, setPortTarget] = useState<ServerProfile | null>(null)
@@ -84,6 +87,7 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
   const [portMode, setPortMode] = useState<'preset' | 'custom' | 'random'>('random')
   const [portValue, setPortValue] = useState('')
   const [portBusy, setPortBusy] = useState(false)
+  const [portDone, setPortDone] = useState(false)
 
   const connected = profiles !== null
 
@@ -221,7 +225,11 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
         toastText(t('settings.fpChanged', { name: fpTarget.name, fp: result.fingerprint ?? fpValue }))
         const fresh = await window.api.profiles.list(server.id, password)
         setProfiles(fresh.profiles ?? [])
-        setFpTarget(null)
+        setFpDone(true)
+        setTimeout(() => {
+          setFpTarget(null)
+          setFpDone(false)
+        }, 400)
       } else {
         setError(result.error ?? t('settings.fpFailed'))
       }
@@ -247,7 +255,11 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
         toastText(t('settings.sniChanged', { name: sniTarget.name, sni: result.sni ?? input.sni }))
         const fresh = await window.api.profiles.list(server.id, password)
         setProfiles(fresh.profiles ?? [])
-        setSniTarget(null)
+        setSniDone(true)
+        setTimeout(() => {
+          setSniTarget(null)
+          setSniDone(false)
+        }, 400)
       } else {
         setError(result.error ?? t('settings.sniFailed'))
       }
@@ -273,7 +285,11 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
         toastText(t('settings.portChanged', { name: portTarget.name, port: result.port ?? input.port }))
         const fresh = await window.api.profiles.list(server.id, password)
         setProfiles(fresh.profiles ?? [])
-        setPortTarget(null)
+        setPortDone(true)
+        setTimeout(() => {
+          setPortTarget(null)
+          setPortDone(false)
+        }, 400)
       } else {
         setError(result.error ?? t('settings.portFailed'))
       }
@@ -413,7 +429,7 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
               </Button>
             ) : (
               <Button variant="secondary" size="lg" isDisabled={busy} onPress={reset}>
-                <RefreshCw size={16} />
+                <Power size={16} />
                 {t('settings.changePassword')}
               </Button>
             )}
@@ -537,7 +553,6 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
                     </div>
                     {profile.subscription_url && (
                       <div className={styles.profileUrl} title={profile.subscription_url}>
-                        <KeyRound size={13} className={styles.profileUrlIcon} />
                         <span className={styles.profileUrlText}>{profile.subscription_url}</span>
                       </div>
                     )}
@@ -698,7 +713,7 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
                   </div>
                 )}
                 <div className={styles.fpField}>
-                  <span className={styles.fieldLabel}>{t('settings.protocol')}</span>
+                  <span className={styles.fieldLabel}>{t('settings.fpSelect')}</span>
                   <div className={styles.fpGrid}>
                     {FINGERPRINTS.map((fp) => (
                       <button
@@ -724,10 +739,16 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
                 </Button>
                 <Button
                   variant="primary"
-                  isDisabled={fpBusy || !fpValue}
+                  className={
+                    fpDone ? styles.btnSuccess : fpBusy ? styles.glowPulse : undefined
+                  }
+                  isDisabled={fpBusy || fpDone || !fpValue}
                   onPress={changeFingerprint}
                 >
-                  {t(fpBusy ? 'settings.changingFingerprint' : 'settings.changeFingerprint')}
+                  {fpDone ? <Check size={16} /> : null}
+                  {fpDone
+                    ? t('settings.done')
+                    : t(fpBusy ? 'settings.changingFingerprint' : 'settings.changeFingerprint')}
                 </Button>
               </AlertDialog.Footer>
             </AlertDialog.Dialog>
@@ -777,34 +798,42 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
                   </div>
                 )}
                 <div className={styles.fpField}>
-                  <span className={styles.fieldLabel}>{t('settings.protocol')}</span>
+                  <span className={styles.fieldLabel}>{t('settings.sniSelect')}</span>
                   {sniList === null ? (
-                    <div className={styles.bypassLoadRow}>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        isDisabled={sniBusy}
-                        onPress={async () => {
-                          setSniBusy(true)
-                          setError(null)
-                          try {
-                            const result = await window.api.profiles.sniList(server.id, password)
-                            if (result.ok) {
-                              setSniList(result.snis ?? [])
-                            } else {
-                              setError(result.error ?? t('settings.sniFailed'))
+                    sniBusy ? (
+                      <div className={styles.sniSkeleton}>
+                        {Array.from({ length: 8 }, (_, i) => (
+                          <span key={i} className={styles.sniSkeletonCard} />
+                        ))}
+                      </div>
+                    ) : (
+                      <div className={styles.bypassLoadRow}>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          isDisabled={sniBusy}
+                          onPress={async () => {
+                            setSniBusy(true)
+                            setError(null)
+                            try {
+                              const result = await window.api.profiles.sniList(server.id, password)
+                              if (result.ok) {
+                                setSniList(result.snis ?? [])
+                              } else {
+                                setError(result.error ?? t('settings.sniFailed'))
+                              }
+                            } catch (err) {
+                              setError(err instanceof Error ? err.message : String(err))
+                            } finally {
+                              setSniBusy(false)
                             }
-                          } catch (err) {
-                            setError(err instanceof Error ? err.message : String(err))
-                          } finally {
-                            setSniBusy(false)
-                          }
-                        }}
-                      >
-                        {sniBusy ? <Spinner size="sm" /> : <RefreshCw size={14} />}
-                        {t('settings.connect')}
-                      </Button>
-                    </div>
+                          }}
+                        >
+                          <Download size={14} />
+                          {t('settings.loadSni')}
+                        </Button>
+                      </div>
+                    )
                   ) : (
                     <div className={styles.sniList}>
                       {SNI_CATEGORIES.map((category) => {
@@ -854,10 +883,16 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
                 </Button>
                 <Button
                   variant="primary"
-                  isDisabled={sniBusy || !sniValue.trim()}
+                  className={
+                    sniDone ? styles.btnSuccess : sniBusy ? styles.glowPulse : undefined
+                  }
+                  isDisabled={sniBusy || sniDone || !sniValue.trim()}
                   onPress={changeSni}
                 >
-                  {t(sniBusy ? 'settings.changingSni' : 'settings.changeSni')}
+                  {sniDone ? <Check size={16} /> : null}
+                  {sniDone
+                    ? t('settings.done')
+                    : t(sniBusy ? 'settings.changingSni' : 'settings.changeSni')}
                 </Button>
               </AlertDialog.Footer>
             </AlertDialog.Dialog>
@@ -971,8 +1006,12 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
                 </Button>
                 <Button
                   variant="primary"
+                  className={
+                    portDone ? styles.btnSuccess : portBusy ? styles.glowPulse : undefined
+                  }
                   isDisabled={
                     portBusy ||
+                    portDone ||
                     (portMode !== 'random' &&
                       (!/^[0-9]+$/.test(portValue) ||
                         Number(portValue) < 1 ||
@@ -980,7 +1019,10 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
                   }
                   onPress={changePort}
                 >
-                  {t(portBusy ? 'settings.changingPort' : 'settings.changePort')}
+                  {portDone ? <Check size={16} /> : null}
+                  {portDone
+                    ? t('settings.done')
+                    : t(portBusy ? 'settings.changingPort' : 'settings.changePort')}
                 </Button>
               </AlertDialog.Footer>
             </AlertDialog.Dialog>
