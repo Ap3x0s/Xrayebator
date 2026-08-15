@@ -55,13 +55,13 @@
 }
 
 .iconSpin {
-  animation: iconSpinAnim 1s linear infinite;
+  color: color-mix(in srgb, var(--accent) 75%, var(--text-0));
 }
 
-@keyframes iconSpinAnim {
-  to {
-    transform: rotate(360deg);
-  }
+@property --bb-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
 }
 
 .btnBusy {
@@ -76,10 +76,11 @@
   border-radius: inherit;
   padding: 2px;
   background: conic-gradient(
-    from 0deg,
+    from var(--bb-angle),
     transparent 0deg,
-    var(--accent) 50deg,
-    transparent 110deg
+    transparent 300deg,
+    var(--accent) 340deg,
+    transparent 360deg
   );
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
@@ -92,7 +93,7 @@
 
 @keyframes btnBusyArc {
   to {
-    transform: rotate(360deg);
+    --bb-angle: 360deg;
   }
 }
 
