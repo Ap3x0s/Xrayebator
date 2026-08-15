@@ -54,6 +54,48 @@
   }
 }
 
+.iconSpin {
+  animation: iconSpinAnim 1s linear infinite;
+}
+
+@keyframes iconSpinAnim {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.btnBusy {
+  position: relative;
+  isolation: isolate;
+}
+
+.btnBusy::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 2px;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    var(--accent) 50deg,
+    transparent 110deg
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  animation: btnBusyArc 1.1s linear infinite;
+  pointer-events: none;
+  z-index: 1;
+}
+
+@keyframes btnBusyArc {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .header {
   display: flex;
   align-items: center;

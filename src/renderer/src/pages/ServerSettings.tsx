@@ -724,10 +724,13 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
                 </Button>
                 <Button
                   variant="primary"
+                  className={fpBusy ? styles.btnBusy : undefined}
                   isDisabled={fpBusy || !fpValue}
                   onPress={changeFingerprint}
                 >
-                  {fpBusy && <Spinner size="sm" />}
+                  {fpBusy ? (
+                    <Fingerprint size={14} className={styles.iconSpin} />
+                  ) : null}
                   {t('settings.changeFingerprint')}
                 </Button>
               </AlertDialog.Footer>
@@ -802,7 +805,11 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
                           }
                         }}
                       >
-                        {sniBusy ? <Spinner size="sm" /> : <RefreshCw size={14} />}
+                        {sniBusy ? (
+                          <RefreshCw size={14} className={styles.iconSpin} />
+                        ) : (
+                          <RefreshCw size={14} />
+                        )}
                         {t('settings.connect')}
                       </Button>
                     </div>
@@ -855,10 +862,11 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
                 </Button>
                 <Button
                   variant="primary"
+                  className={sniBusy ? styles.btnBusy : undefined}
                   isDisabled={sniBusy || !sniValue.trim()}
                   onPress={changeSni}
                 >
-                  {sniBusy && <Spinner size="sm" />}
+                  {sniBusy ? <Globe2 size={14} className={styles.iconSpin} /> : null}
                   {t('settings.changeSni')}
                 </Button>
               </AlertDialog.Footer>
@@ -973,6 +981,7 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
                 </Button>
                 <Button
                   variant="primary"
+                  className={portBusy ? styles.btnBusy : undefined}
                   isDisabled={
                     portBusy ||
                     (portMode !== 'random' &&
@@ -982,7 +991,9 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
                   }
                   onPress={changePort}
                 >
-                  {portBusy && <Spinner size="sm" />}
+                  {portBusy ? (
+                    <EthernetPort size={14} className={styles.iconSpin} />
+                  ) : null}
                   {t('settings.changePort')}
                 </Button>
               </AlertDialog.Footer>
