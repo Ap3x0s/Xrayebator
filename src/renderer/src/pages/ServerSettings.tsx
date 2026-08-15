@@ -802,8 +802,15 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
                   {sniList === null ? (
                     sniBusy ? (
                       <div className={styles.sniSkeleton}>
-                        {Array.from({ length: 8 }, (_, i) => (
-                          <span key={i} className={styles.sniSkeletonCard} />
+                        {Array.from({ length: 3 }, (_, i) => (
+                          <div key={i} className={styles.sniSkeletonCat}>
+                            <span className={styles.sniSkeletonLabel} />
+                            <div className={styles.sniSkeletonGrid}>
+                              {Array.from({ length: i === 1 ? 4 : 2 }, (_, j) => (
+                                <span key={j} className={styles.sniSkeletonCard} />
+                              ))}
+                            </div>
+                          </div>
                         ))}
                       </div>
                     ) : (

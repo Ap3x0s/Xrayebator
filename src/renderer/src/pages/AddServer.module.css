@@ -156,9 +156,38 @@
   flex-shrink: 0;
 }
 
+@keyframes breathing {
+  0% {
+    transform: scale(0.75);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.75);
+    opacity: 0.7;
+  }
+}
+
 .stepCheck {
   color: var(--success);
   animation: popIn 0.35s ease;
+}
+
+@keyframes popIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.5) rotate(-12deg);
+  }
+  60% {
+    transform: scale(1.1) rotate(3deg);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+  }
 }
 
 .step.done {
@@ -206,4 +235,15 @@
   line-height: 1.5;
   word-break: break-all;
   animation: fadeInUp 0.3s ease;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
