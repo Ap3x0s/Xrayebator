@@ -79,6 +79,7 @@
 .btnBusy {
   position: relative;
   isolation: isolate;
+  box-shadow: 0 0 12px var(--accent-glow);
 }
 
 .btnBusy::after {
@@ -89,17 +90,17 @@
   padding: 2px;
   background: conic-gradient(
     from var(--bb-angle),
-    #41b0ff 0deg,
-    #41b0ff 330deg,
-    rgba(65, 176, 255, 0.12) 345deg,
-    #41b0ff 360deg
+    transparent 0deg,
+    transparent 290deg,
+    #58a6ff 318deg,
+    #9cc8ff 342deg,
+    transparent 360deg
   );
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   mask-composite: exclude;
   animation: btnBusyArc 1.1s linear infinite;
-  filter: drop-shadow(0 0 6px rgba(65, 176, 255, 0.85));
   pointer-events: none;
   z-index: 1;
 }
