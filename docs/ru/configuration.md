@@ -53,7 +53,8 @@ UFW установщик настраивает сам: ставит пакет 
 
 > Список портов фиксированный, вашего SSH-порта в нём может не быть. Если SSH висит не на `22` или у
 > вас своя политика firewall — сравните numbered rules до и после установки. Правила, открытые
-> установщиком, при удалении Xrayebator не убираются.
+> установщиком, регистрируются в root-owned манифесте `/usr/local/etc/xray/.ufw_owned` и снова
+> убираются при удалении Xrayebator; правила, существовавшие до установки, не затрагиваются.
 
 ## Главное меню
 
@@ -92,6 +93,7 @@ UFW установщик настраивает сам: ставит пакет 
 | `sudo xrayebator profile-delete --name ИМЯ` | Удалить профиль без интерактива. Печатает `{"ok":true,"name":"..."}` |
 | `sudo xrayebator fp-change --name ИМЯ [--route R] --fp ОТПЕЧАТОК` | Сменить fingerprint профиля. Печатает JSON-результат |
 | `sudo xrayebator sni-change --name ИМЯ [--route R] --sni SNI` | Сменить SNI профиля. Обновляет все профили на том же порту. Печатает JSON-результат |
+| `sudo xrayebator sni-list` | Показать SNI-кандидатов из `sni_list.txt` по категориям. Печатает JSON-результат (используется диалогом SNI в десктоп-GUI) |
 | `sudo xrayebator port-change --name ИМЯ [--route R] --port ПОРТ\|random` | Сменить порт профиля; обновляет инбаунд, firewall и подписку. Клиентам нужно переподключиться. Печатает JSON-результат |
 | `sudo xrayebator bypass list` | Показать текущие bypass-правила по группам (JSON) |
 | `sudo xrayebator bypass add --domain D` | Добавить домен в bypass-правила (JSON) |

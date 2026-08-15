@@ -316,11 +316,12 @@ TypeScript. См. [Тестирование](docs/ru/testing.md#десктоп-g
 - Версию ОС установщик не проверяет. Матрица поддержки заявленная, а не форсируемая.
 - Ядро Xray проверяется по SHA-256 обязательно, а geo-базы Loyalsoldier скачиваются без сверки
   контрольной суммы.
-- `xrayebator-uninstall` снимает не всё: он останавливает и отключает `xray`, удаляет
-  `/usr/local/etc/xray`, `/usr/local/bin/xrayebator` и юниты `xray.service` и `xray@.service`. Он
-  НЕ удаляет бинарь `/usr/local/bin/xray`, `subhttp`, `xrayebator-update`, `xrayebator-uninstall`,
-  юнит `xrayebator-sub.service`, конфиги nginx, geo-базы, правила UFW и системного пользователя
-  `xray`. Остатки убирайте вручную.
+- `xrayebator-uninstall` останавливает и отключает `xray`, удаляет бинарь `/usr/local/bin/xray` и
+  geo-базы из `/usr/local/share/xray`, вычищает `/usr/local/etc/xray` и `/var/log/xray`, бинари
+  `xrayebator`, `xrayebator-update`, `xrayebator-uninstall` и `subhttp.sh`, юниты `xray.service`,
+  `xray@.service`, `xray.service.d` и `xrayebator-sub.service`, созданные им nginx-vhost'ы, свои
+  сертификаты certbot и правила UFW, а также системного пользователя `xray`. Глобальное состояние
+  Certbot, пакет nginx, чужие сертификаты certbot и правила UFW не трогаются.
 - Маршрут `tcp-mux` сохраняется для совместимости, но это не mux-пресет.
 - H2, WebSocket, SplitHTTP и подписки Clash/mihomo не поддерживаются.
 - Ёмкость по пользователям ничем не ограничена в интерфейсе, но упирается в CPU, RAM, канал VPS,

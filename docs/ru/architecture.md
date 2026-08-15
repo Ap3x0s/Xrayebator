@@ -26,6 +26,7 @@ Xrayebator/
 │   └── shared/           # TypeScript-типы, общие между main и renderer
 ├── tests/                # Vitest unit-тесты помощников GUI
 ├── validation/           # статические и локальные regression-тесты
+├── gui-legacy/           # legacy PySide6 GUI (больше не актуальное приложение)
 ├── docs/                 # документация: ru, en, zh-CN
 ├── sni_list.txt          # набор SNI-кандидатов
 ├── ascii_art.txt         # заголовок терминального интерфейса
@@ -127,6 +128,7 @@ safe_restart_xray ► xray run -test -config → systemctl restart
 | Удалить профиль | `xrayebator profile-delete --name N` |
 | Сменить fingerprint | `xrayebator fp-change --name N [--route R] --fp F` |
 | Сменить SNI | `xrayebator sni-change --name N [--route R] --sni S` |
+| Загрузить SNI-кандидатов | `xrayebator sni-list` |
 | Сменить порт | `xrayebator port-change --name N [--route R] --port P` |
 | Обновить сервер | `xrayebator update <branch>` (self-update + ядро) |
 | Удалить сервер | upload `uninstall.sh` → `yes | bash uninstall.sh` |

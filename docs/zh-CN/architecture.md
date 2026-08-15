@@ -26,6 +26,7 @@ Xrayebator/
 │   └── shared/           # main 与 renderer 共享的 TypeScript 类型
 ├── tests/                # GUI 辅助函数的 Vitest 单元测试
 ├── validation/           # 静态与本地回归测试
+├── gui-legacy/           # 旧版 PySide6 桌面图形界面（不再是活跃应用）
 ├── docs/                 # 文档：en、ru、zh-CN
 ├── sni_list.txt          # 候选 SNI 列表
 ├── ascii_art.txt         # 终端界面标题图
@@ -126,6 +127,7 @@ safe_restart_xray ► xray run -test -config → systemctl restart
 | 删除配置档 | `xrayebator profile-delete --name N` |
 | 修改指纹 | `xrayebator fp-change --name N [--route R] --fp F` |
 | 修改 SNI | `xrayebator sni-change --name N [--route R] --sni S` |
+| 加载候选 SNI | `xrayebator sni-list` |
 | 修改端口 | `xrayebator port-change --name N [--route R] --port P` |
 | 更新服务器 | `xrayebator update <分支>`（自更新 + 内核） |
 | 卸载服务器 | 上传 `uninstall.sh` → `yes | bash uninstall.sh` |

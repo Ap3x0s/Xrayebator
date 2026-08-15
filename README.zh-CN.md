@@ -308,11 +308,12 @@ GUI 测试：`npm test` (Vitest) 运行 `tests/` 中的单元测试；`npm run t
   服务账户可以写入自己的配置与配置档。
 - 安装脚本不检查系统版本。支持矩阵只是声明，并非强制。
 - Xray 内核强制校验 SHA-256，而 Loyalsoldier 的 geo 数据库在下载时没有校验和。
-- `xrayebator-uninstall` 并不会清理干净。它停止并禁用 `xray`，删除 `/usr/local/etc/xray`、
-  `/usr/local/bin/xrayebator` 以及 `xray.service` 和 `xray@.service` 单元。它不会删除
-  `/usr/local/bin/xray` 二进制、`subhttp`、`xrayebator-update`、`xrayebator-uninstall`、
-  `xrayebator-sub.service` 单元、nginx 配置、geo 数据库、UFW 规则以及系统用户 `xray`。
-  残留需要手工清理。
+- `xrayebator-uninstall` 会停止并禁用 `xray`，删除 `/usr/local/bin/xray` 二进制和
+  `/usr/local/share/xray` 中的 geo 数据库，清除 `/usr/local/etc/xray` 与 `/var/log/xray`、
+  `xrayebator`、`xrayebator-update`、`xrayebator-uninstall`、`subhttp.sh` 二进制，以及
+  `xray.service`、`xray@.service`、`xray.service.d`、`xrayebator-sub.service` 单元、由它创建的
+  nginx vhost、它自己的 certbot 证书和 UFW 规则，还有系统用户 `xray`。全局 Certbot 状态、
+  nginx 软件包、他人的 certbot 证书和 UFW 规则不会被动到。
 - `tcp-mux` 线路仅为兼容保留，它并不是 mux 预设。
 - 不支持 H2、WebSocket、SplitHTTP 以及 Clash/mihomo 订阅。
 - 界面没有硬性的用户数上限，但实际容量受 CPU、内存、VPS 带宽、线路数量和服务商限制约束。

@@ -36,6 +36,13 @@ shellcheck -S error xrayebator install.sh update.sh uninstall.sh
 | `test-bbr-removal-migration.sh` | 已被移除的 BBR/TCP 调优在所有路径上的安全清理 |
 | `test-legacy-udp443-migration.sh` | 一次性清理旧版 UDP/443 阻断规则 |
 | `test-main-menu-numbering.sh` | 主菜单条目编号连续且与处理函数一致 |
+| `test-sni-change-cli.sh` | `sni-change` CLI：JSON 输出、Reality serverNames/dest、XHTTP host、配置档同步与回滚 |
+| `test-port-change-cli.sh` | `port-change` CLI：unit/shared/move 入站场景、无效端口、配置档缺失、多线路 `--route` |
+| `test-bypass-cli.sh` | `bypass` CLI：JSON 输出、路由规则更新、带 SNI 探测的 add |
+| `test-quickstart-migration-parity.sh` | `quickstart_command` 执行与 `main_menu` 相同的关键迁移 |
+| `test-quickstart-subscription-port.sh` | `quickstart` 报告实际订阅端口，而不是写死的 `:8443` |
+| `test-audit-functional.sh` | HowDeploy 审计（P0/P1）的功能回归检查：certbot-fix、privilege-fix、happ-fix |
+| `test-audit-privilege-regressions.sh` | 权限边界回归：certbot-manifest、root 属主状态、nginx 回滚、happ-setup IPv6 |
 
 > 静态测试不能替代一次性 VPS 上的实测：创建与删除配置档、校验配置、重启服务、回滚，
 > 以及真实客户端连接。

@@ -26,6 +26,7 @@ Xrayebator/
 │   └── shared/           # TypeScript types shared between main and renderer
 ├── tests/                # Vitest unit tests for the GUI helpers
 ├── validation/           # static and local regression tests
+├── gui-legacy/           # legacy PySide6 desktop GUI (no longer the active app)
 ├── docs/                 # documentation: en, ru, zh-CN
 ├── sni_list.txt          # SNI candidates
 ├── ascii_art.txt         # terminal interface header
@@ -128,6 +129,7 @@ directly — every operation maps to a documented CLI command executed on the se
 | Delete profile | `xrayebator profile-delete --name N` |
 | Change fingerprint | `xrayebator fp-change --name N [--route R] --fp F` |
 | Change SNI | `xrayebator sni-change --name N [--route R] --sni S` |
+| Load SNI candidates | `xrayebator sni-list` |
 | Change port | `xrayebator port-change --name N [--route R] --port P` |
 | Update server | `xrayebator update <branch>` (self-update + core) |
 | Uninstall | upload `uninstall.sh` → `yes | bash uninstall.sh` |

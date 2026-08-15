@@ -52,8 +52,9 @@ when inactive, then opens ports `22, 80, 443, 8443, 2053, 2083, 2087, 8080, 2096
 and reloads the rules.
 
 > The port list is fixed and may not contain your SSH port. If SSH is not on `22`, or you maintain
-> your own firewall policy, compare the numbered rules before and after installation. Rules opened by
-> the installer are not removed when Xrayebator is uninstalled.
+> your own firewall policy, compare the numbered rules before and after installation. Rules the
+> installer opens are registered in the root-owned `/usr/local/etc/xray/.ufw_owned` manifest and are
+> removed again when Xrayebator is uninstalled; rules that already existed beforehand stay untouched.
 
 ## Main menu
 
@@ -92,6 +93,7 @@ change, force a subscription refresh in the client or fetch the raw route again 
 | `sudo xrayebator profile-delete --name NAME` | Delete a profile non-interactively. Prints `{"ok":true,"name":"..."}` |
 | `sudo xrayebator fp-change --name NAME [--route R] --fp FINGERPRINT` | Change the fingerprint for a profile. Prints a JSON result line |
 | `sudo xrayebator sni-change --name NAME [--route R] --sni SNI` | Change the SNI for a profile. Updates all profiles on the same port. Prints a JSON result line |
+| `sudo xrayebator sni-list` | Print the SNI candidates from `sni_list.txt` grouped by category. Prints a JSON result line (used by the desktop GUI SNI dialog) |
 | `sudo xrayebator port-change --name NAME [--route R] --port PORT\|random` | Change the port for a profile; updates the inbound, firewall and subscription. Client reconnection is required. Prints a JSON result line |
 | `sudo xrayebator bypass list` | Print the current bypass domain rules, grouped (JSON) |
 | `sudo xrayebator bypass add --domain D` | Add a domain to the bypass rules (JSON) |

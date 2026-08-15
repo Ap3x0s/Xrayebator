@@ -321,11 +321,13 @@ Russian and Chinese versions live in [`docs/ru/`](docs/ru/) and [`docs/zh-CN/`](
 - The installer does not check the OS version. The support matrix is declared, not enforced.
 - The Xray core is verified by SHA-256 unconditionally, while Loyalsoldier geo databases are
   downloaded without a checksum check.
-- `xrayebator-uninstall` does not remove everything. It stops and disables `xray`, deletes
-  `/usr/local/etc/xray`, `/usr/local/bin/xrayebator` and the `xray.service` and `xray@.service`
-  units. It does NOT remove the `/usr/local/bin/xray` binary, `subhttp`, `xrayebator-update`,
-  `xrayebator-uninstall`, the `xrayebator-sub.service` unit, nginx configs, geo databases, UFW rules
-  or the `xray` system user. Clean up the remains manually.
+- `xrayebator-uninstall` stops and disables `xray`, removes `/usr/local/bin/xray` and the geo
+  databases in `/usr/local/share/xray`, deletes `/usr/local/etc/xray`, `/var/log/xray`, the
+  `xrayebator`, `xrayebator-update`, `xrayebator-uninstall` and `subhttp.sh` binaries, the
+  `xray.service`, `xray@.service`, `xray.service.d` and `xrayebator-sub.service` units, the nginx
+  vhosts it created, its own certbot certificates and UFW rules, and the `xray` system user. It
+  leaves global Certbot state, the nginx package, foreign certbot certificates and UFW rules
+  untouched.
 - The `tcp-mux` route is kept for compatibility; it is not a mux preset.
 - H2, WebSocket, SplitHTTP and Clash/mihomo subscriptions are not supported.
 - The interface imposes no hard limit on users, but real capacity is bound by CPU, RAM, VPS

@@ -48,7 +48,9 @@ UFW 由安装脚本自行管理：安装 `ufw` 包，若 UFW 未启用则执行 
 随后开放端口 `22, 80, 443, 8443, 2053, 2083, 2087, 8080, 2096, 8880, 9443/tcp` 并重新加载规则。
 
 > 端口列表是固定的，其中可能没有你的 SSH 端口。如果 SSH 不在 `22`，或者你有自己的防火墙策略，
-> 请对比安装前后的 numbered rules。卸载 Xrayebator 时，安装脚本开放的规则不会被移除。
+> 请对比安装前后的 numbered rules。安装脚本开放的规则会登记在 root-owned 的
+> `/usr/local/etc/xray/.ufw_owned` 清单中，并在卸载 Xrayebator 时一并移除；安装前已存在的规则
+> 不受影响。
 
 ## 主菜单
 
@@ -85,6 +87,7 @@ UFW 由安装脚本自行管理：安装 `ufw` 包，若 UFW 未启用则执行 
 | `sudo xrayebator profile-delete --name 名称` | 非交互式删除配置档，打印 `{"ok":true,"name":"..."}` |
 | `sudo xrayebator fp-change --name 名称 [--route R] --fp 指纹` | 修改配置档的指纹，打印 JSON 结果 |
 | `sudo xrayebator sni-change --name 名称 [--route R] --sni SNI` | 修改配置档的 SNI，并同步更新同一端口上的所有配置档，打印 JSON 结果 |
+| `sudo xrayebator sni-list` | 按类别列出 `sni_list.txt` 中的候选 SNI，打印 JSON 结果（供桌面 GUI 的 SNI 对话框使用） |
 | `sudo xrayebator port-change --name 名称 [--route R] --port 端口\|random` | 修改配置档的端口；更新入站、防火墙与订阅。客户端需要重新连接，打印 JSON 结果 |
 | `sudo xrayebator bypass list` | 按分组列出当前分流规则（JSON） |
 | `sudo xrayebator bypass add --domain D` | 向分流规则添加一个域名（JSON） |
