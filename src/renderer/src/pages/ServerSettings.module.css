@@ -70,44 +70,52 @@
   }
 }
 
-@property --bb-angle {
-  syntax: '<angle>';
-  inherits: false;
-  initial-value: 0deg;
-}
-
 .btnBusy {
   position: relative;
   isolation: isolate;
+  overflow: hidden;
   box-shadow: 0 0 12px var(--accent-glow);
+}
+
+.btnBusy::before {
+  content: '';
+  position: absolute;
+  inset: -150%;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    transparent 295deg,
+    color-mix(in srgb, var(--accent) 35%, transparent) 310deg,
+    #58a6ff 330deg,
+    #9cc8ff 350deg,
+    transparent 360deg
+  );
+  animation: btnBusySpin 1.1s linear infinite;
+  pointer-events: none;
+  z-index: 0;
 }
 
 .btnBusy::after {
   content: '';
   position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  padding: 2px;
-  background: conic-gradient(
-    from var(--bb-angle),
-    transparent 0deg,
-    transparent 290deg,
-    #58a6ff 318deg,
-    #9cc8ff 342deg,
-    transparent 360deg
-  );
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  mask-composite: exclude;
-  animation: btnBusyArc 1.1s linear infinite;
+  inset: 2px;
+  border-radius: 8px;
+  background: var(--button-bg);
   pointer-events: none;
   z-index: 1;
 }
 
-@keyframes btnBusyArc {
+.btnContent {
+  position: relative;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+@keyframes btnBusySpin {
   to {
-    --bb-angle: 360deg;
+    transform: rotate(360deg);
   }
 }
 

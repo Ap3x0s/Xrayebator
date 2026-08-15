@@ -728,10 +728,12 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
                   isDisabled={fpBusy || !fpValue}
                   onPress={changeFingerprint}
                 >
-                  {fpBusy ? (
-                    <Fingerprint size={14} className={styles.iconSpin} />
-                  ) : null}
-                  {t('settings.changeFingerprint')}
+                  <span className={styles.btnContent}>
+                    {fpBusy ? (
+                      <Fingerprint size={14} className={styles.iconSpin} />
+                    ) : null}
+                    {t('settings.changeFingerprint')}
+                  </span>
                 </Button>
               </AlertDialog.Footer>
             </AlertDialog.Dialog>
@@ -866,8 +868,10 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
                   isDisabled={sniBusy || !sniValue.trim()}
                   onPress={changeSni}
                 >
-                  {sniBusy ? <Globe2 size={14} className={styles.iconSpin} /> : null}
-                  {t('settings.changeSni')}
+                  <span className={styles.btnContent}>
+                    {sniBusy ? <Globe2 size={14} className={styles.iconSpin} /> : null}
+                    {t('settings.changeSni')}
+                  </span>
                 </Button>
               </AlertDialog.Footer>
             </AlertDialog.Dialog>
@@ -991,10 +995,12 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
                   }
                   onPress={changePort}
                 >
-                  {portBusy ? (
-                    <EthernetPort size={14} className={styles.iconSpin} />
-                  ) : null}
-                  {t('settings.changePort')}
+                  <span className={styles.btnContent}>
+                    {portBusy ? (
+                      <EthernetPort size={14} className={styles.iconSpin} />
+                    ) : null}
+                    {t('settings.changePort')}
+                  </span>
                 </Button>
               </AlertDialog.Footer>
             </AlertDialog.Dialog>
