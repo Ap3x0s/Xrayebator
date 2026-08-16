@@ -1163,11 +1163,6 @@ RENEWTIMEREOF
   systemctl enable --now "$(basename "$timer")" >/dev/null 2>&1 || true
 }
 
-# Проверяет активность renew timer для ip_tls подписки (для статус-строки TUI).
-_ip_renew_timer_active() {
-  systemctl is-active xrayebator-ip-renew.timer >/dev/null 2>&1
-}
-
 # ═══════════════════════════════════════════════════════════
 # Certbot ownership manifest (P0-privilege-boundary fix)
 # ═══════════════════════════════════════════════════════════
