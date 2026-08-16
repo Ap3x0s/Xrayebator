@@ -3391,7 +3391,7 @@ _bypass_remove_rule() {
       --arg d "$d" \
       '.routing.rules = [
         .routing.rules[] |
-        if (.outboundTag == "direct" and ((.domain // []) | type == "array")) then
+        if (.outboundTag == "direct" and ((.domain // []) | length) > 0) then
           .domain = ((.domain // []) - [$d])
           | (if (.domain | length == 0) then empty else . end)
         else

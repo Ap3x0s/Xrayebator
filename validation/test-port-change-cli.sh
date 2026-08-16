@@ -219,9 +219,9 @@ fi
 jq -e '.ok == false' <<< "$out" >/dev/null ||
   fail "transport conflict did not return ok:false"
 
-# Порт 9302 свободен → создаётся новый inbound (shared не задействован).
-if out=$(port_change_command --name tcp-only --port 9303); then
-  fail "free-port tcp move unexpectedly failed: $out"
+# Порт 9303 свободен → создаётся новый inbound (shared не задействован).
+if ! out=$(port_change_command --name tcp-only --port 9303); then
+  fail "free-port tcp move failed: $out"
 fi
 jq -e '.ok == true and .port == 9303' <<< "$out" >/dev/null ||
   fail "free-port tcp move bad JSON: $out"
