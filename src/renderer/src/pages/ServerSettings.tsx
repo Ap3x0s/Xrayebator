@@ -143,7 +143,7 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
       const result = await window.api.profiles.create(server.id, password, {
         name: name.trim(),
         transport,
-        count: Math.max(1, Number(count) || 1)
+        count: Math.min(Math.max(Number(count) || 1, 1), 50)
       })
       if (result.ok && result.names.length > 0) {
         createdCount = result.names.length
