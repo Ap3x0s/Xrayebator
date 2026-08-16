@@ -862,7 +862,7 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
                                   disabled={sniBusy}
                                   onClick={() => setSniValue(item.sni)}
                                 >
-                                  <span className={styles.sniCardName}>{item.sni}</span>
+                                  {item.sni}
                                 </button>
                               ))}
                             </div>
