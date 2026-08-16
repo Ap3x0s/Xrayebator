@@ -53,27 +53,69 @@ NGINX_SITES_ENABLED="${NGINX_SITES_ENABLED:-/etc/nginx/sites-enabled}"
 # для текущего процесса quickstart.
 QS_NGINX_MODIFIED=0
 QS_VHOST_BACKUP="$NGINX_SITES_AVAILABLE/xrayebator-sub.xrayebator.bak"
+QS_DEFAULT_REMOVED=false
+QS_DEFAULT_BACKUP_CREATED=false
+
+_qs_backup_path() {
+  local source_path="$1" backup_path="$2"
+  [[ -e "$source_path" || -L "$source_path" ]] || return 1
+  [[ ! -e "$backup_path" && ! -L "$backup_path" ]] || return 1
+  if ! cp -a -- "$source_path" "$backup_path" 2>/dev/null; then
+    rm -f -- "$backup_path"
+    return 1
+  fi
+  if [[ -L "$source_path" ]]; then
+    [[ -L "$backup_path" && "$(readlink -- "$source_path")" == "$(readlink -- "$backup_path")" ]] || {
+      rm -f -- "$backup_path"
+      return 1
+    }
+  elif [[ ! -f "$backup_path" ]] || ! cmp -s -- "$source_path" "$backup_path"; then
+    rm -f -- "$backup_path"
+    return 1
+  fi
+}
+
 # Восстанавливает исходное состояние nginx после ANY мутации quickstart: прежний vhost
 # xrayebator-sub (если был), default-сайт (если удаляли), убирает наш vhost и перегружает
 # nginx. Обёрнуто в backreference: работает и при отсутствии default-сайта.
 _qs_nginx_rollback() {
+  local rollback_failed=0
   if [[ "$QS_NGINX_MODIFIED" != "true" ]]; then
     return 0
   fi
-  rm -f "$NGINX_SITES_ENABLED/xrayebator-sub" "$NGINX_SITES_AVAILABLE/xrayebator-sub"
-  if [[ -e "$QS_VHOST_BACKUP" ]]; then
-    cp -a "$QS_VHOST_BACKUP" "$NGINX_SITES_AVAILABLE/xrayebator-sub"
-    ln -sf "$NGINX_SITES_AVAILABLE/xrayebator-sub" "$NGINX_SITES_ENABLED/xrayebator-sub"
-    rm -f "$QS_VHOST_BACKUP"
+  rm -f -- "$NGINX_SITES_ENABLED/xrayebator-sub" "$NGINX_SITES_AVAILABLE/xrayebator-sub" ||
+    rollback_failed=1
+  if [[ -n "$QS_VHOST_BACKUP" && ( -e "$QS_VHOST_BACKUP" || -L "$QS_VHOST_BACKUP" ) ]]; then
+    if _qs_backup_path "$QS_VHOST_BACKUP" "$NGINX_SITES_AVAILABLE/xrayebator-sub" &&
+       ln -sf "$NGINX_SITES_AVAILABLE/xrayebator-sub" "$NGINX_SITES_ENABLED/xrayebator-sub"; then
+      rm -f -- "$QS_VHOST_BACKUP"
+    else
+      rollback_failed=1
+    fi
   fi
-  if [[ -e "$NGINX_SITES_ENABLED/default.xrayebator.bak" && ! -e "$NGINX_SITES_ENABLED/default" ]]; then
-    cp -a "$NGINX_SITES_ENABLED/default.xrayebator.bak" "$NGINX_SITES_ENABLED/default"
+  if [[ "$QS_DEFAULT_REMOVED" == "true" ]]; then
+    if [[ -e "$NGINX_SITES_ENABLED/default.xrayebator.bak" || -L "$NGINX_SITES_ENABLED/default.xrayebator.bak" ]]; then
+      if _qs_backup_path "$NGINX_SITES_ENABLED/default.xrayebator.bak" "$NGINX_SITES_ENABLED/default"; then
+        rm -f -- "$NGINX_SITES_ENABLED/default.xrayebator.bak"
+      else
+        rollback_failed=1
+      fi
+    else
+      rollback_failed=1
+    fi
+  elif [[ "$QS_DEFAULT_BACKUP_CREATED" == "true" ]]; then
+    rm -f -- "$NGINX_SITES_ENABLED/default.xrayebator.bak" || rollback_failed=1
   fi
-  rm -f "$NGINX_SITES_ENABLED/default.xrayebator.bak"
   if command -v nginx >/dev/null 2>&1 && nginx -t >/dev/null 2>&1; then
     systemctl reload nginx >/dev/null 2>&1 || true
   fi
-  return 0
+  if [[ "$rollback_failed" -eq 0 ]]; then
+    QS_NGINX_MODIFIED=false
+    QS_DEFAULT_REMOVED=false
+    QS_DEFAULT_BACKUP_CREATED=false
+    QS_VHOST_BACKUP=""
+  fi
+  return "$rollback_failed"
 }
 # A11-fix: порты, выбранные в рамках одного процесса (например, 7 маршрутов
 # multi-route профиля), не должны повторяться. Массив живёт только в процессе bash.
@@ -1503,48 +1545,118 @@ safe_restart_xray() {
   fi
 }
 
-# Open port in UFW firewall (idempotent)
-# Args: $1=port, $2=protocol (default: tcp)
-# Returns: 0=success, 1=failure
-open_firewall_port() {
-  local port=$1
-  local protocol=${2:-tcp}
-
-  # Validate port number
-  if [[ ! "$port" =~ ^[0-9]+$ ]] || [[ $port -lt 1 ]] || [[ $port -gt 65535 ]]; then
-    echo -e "${RED}  ✗ Неверный порт: $port${NC}" >&2
-    return 1
-  fi
-
-  # Check if UFW is installed and active
-  if ! command -v ufw &>/dev/null; then
-    echo -e "${YELLOW}  ⚠ UFW не установлен${NC}" >&2
-    return 1
-  fi
-
-  if ! ufw status | grep -q "Status: active"; then
-    echo -e "${YELLOW}  ⚠ UFW не активен — правило не применено${NC}" >&2
-    return 1
-  fi
-
-  # Check if port already open (idempotent)
-  if ufw status | grep -qE "^${port}/${protocol}.*ALLOW"; then
-    echo -e "${CYAN}  → Порт ${port}/${protocol} уже открыт${NC}"
+_ufw_rule_exists() {
+  local port="$1" protocol="${2:-tcp}"
+  ufw status 2>/dev/null |
+    awk -v rule="${port}/${protocol}" '$1 == rule && ($2 == "ALLOW" || $2 == "LIMIT") { found=1 } END { exit !found }' &&
     return 0
-  fi
+  ufw show added 2>/dev/null |
+    grep -qE "^ufw (allow|limit) ${port}/${protocol}([[:space:]]|$)"
+}
 
-  # Open port
-  echo -e "${CYAN}  → Открываю порт ${port}/${protocol}...${NC}"
-  if ufw allow "${port}/${protocol}" >/dev/null 2>&1; then
-    echo -e "${GREEN}  ✓ Порт ${port}/${protocol} открыт${NC}"
-    # P2-fix: фиксируем в root-owned манифесте, что правило открыл именно Xrayebator.
-    _ufw_register_port "$port" "$protocol"
-    ufw reload >/dev/null 2>&1
-    return 0
+# Реестр UFW-правил, созданных Xrayebator. Формат новых записей:
+# port/proto/action; старый port/proto читается как allow.
+_ufw_register_port() {
+  local port="$1" protocol="${2:-tcp}" action="${3:-allow}"
+  [[ "$port" =~ ^[0-9]{1,5}$ ]] && (( 10#$port >= 1 && 10#$port <= 65535 )) || return 1
+  [[ "$protocol" == "tcp" || "$protocol" == "udp" ]] || return 1
+  [[ "$action" == "allow" || "$action" == "limit" ]] || return 1
+  local manifest="${UFW_OWNED_MANIFEST:-/usr/local/etc/xray/.ufw_owned}"
+  local entry="${port}/${protocol}/${action}"
+  mkdir -p "$(dirname "$manifest")" 2>/dev/null || return 1
+  if [[ ! -f "$manifest" ]]; then
+    printf '%s\n' "$entry" > "$manifest" || return 1
   else
-    echo -e "${RED}  ✗ Ошибка открытия порта${NC}" >&2
+    grep -qxF "$entry" "$manifest" 2>/dev/null ||
+      printf '%s\n' "$entry" >> "$manifest" || return 1
+  fi
+  chmod 644 "$manifest" 2>/dev/null || return 1
+  if [[ $EUID -eq 0 ]]; then
+    chown root:root "$manifest" 2>/dev/null || return 1
+  fi
+}
+
+_ufw_manifest_has_port() {
+  local port="$1" protocol="${2:-tcp}"
+  local manifest="${UFW_OWNED_MANIFEST:-/usr/local/etc/xray/.ufw_owned}"
+  [[ -f "$manifest" ]] || return 1
+  awk -F/ -v port="$port" -v protocol="$protocol" '
+    $1 == port && $2 == protocol && (NF == 2 || (NF == 3 && ($3 == "allow" || $3 == "limit"))) { found=1 }
+    END { exit !found }
+  ' "$manifest"
+}
+
+_ufw_remove_owned_port() {
+  local port="$1" protocol="${2:-tcp}" action extra entry_port entry_protocol
+  local manifest="${UFW_OWNED_MANIFEST:-/usr/local/etc/xray/.ufw_owned}"
+  _ufw_manifest_has_port "$port" "$protocol" || return 0
+  command -v ufw >/dev/null 2>&1 || return 1
+
+  while IFS=/ read -r entry_port entry_protocol action extra; do
+    [[ -z "$extra" && "$entry_port" == "$port" && "$entry_protocol" == "$protocol" ]] || continue
+    action="${action:-allow}"
+    [[ "$action" == "allow" || "$action" == "limit" ]] || return 1
+    ufw delete "$action" "${port}/${protocol}" >/dev/null 2>&1 || return 1
+  done < "$manifest"
+
+  local manifest_tmp
+  manifest_tmp=$(mktemp "${manifest}.tmp.XXXXXX") || return 1
+  if ! awk -F/ -v port="$port" -v protocol="$protocol" \
+      '!($1 == port && $2 == protocol)' "$manifest" > "$manifest_tmp" ||
+     ! chmod 644 "$manifest_tmp"; then
+    rm -f -- "$manifest_tmp"
     return 1
   fi
+  if [[ $EUID -eq 0 ]] && ! chown root:root "$manifest_tmp"; then
+    rm -f -- "$manifest_tmp"
+    return 1
+  fi
+  if ! mv -f -- "$manifest_tmp" "$manifest"; then
+    rm -f -- "$manifest_tmp"
+    return 1
+  fi
+  ufw reload >/dev/null 2>&1 || true
+}
+
+_add_owned_firewall_rule() {
+  local port="$1" protocol="${2:-tcp}" action="${3:-allow}"
+  [[ "$port" =~ ^[0-9]{1,5}$ ]] && (( 10#$port >= 1 && 10#$port <= 65535 )) || return 1
+  [[ "$protocol" == "tcp" || "$protocol" == "udp" ]] || return 1
+  [[ "$action" == "allow" || "$action" == "limit" ]] || return 1
+  command -v ufw >/dev/null 2>&1 || return 1
+  ufw status 2>/dev/null | grep -q "Status: active" || return 1
+
+  # Существующее правило принадлежит другому владельцу: считаем порт доступным,
+  # но никогда не записываем его в наш manifest.
+  _ufw_rule_exists "$port" "$protocol" && return 0
+  if ! ufw "$action" "${port}/${protocol}" >/dev/null 2>&1; then
+    return 1
+  fi
+  if ! _ufw_register_port "$port" "$protocol" "$action"; then
+    ufw delete "$action" "${port}/${protocol}" >/dev/null 2>&1 || true
+    return 1
+  fi
+  ufw reload >/dev/null 2>&1 || true
+}
+
+# Open port in UFW firewall (idempotent and ownership-safe).
+open_firewall_port() {
+  local port="$1" protocol="${2:-tcp}"
+  if _ufw_rule_exists "$port" "$protocol" 2>/dev/null; then
+    echo -e "${CYAN}  → Порт ${port}/${protocol} уже открыт; ownership не присваивается${NC}"
+    return 0
+  fi
+  echo -e "${CYAN}  → Открываю порт ${port}/${protocol}...${NC}"
+  if _add_owned_firewall_rule "$port" "$protocol" allow; then
+    echo -e "${GREEN}  ✓ Порт ${port}/${protocol} открыт${NC}"
+    return 0
+  fi
+  echo -e "${RED}  ✗ Ошибка открытия порта ${port}/${protocol}${NC}" >&2
+  return 1
+}
+
+limit_firewall_port() {
+  _add_owned_firewall_rule "$1" "${2:-tcp}" limit
 }
 
 # Close port in UFW if not used by other profiles
@@ -1573,35 +1685,19 @@ close_firewall_port() {
     [[ "$port" == "$dp" ]] && return 0
   done
 
-  # Close port
-  if ufw status | grep -qE "^${port}/${protocol}.*ALLOW"; then
+  # Закрываем только exact rule из ownership manifest. Pre-existing rule на том
+  # же порту не трогаем даже после удаления последнего Xray inbound.
+  if _ufw_manifest_has_port "$port" "$protocol"; then
     echo -e "${CYAN}  → Закрываю порт ${port}/${protocol}...${NC}"
-    ufw delete allow "${port}/${protocol}" >/dev/null 2>&1
-    ufw reload >/dev/null 2>&1
-    echo -e "${GREEN}  ✓ Порт закрыт${NC}"
+    if _ufw_remove_owned_port "$port" "$protocol"; then
+      echo -e "${GREEN}  ✓ Порт закрыт${NC}"
+    else
+      echo -e "${YELLOW}  ⚠ Не удалось закрыть owned rule ${port}/${protocol}${NC}" >&2
+      return 1
+    fi
   fi
 
   return 0
-}
-
-# Реестр UFW-правил, добавленных Xrayebator (root-owned, /usr/local/etc/xray/.ufw_owned).
-# uninstall.sh удаляет ТОЛЬКО порты из этого манифеста (плюс динамические порты из
-# реального config.json) — чужие правила 443/8443/8080 и т.п. НЕ затрагиваются.
-# Формат строки: "<port>/<proto>". Вызывать сразу после успешного ufw allow.
-# Args: $1=port, $2=protocol (default: tcp)
-_ufw_register_port() {
-  local port=$1
-  local protocol=${2:-tcp}
-  [[ "$port" =~ ^[0-9]+$ ]] || return 0
-  local manifest="${UFW_OWNED_MANIFEST:-/usr/local/etc/xray/.ufw_owned}"
-  local entry="${port}/${protocol}"
-  if [[ ! -f "$manifest" ]]; then
-    printf '%s\n' "$entry" > "$manifest"
-  else
-    grep -qxF "$entry" "$manifest" 2>/dev/null || printf '%s\n' "$entry" >> "$manifest"
-  fi
-  chmod 644 "$manifest" 2>/dev/null || true
-  chown root:root "$manifest" 2>/dev/null || true
 }
 
 # Check whether a profile has route array
@@ -4424,8 +4520,10 @@ NGINX_SELFSTEAL_HTTP
   systemctl reload nginx >/dev/null 2>&1 || return 1
 
   if command -v ufw &>/dev/null && ufw status | grep -q "Status: active"; then
-    ufw limit 80/tcp >/dev/null 2>&1
-    ufw reload >/dev/null 2>&1
+    limit_firewall_port 80 tcp || {
+      echo -e "${RED}✗ Не удалось открыть owned UFW rule 80/tcp${NC}"
+      return 1
+    }
   fi
 
   echo -e "${CYAN}  → Выпуск сертификата для $domain...${NC}"
@@ -5806,9 +5904,10 @@ NGINX_HTTP_EOF
   fi
 
   if command -v ufw &>/dev/null && ufw status | grep -q "Status: active"; then
-    ufw limit 80/tcp >/dev/null 2>&1
-    ufw limit "${pub_port}/tcp" >/dev/null 2>&1
-    ufw reload >/dev/null 2>&1
+    limit_firewall_port 80 tcp && limit_firewall_port "$pub_port" tcp || {
+      echo -e "${RED}✗ Не удалось открыть owned UFW rules для подписки${NC}"
+      return 1
+    }
     echo -e "${GREEN}  ✓ UFW: limit 80/tcp + ${pub_port}/tcp${NC}"
   fi
 
@@ -6040,9 +6139,10 @@ NGINX_HTTP_EOF
   fi
 
   if command -v ufw &>/dev/null && ufw status | grep -q "Status: active"; then
-    ufw limit 80/tcp >/dev/null 2>&1
-    ufw limit "${pub_port}/tcp" >/dev/null 2>&1
-    ufw reload >/dev/null 2>&1
+    limit_firewall_port 80 tcp && limit_firewall_port "$pub_port" tcp || {
+      echo -e "${RED}✗ Не удалось открыть owned UFW rules для подписки${NC}"
+      return 1
+    }
     echo -e "${GREEN}  ✓ UFW: limit 80/tcp + ${pub_port}/tcp${NC}"
   fi
 
@@ -9719,12 +9819,9 @@ uninstall_adguard_home() {
 
   # Закрытие портов
   echo -e "${CYAN}Шаг 5/5: Закрытие портов...${NC}"
-  if command -v ufw &>/dev/null; then
-    ufw delete allow 53/tcp >/dev/null 2>&1
-    ufw delete allow 53/udp >/dev/null 2>&1
-    ufw delete allow 3000/tcp >/dev/null 2>&1  # На случай если открывали вручную
-    ufw reload >/dev/null 2>&1
-  fi
+  _ufw_remove_owned_port 53 tcp || true
+  _ufw_remove_owned_port 53 udp || true
+  _ufw_remove_owned_port 3000 tcp || true
   echo -e "${GREEN}  ✓ Порты проверены${NC}"
 
   echo ""
@@ -9900,15 +9997,35 @@ quickstart_command() {
   # мёртвый vhost оставался на VPS. Реализация на уровне файла (_qs_nginx_rollback)
   # — ею пользуется и функциональный тест.
   QS_NGINX_MODIFIED=false
-  QS_VHOST_BACKUP="$NGINX_SITES_AVAILABLE/xrayebator-sub.xrayebator.bak"
+  QS_DEFAULT_REMOVED=false
+  QS_DEFAULT_BACKUP_CREATED=false
+  QS_VHOST_BACKUP="$NGINX_SITES_AVAILABLE/xrayebator-sub.xrayebator.bak.${BASHPID:-$$}"
 
-  # P2-fix: сохраняем существующий vhost xrayebator-sub ДО перезаписи (может быть
-  # от прошлого quickstart или сторонней настройки) — rollback его вернёт.
+  # Все обязательные backup создаются и сверяются ДО первой мутации nginx.
+  # Ошибка cp/cmp завершает quickstart, не меняя live vhost/default.
   if [[ -e "$NGINX_SITES_AVAILABLE/xrayebator-sub" || -L "$NGINX_SITES_AVAILABLE/xrayebator-sub" ]]; then
-    cp -a "$NGINX_SITES_AVAILABLE/xrayebator-sub" "$QS_VHOST_BACKUP" 2>/dev/null || true
+    if ! _qs_backup_path "$NGINX_SITES_AVAILABLE/xrayebator-sub" "$QS_VHOST_BACKUP"; then
+      echo '{"ok":false,"error":"Не удалось создать проверенный backup nginx vhost; конфигурация не изменена"}'
+      return 1
+    fi
   fi
+  local default_site="$NGINX_SITES_ENABLED/default"
+  local default_backup="$NGINX_SITES_ENABLED/default.xrayebator.bak"
+  if [[ -e "$default_site" || -L "$default_site" ]]; then
+    if [[ -e "$default_backup" || -L "$default_backup" ]] ||
+       ! _qs_backup_path "$default_site" "$default_backup"; then
+      rm -f -- "$QS_VHOST_BACKUP"
+      QS_VHOST_BACKUP=""
+      echo '{"ok":false,"error":"Не удалось создать проверенный backup nginx default; конфигурация не изменена"}'
+      return 1
+    fi
+    QS_DEFAULT_BACKUP_CREATED=true
+  fi
+
+  # С этого места rollback обязателен даже при ошибке первой записи.
+  QS_NGINX_MODIFIED=true
   # Nginx HTTP config для certbot
-  cat > "$NGINX_SITES_AVAILABLE/xrayebator-sub" << NGINXHTTP
+  if ! cat > "$NGINX_SITES_AVAILABLE/xrayebator-sub" << NGINXHTTP
 server {
     listen 80;
     listen [::]:80;
@@ -9922,31 +10039,40 @@ server {
     }
 }
 NGINXHTTP
-  ln -sf "$NGINX_SITES_AVAILABLE/xrayebator-sub" "$NGINX_SITES_ENABLED/xrayebator-sub"
-  # A7-fix: не удалять default-сайт безвозвратно — делаем бэкап (может быть симлинк на config).
-  local default_site="$NGINX_SITES_ENABLED/default"
-  if [[ -e "$default_site" || -L "$default_site" ]]; then
-    cp -a "$default_site" "$NGINX_SITES_ENABLED/default.xrayebator.bak" 2>/dev/null || true
-    rm -f "$default_site"
+  then
+    echo '{"ok":false,"error":"Не удалось записать nginx HTTP config"}'
+    _qs_nginx_rollback
+    return 1
   fi
-  # P2-fix: с этого момента изменения nginx «живые» — флаг ставим после ЛЮБОЙ мутации
-  # (vhost записан/symlink создан), независимо от наличия default-сайта. Иначе при
-  # отсутствии default-сайта rollback (nginx -t, certbot, reload) не срабатывал.
-  QS_NGINX_MODIFIED=true
+  if ! ln -sf "$NGINX_SITES_AVAILABLE/xrayebator-sub" "$NGINX_SITES_ENABLED/xrayebator-sub"; then
+    echo '{"ok":false,"error":"Не удалось включить nginx vhost"}'
+    _qs_nginx_rollback
+    return 1
+  fi
+  if [[ -e "$default_site" || -L "$default_site" ]]; then
+    if ! rm -f -- "$default_site"; then
+      rm -f -- "$default_backup"
+      QS_DEFAULT_BACKUP_CREATED=false
+      echo '{"ok":false,"error":"Не удалось отключить nginx default site"}'
+      _qs_nginx_rollback
+      return 1
+    fi
+    QS_DEFAULT_REMOVED=true
+  fi
   nginx -t >/dev/null 2>&1 || { echo '{"ok":false,"error":"nginx -t failed"}'; _qs_nginx_rollback; return 1; }
   systemctl enable --now nginx >/dev/null 2>&1 || true
   systemctl reload nginx >/dev/null 2>&1 || true
 
   # Открыть порты
   if command -v ufw &>/dev/null && ufw status | grep -q "Status: active"; then
-    ufw allow 80/tcp >/dev/null 2>&1 || true
-    ufw allow 443/tcp >/dev/null 2>&1 || true
-    ufw allow 8443/tcp >/dev/null 2>&1 || true
-    # P2-fix: фиксируем открытые quickstart'ом правила в root-owned манифесте.
-    _ufw_register_port 80 tcp
-    _ufw_register_port 443 tcp
-    _ufw_register_port 8443 tcp
-    ufw reload >/dev/null 2>&1 || true
+    local firewall_port
+    for firewall_port in 80 443 8443; do
+      if ! open_firewall_port "$firewall_port" tcp; then
+        echo '{"ok":false,"error":"Не удалось безопасно открыть UFW rule для quickstart"}'
+        _qs_nginx_rollback
+        return 1
+      fi
+    done
   fi
 
   # A8-fix: переиспользуем существующий действующий сертификат вместо повторного
@@ -10132,12 +10258,20 @@ NGINXHTTPS
   fi
   subscription_url="${base}/sub/${result_sub_token}"
 
-  # «Сторона» сервера для GUI (country/city/flag) + ОС (PRETTY_NAME) — полезно "Мои серверы".
+# «Сторона» сервера для GUI (country/city/flag) + ОС (PRETTY_NAME) — полезно "Мои серверы".
   local result_country result_city result_flag result_os
   result_country=$(_geo_country_name)
   result_city=$(_geo_city)
   result_flag=$(_geo_flag_emoji "$(_geo_country_code)")
   result_os=$(awk -F'"' '/^PRETTY_NAME=/{print $2; exit}' /etc/os-release 2>/dev/null)
+
+  # Транзакция завершена: per-run vhost backup больше не нужен. Backup default
+  # остаётся до uninstall, чтобы вернуть исходный сайт.
+  rm -f -- "$QS_VHOST_BACKUP" 2>/dev/null || true
+  QS_VHOST_BACKUP=""
+  QS_NGINX_MODIFIED=false
+  QS_DEFAULT_REMOVED=false
+  QS_DEFAULT_BACKUP_CREATED=false
 
   echo "{\"ok\":true,\"subscription_url\":\"${subscription_url}\",\"base_url\":\"${base}\",\"profile\":\"${HAPP_DEFAULT_PROFILE}\",\"routes\":${route_count},\"country\":\"${result_country}\",\"city\":\"${result_city}\",\"flag\":\"${result_flag}\",\"os\":\"${result_os}\"}"
   return 0
