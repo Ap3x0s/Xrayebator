@@ -3,7 +3,7 @@
 # ═══════════════════════════════════════════════════════════
 # XRAYEBATOR INSTALLER v3.0
 # Автоматическая установка Xray Reality VPN
-# GitHub: https://github.com/Ap3x0s/Xrayebator
+# GitHub: howdeploy & Ap3x0s — https://github.com/Ap3x0s/Xrayebator
 # ═══════════════════════════════════════════════════════════
 
 # Цвета

@@ -3,7 +3,7 @@
 # ═══════════════════════════════════════════════════════════
 # XRAYEBATOR UPDATE SCRIPT v3.0
 # Обновление Xrayebator до последней версии
-# GitHub: https://github.com/Ap3x0s/Xrayebator
+# GitHub: howdeploy & Ap3x0s — https://github.com/Ap3x0s/Xrayebator
 # ═══════════════════════════════════════════════════════════
 
 # Цвета
