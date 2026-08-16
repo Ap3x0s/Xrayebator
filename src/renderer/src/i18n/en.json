@@ -36,7 +36,6 @@
     },
     "status": {
       "pending": "Waiting...",
-      "running": "Running...",
       "done": "Done"
     },
     "active": {

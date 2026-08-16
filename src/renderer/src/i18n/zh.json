@@ -6,7 +6,6 @@
     "title": "我的服务器",
     "add": "添加",
     "empty": "添加第一台服务器",
-    "routes_one": "{{count}} 条路线",
     "routes_other": "{{count}} 条路线",
     "keys": "密钥",
     "settings": "设置",
@@ -36,7 +35,6 @@
     },
     "status": {
       "pending": "等待中...",
-      "running": "执行中...",
       "done": "完成"
     },
     "active": {
