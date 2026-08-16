@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { app, shell, BrowserWindow } from 'electron'
 import { join } from 'node:path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { registerIpcHandlers } from './ipc-handlers'
@@ -141,8 +141,6 @@ app.whenReady().then(() => {
   registerIpcHandlers({ store })
   createTray()
   initAutoUpdater()
-
-  ipcMain.on('app:quit', () => app.quit())
 
   createWindow()
 

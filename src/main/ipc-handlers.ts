@@ -18,9 +18,6 @@ export function registerIpcHandlers({ store }: IpcContext): void {
   ipcMain.handle('servers:add', (_e, input: Omit<Server, 'id' | 'createdAt'>): Server => {
     return store.add(input)
   })
-  ipcMain.handle('servers:updateKeys', (_e, id: string, keys: unknown[]): Server | null => {
-    return store.updateKeys(id, keys as never[]) ?? null
-  })
   ipcMain.handle('servers:remove', (_e, id: string): void => {
     store.remove(id)
   })
