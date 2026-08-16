@@ -142,17 +142,6 @@ export type DeployStep =
 
 export type DeployStatus = 'pending' | 'running' | 'done' | 'error'
 
-export interface DeployStepState {
-  step: DeployStep
-  status: DeployStatus
-  label: string
-}
-
-export interface DeployLogLine {
-  at: number
-  text: string
-}
-
 export interface DeployStartPayload {
   host: string
   port: number
