@@ -564,12 +564,6 @@
   color: var(--text-2);
 }
 
-.sectionTitleIcon {
-  vertical-align: -3px;
-  margin-right: 6px;
-  color: var(--accent);
-}
-
 .bypassLoadRow {
   padding: 4px 0;
 }
