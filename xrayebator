@@ -10709,7 +10709,7 @@ fp_change_command() {
   esac
 
   if [[ -n "$route_index" ]] && ! [[ "$route_index" =~ ^[0-9]+$ ]]; then
-    echo '{"ok":false,"error":"Некорректный --route (целое число, 0-based)}'
+    echo '{"ok":false,"error":"Некорректный --route (целое число, 0-based)"}'
     return 1
   fi
 
