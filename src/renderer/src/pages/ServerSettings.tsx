@@ -217,7 +217,7 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
     const input = {
       name: fpTarget.name,
       fingerprint: fpValue,
-      ...(fpTarget.multi_route ? { route: fpRoute } : {})
+      ...(fpTarget.multi_route ? { route: fpRoute - 1 } : {})
     }
     try {
       const result = await window.api.profiles.changeFingerprint(server.id, password, input)
@@ -247,7 +247,7 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
     const input = {
       name: sniTarget.name,
       sni: sniValue.trim(),
-      ...(sniTarget.multi_route ? { route: sniRoute } : {})
+      ...(sniTarget.multi_route ? { route: sniRoute - 1 } : {})
     }
     try {
       const result = await window.api.profiles.changeSni(server.id, password, input)
@@ -277,7 +277,7 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
     const input = {
       name: portTarget.name,
       port: portMode === 'random' ? ('random' as const) : Number(portValue),
-      ...(portTarget.multi_route ? { route: portRoute } : {})
+      ...(portTarget.multi_route ? { route: portRoute - 1 } : {})
     }
     try {
       const result = await window.api.profiles.changePort(server.id, password, input)
