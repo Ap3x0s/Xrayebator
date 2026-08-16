@@ -33,15 +33,15 @@ jobs:
           python -m pip install
           --constraint gui-legacy/packaging/constraints.txt
           --requirement gui-legacy/packaging/requirements-build.txt
-          --editable "./gui[dev]"
+          --editable "./gui-legacy[dev]"
       - name: Check package
         env:
           QT_QPA_PLATFORM: offscreen
         run: |
           python -m pip check
-          python -m ruff check --config gui-legacy/pyproject.toml gui
+          python -m ruff check --config gui-legacy/pyproject.toml gui-legacy
           python -m pytest -q gui-legacy/tests
-          python -m build --wheel gui
+          python -m build --wheel gui-legacy
 
       # Bash smoke subset kept here for fast feedback on GUI-PR touching bash;
       # the FULL suite (all validation/test-*.sh) runs in ci-linux.yml.
@@ -95,7 +95,7 @@ jobs:
           python -m pip install
           --constraint gui-legacy/packaging/constraints.txt
           --requirement gui-legacy/packaging/requirements-build.txt
-          ./gui
+          ./gui-legacy
       - name: Bundle verified Xray core
         run: python gui-legacy/packaging/fetch_xray.py
       - name: Build native application
