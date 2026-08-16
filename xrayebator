@@ -10510,7 +10510,7 @@ profile_create_command() {
 
 # Один профиль: файл JSON + inbound + safe_restart_xray. Возвращает 0/1.
 _profile_cli_create_one() {
-  local pname="$1" transport="$2" fixed_port="${3:-}"
+  local pname="$1" transport="$2" fixed_port="${3:-}" results_file="${4:-}"
   local uuid sub_token grpc_service_name xhttp_path port default_sni
   uuid=$(uuidgen)
   sub_token=$(openssl rand -hex 16)
@@ -10597,7 +10597,7 @@ _profile_cli_create_one() {
     --arg sub_token "$sub_token" --arg subscription_url "$sub_url" \
     '{name: $name, uuid: $uuid, transport: $transport, port: $port,
       fingerprint: $fingerprint, sni: $sni, sub_token: $sub_token,
-      subscription_url: $subscription_url}' >> "$1"
+      subscription_url: $subscription_url}' >> "$results_file"
   return 0
 }
 
