@@ -146,7 +146,7 @@ for fixture in \
 done
 
 echo "Проверка полного SIL OFL 1.1 artifact"
-OFL_FILE="gui/xrayebator_gui/assets/fonts/OFL.txt"
+OFL_FILE="gui-legacy/xrayebator_gui/assets/fonts/OFL.txt"
 grep -Fq 'SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007' "$OFL_FILE" ||
   fail "full OFL header missing"
 grep -Fq '5) The Font Software, modified or unmodified' "$OFL_FILE" ||
