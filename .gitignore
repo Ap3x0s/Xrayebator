@@ -12,6 +12,8 @@ Xrayebator-Windows-x64.exe.sha256
 GUI-*.bat
 implementation_plan*.md
 ANALYSIS.md
+DESIGN-REVIEW.md
+DESIGN-REVIEW-*.md
 
 # OS
 .DS_Store

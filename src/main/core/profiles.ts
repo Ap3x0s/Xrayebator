@@ -19,6 +19,47 @@ export interface ProfileDeleteOutput {
   error?: string
 }
 
+export interface ProfileFingerprintOutput {
+  ok: boolean
+  name?: string
+  fingerprint?: string
+  route?: string
+  error?: string
+}
+
+export interface ProfileSniOutput {
+  ok: boolean
+  name?: string
+  sni?: string
+  port?: number
+  transport?: string
+  route?: string
+  affected?: string[]
+  unchanged?: boolean
+  reconnect?: boolean
+  error?: string
+}
+
+export interface ProfilePortOutput {
+  ok: boolean
+  name?: string
+  port?: number
+  old_port?: number
+  transport?: string
+  route?: string
+  unchanged?: boolean
+  reconnect?: boolean
+  warning?: string
+  firewall_warning?: boolean
+  error?: string
+}
+
+export interface SniListOutput {
+  ok: boolean
+  snis?: { sni: string; category: string; priority: string }[]
+  error?: string
+}
+
 export function extractJson(raw: string): unknown {
   // Серверный CLI может печатать ANSI-статусы (backup_config, open_firewall_port,
   // safe_restart_xray) в stdout перед JSON. \033[0;36m содержит '[', из-за чего
@@ -134,6 +175,149 @@ export class ProfileManager {
         error?: string
       }
       return { ok: payload.ok === true, name: payload.name, error: payload.error }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return { ok: false, error: message }
+    }
+  }
+
+  async changeFingerprint(input: {
+    name: string
+    route?: number
+    fingerprint: string
+  }): Promise<ProfileFingerprintOutput> {
+    try {
+      const args = [
+        `--name "${input.name}"`,
+        typeof input.route === 'number' ? `--route ${input.route}` : '',
+        `--fp ${input.fingerprint}`
+      ]
+        .filter(Boolean)
+        .join(' ')
+      const stdout = await this.run(`fp-change ${args}`)
+      const payload = extractJson(stdout) as {
+        ok?: boolean
+        name?: string
+        fingerprint?: string
+        route?: string
+        error?: string
+      }
+      return {
+        ok: payload.ok === true,
+        name: payload.name,
+        fingerprint: payload.fingerprint,
+        route: payload.route,
+        error: payload.error
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return { ok: false, error: message }
+    }
+  }
+
+  async changeSni(input: {
+    name: string
+    route?: number
+    sni: string
+  }): Promise<ProfileSniOutput> {
+    try {
+      const args = [
+        `--name "${input.name}"`,
+        typeof input.route === 'number' ? `--route ${input.route}` : '',
+        `--sni ${input.sni}`
+      ]
+        .filter(Boolean)
+        .join(' ')
+      const stdout = await this.run(`sni-change ${args}`)
+      const payload = extractJson(stdout) as {
+        ok?: boolean
+        name?: string
+        sni?: string
+        port?: number
+        transport?: string
+        route?: string
+        affected?: string[]
+        unchanged?: boolean
+        reconnect?: boolean
+        error?: string
+      }
+      return {
+        ok: payload.ok === true,
+        name: payload.name,
+        sni: payload.sni,
+        port: payload.port,
+        transport: payload.transport,
+        route: payload.route,
+        affected: payload.affected,
+        unchanged: payload.unchanged,
+        reconnect: payload.reconnect,
+        error: payload.error
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return { ok: false, error: message }
+    }
+  }
+
+  async sniList(): Promise<SniListOutput> {
+    try {
+      const stdout = await this.run('sni-list')
+      const payload = extractJson(stdout) as {
+        ok?: boolean
+        snis?: { sni: string; category: string; priority: string }[]
+        error?: string
+      }
+      return {
+        ok: payload.ok === true,
+        snis: payload.snis ?? [],
+        error: payload.error
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return { ok: false, snis: [], error: message }
+    }
+  }
+
+  async changePort(input: {
+    name: string
+    route?: number
+    port: number | 'random'
+  }): Promise<ProfilePortOutput> {
+    try {
+      const args = [
+        `--name "${input.name}"`,
+        typeof input.route === 'number' ? `--route ${input.route}` : '',
+        input.port === 'random' ? '--port random' : `--port ${input.port}`
+      ]
+        .filter(Boolean)
+        .join(' ')
+      const stdout = await this.run(`port-change ${args}`)
+      const payload = extractJson(stdout) as {
+        ok?: boolean
+        name?: string
+        port?: number
+        old_port?: number
+        transport?: string
+        route?: string
+        unchanged?: boolean
+        reconnect?: boolean
+        warning?: string
+        firewall_warning?: boolean
+        error?: string
+      }
+      return {
+        ok: payload.ok === true,
+        name: payload.name,
+        port: payload.port,
+        old_port: payload.old_port,
+        transport: payload.transport,
+        route: payload.route,
+        unchanged: payload.unchanged,
+        reconnect: payload.reconnect,
+        warning: payload.warning,
+        firewall_warning: payload.firewall_warning,
+        error: payload.error
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       return { ok: false, error: message }

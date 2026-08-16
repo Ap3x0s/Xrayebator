@@ -60,6 +60,71 @@ export interface ProfileDeleteResult {
   error?: string
 }
 
+export interface ProfileFingerprintInput {
+  name: string
+  route?: number
+  fingerprint: string
+}
+
+export interface ProfileFingerprintResult {
+  ok: boolean
+  name?: string
+  fingerprint?: string
+  route?: string
+  error?: string
+}
+
+export interface ProfileSniInput {
+  name: string
+  route?: number
+  sni: string
+}
+
+export interface ProfileSniResult {
+  ok: boolean
+  name?: string
+  sni?: string
+  port?: number
+  transport?: string
+  route?: string
+  affected?: string[]
+  unchanged?: boolean
+  reconnect?: boolean
+  error?: string
+}
+
+export interface ProfilePortInput {
+  name: string
+  route?: number
+  port: number | 'random'
+}
+
+export interface ProfilePortResult {
+  ok: boolean
+  name?: string
+  port?: number
+  old_port?: number
+  transport?: string
+  route?: string
+  unchanged?: boolean
+  reconnect?: boolean
+  warning?: string
+  firewall_warning?: boolean
+  error?: string
+}
+
+export interface SniEntry {
+  sni: string
+  category: string
+  priority: string
+}
+
+export interface SniListResult {
+  ok: boolean
+  snis?: SniEntry[]
+  error?: string
+}
+
 export interface ServerMaintenanceResult {
   ok: boolean
   output?: string
@@ -138,6 +203,22 @@ export interface ElectronAPI {
       password: string,
       name: string
     ) => Promise<ProfileDeleteResult>
+    changeFingerprint: (
+      serverId: string,
+      password: string,
+      input: ProfileFingerprintInput
+    ) => Promise<ProfileFingerprintResult>
+    changeSni: (
+      serverId: string,
+      password: string,
+      input: ProfileSniInput
+    ) => Promise<ProfileSniResult>
+    sniList: (serverId: string, password: string) => Promise<SniListResult>
+    changePort: (
+      serverId: string,
+      password: string,
+      input: ProfilePortInput
+    ) => Promise<ProfilePortResult>
   }
   server: {
     update: (

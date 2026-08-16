@@ -94,3 +94,14 @@ ClientAliveInterval 60
 ClientAliveCountMax 120
 TCPKeepAlive yes
 ```
+
+## Desktop GUI credentials
+
+The desktop GUI never stores the SSH password. The renderer holds it only for the duration of one
+IPC call; the main process passes it straight to `ssh2` and drops it when the call finishes. Server
+metadata (host, port, username, subscription URL, route list) is persisted with `electron-store` in
+the application-data directory — the password field is not part of it.
+
+`keytar` is listed as a dependency, but the GUI does not yet store SSH passwords in the OS
+keychain: a password is typed per operation. Storing passwords in the keychain may be added in a
+future release, but it is not planned at the moment.

@@ -1,8 +1,22 @@
 import { useMemo, useState } from 'react'
 import { Button, TextField, Label, Input, Chip, Spinner, AlertDialog } from '@heroui/react'
-import { Settings2, Play, Trash2, RefreshCw, Lock, CloudDownload, CloudOff } from 'lucide-react'
+import {
+  Settings2,
+  Play,
+  Trash2,
+  Power,
+  Lock,
+  CloudDownload,
+  CloudOff,
+  Fingerprint,
+  Globe2,
+  EthernetPort,
+  Copy,
+  Download,
+  Check
+} from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import type { Server, ServerProfile } from '@shared/types'
+import type { Server, ServerProfile, SniEntry } from '@shared/types'
 import styles from './ServerSettings.module.css'
 
 interface ServerSettingsProps {
@@ -18,6 +32,24 @@ const PROTOCOLS = [
   { id: 'tcp-mux', label: 'TCP-MUX' },
   { id: 'grpc', label: 'gRPC' }
 ] as const
+
+export const FINGERPRINTS = [
+  'chrome',
+  'firefox',
+  'safari',
+  'edge',
+  'ios',
+  'random'
+] as const
+
+export const SNI_CATEGORIES = [
+  'ru_whitelist',
+  'yandex_cdn',
+  'foreign',
+  'fallback'
+] as const
+
+export const PORT_PRESETS = [443, 8443, 2053, 2083, 2087, 2096, 9443, 8080] as const
 
 export function ServerSettings({ server, onBack }: ServerSettingsProps): React.JSX.Element {
   const { t } = useTranslation()
@@ -36,6 +68,26 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
   const [uninstalling, setUninstalling] = useState(false)
   const [confirmUninstall, setConfirmUninstall] = useState(false)
   const [confirmRemove, setConfirmRemove] = useState<ServerProfile | null>(null)
+
+  const [fpTarget, setFpTarget] = useState<ServerProfile | null>(null)
+  const [fpRoute, setFpRoute] = useState<number>(1)
+  const [fpValue, setFpValue] = useState<string>('firefox')
+  const [fpBusy, setFpBusy] = useState(false)
+  const [fpDone, setFpDone] = useState(false)
+
+  const [sniTarget, setSniTarget] = useState<ServerProfile | null>(null)
+  const [sniRoute, setSniRoute] = useState<number>(1)
+  const [sniValue, setSniValue] = useState('')
+  const [sniBusy, setSniBusy] = useState(false)
+  const [sniDone, setSniDone] = useState(false)
+  const [sniList, setSniList] = useState<SniEntry[] | null>(null)
+
+  const [portTarget, setPortTarget] = useState<ServerProfile | null>(null)
+  const [portRoute, setPortRoute] = useState<number>(1)
+  const [portMode, setPortMode] = useState<'preset' | 'custom' | 'random'>('random')
+  const [portValue, setPortValue] = useState('')
+  const [portBusy, setPortBusy] = useState(false)
+  const [portDone, setPortDone] = useState(false)
 
   const connected = profiles !== null
 
@@ -155,6 +207,96 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setBusy(false)
+    }
+  }
+
+  const changeFingerprint = async (): Promise<void> => {
+    if (!fpTarget || !password.trim()) return
+    setFpBusy(true)
+    setError(null)
+    const input = {
+      name: fpTarget.name,
+      fingerprint: fpValue,
+      ...(fpTarget.multi_route ? { route: fpRoute } : {})
+    }
+    try {
+      const result = await window.api.profiles.changeFingerprint(server.id, password, input)
+      if (result.ok) {
+        toastText(t('settings.fpChanged', { name: fpTarget.name, fp: result.fingerprint ?? fpValue }))
+        const fresh = await window.api.profiles.list(server.id, password)
+        setProfiles(fresh.profiles ?? [])
+        setFpDone(true)
+        setTimeout(() => {
+          setFpTarget(null)
+          setFpDone(false)
+        }, 400)
+      } else {
+        setError(result.error ?? t('settings.fpFailed'))
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setFpBusy(false)
+    }
+  }
+
+  const changeSni = async (): Promise<void> => {
+    if (!sniTarget || !sniValue.trim()) return
+    setSniBusy(true)
+    setError(null)
+    const input = {
+      name: sniTarget.name,
+      sni: sniValue.trim(),
+      ...(sniTarget.multi_route ? { route: sniRoute } : {})
+    }
+    try {
+      const result = await window.api.profiles.changeSni(server.id, password, input)
+      if (result.ok) {
+        toastText(t('settings.sniChanged', { name: sniTarget.name, sni: result.sni ?? input.sni }))
+        const fresh = await window.api.profiles.list(server.id, password)
+        setProfiles(fresh.profiles ?? [])
+        setSniDone(true)
+        setTimeout(() => {
+          setSniTarget(null)
+          setSniDone(false)
+        }, 400)
+      } else {
+        setError(result.error ?? t('settings.sniFailed'))
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSniBusy(false)
+    }
+  }
+
+  const changePort = async (): Promise<void> => {
+    if (!portTarget || !password.trim()) return
+    setPortBusy(true)
+    setError(null)
+    const input = {
+      name: portTarget.name,
+      port: portMode === 'random' ? ('random' as const) : Number(portValue),
+      ...(portTarget.multi_route ? { route: portRoute } : {})
+    }
+    try {
+      const result = await window.api.profiles.changePort(server.id, password, input)
+      if (result.ok) {
+        toastText(t('settings.portChanged', { name: portTarget.name, port: result.port ?? input.port }))
+        const fresh = await window.api.profiles.list(server.id, password)
+        setProfiles(fresh.profiles ?? [])
+        setPortDone(true)
+        setTimeout(() => {
+          setPortTarget(null)
+          setPortDone(false)
+        }, 400)
+      } else {
+        setError(result.error ?? t('settings.portFailed'))
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setPortBusy(false)
     }
   }
 
@@ -287,7 +429,7 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
               </Button>
             ) : (
               <Button variant="secondary" size="lg" isDisabled={busy} onPress={reset}>
-                <RefreshCw size={16} />
+                <Power size={16} />
                 {t('settings.changePassword')}
               </Button>
             )}
@@ -411,13 +553,55 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
                     </div>
                     {profile.subscription_url && (
                       <div className={styles.profileUrl} title={profile.subscription_url}>
-                        {profile.subscription_url}
+                        <span className={styles.profileUrlText}>{profile.subscription_url}</span>
                       </div>
                     )}
                   </div>
                   <div className={styles.profileActions}>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      isDisabled={busy}
+                      onPress={() => {
+                        setSniTarget(profile)
+                        setSniValue(profile.sni ?? '')
+                        setSniRoute(1)
+                        setSniList(null)
+                      }}
+                    >
+                      <Globe2 size={14} />
+                      {t('settings.sniBtn')}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      isDisabled={busy}
+                      onPress={() => {
+                        setFpTarget(profile)
+                        setFpValue(profile.fingerprint || 'firefox')
+                        setFpRoute(1)
+                      }}
+                    >
+                      <Fingerprint size={14} />
+                      {t('settings.fpBtn')}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      isDisabled={busy}
+                      onPress={() => {
+                        setPortTarget(profile)
+                        setPortRoute(1)
+                        setPortMode('random')
+                        setPortValue('')
+                      }}
+                    >
+                      <EthernetPort size={14} />
+                      {t('settings.portBtn')}
+                    </Button>
                     {profile.subscription_url && (
                       <Button size="sm" variant="secondary" onPress={() => copyUrl(profile)}>
+                        <Copy size={13} />
                         {t('settings.copy')}
                       </Button>
                     )}
@@ -480,6 +664,372 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
                   }}
                 >
                   {t('settings.deleteKey')}
+                </Button>
+              </AlertDialog.Footer>
+            </AlertDialog.Dialog>
+          </AlertDialog.Container>
+        </AlertDialog.Backdrop>
+      </AlertDialog.Root>
+
+      <AlertDialog.Root
+        isOpen={fpTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !fpBusy) setFpTarget(null)
+        }}
+      >
+        <AlertDialog.Backdrop>
+          <AlertDialog.Container>
+            <AlertDialog.Dialog className={styles.confirmDialog}>
+              <AlertDialog.Header>
+                <AlertDialog.Heading>
+                  {t('settings.fpTitle')} — {fpTarget?.name ?? ''}
+                </AlertDialog.Heading>
+              </AlertDialog.Header>
+              <AlertDialog.Body>
+                <p className={styles.fpHint}>{t('settings.fpHint')}</p>
+                {fpTarget && (
+                  <p className={styles.fpCurrent}>
+                    {t('settings.fpCurrent', { fp: fpTarget.fingerprint || '—' })}
+                  </p>
+                )}
+                {fpTarget?.multi_route && (
+                  <div className={styles.fpField}>
+                    <span className={styles.fieldLabel}>{t('settings.fpRoute')}</span>
+                    <div className={styles.fpRouteGrid}>
+                      {Array.from({ length: fpTarget.routes }, (_, i) => i + 1).map((r) => (
+                        <button
+                          key={r}
+                          type="button"
+                          className={`${styles.fpRouteCard} ${
+                            fpRoute === r ? styles.fpRouteCardActive : ''
+                          }`}
+                          disabled={fpBusy}
+                          onClick={() => setFpRoute(r)}
+                        >
+                          {r}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div className={styles.fpField}>
+                  <span className={styles.fieldLabel}>{t('settings.fpSelect')}</span>
+                  <div className={styles.fpGrid}>
+                    {FINGERPRINTS.map((fp) => (
+                      <button
+                        key={fp}
+                        type="button"
+                        className={`${styles.fpCard} ${
+                          fpValue === fp ? styles.fpCardActive : ''
+                        }`}
+                        disabled={fpBusy}
+                        onClick={() => setFpValue(fp)}
+                      >
+                        <span className={styles.fpCardName}>{fp}</span>
+                        <span className={styles.fpCardDesc}>{t(`settings.fpOptions.${fp}`)}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <p className={styles.fpNote}>{t('settings.fpRemember')}</p>
+              </AlertDialog.Body>
+              <AlertDialog.Footer>
+                <Button variant="secondary" isDisabled={fpBusy} onPress={() => setFpTarget(null)}>
+                  {t('dashboard.cancel')}
+                </Button>
+                <Button
+                  variant="primary"
+                  className={
+                    fpDone ? styles.btnSuccess : fpBusy ? styles.glowPulse : undefined
+                  }
+                  isDisabled={fpBusy || fpDone || !fpValue}
+                  onPress={changeFingerprint}
+                >
+                  {fpDone ? <Check size={16} /> : null}
+                  {fpDone
+                    ? t('settings.done')
+                    : t(fpBusy ? 'settings.changingFingerprint' : 'settings.changeFingerprint')}
+                </Button>
+              </AlertDialog.Footer>
+            </AlertDialog.Dialog>
+          </AlertDialog.Container>
+        </AlertDialog.Backdrop>
+      </AlertDialog.Root>
+
+      <AlertDialog.Root
+        isOpen={sniTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !sniBusy) setSniTarget(null)
+        }}
+      >
+        <AlertDialog.Backdrop>
+          <AlertDialog.Container>
+            <AlertDialog.Dialog className={styles.confirmDialog}>
+              <AlertDialog.Header>
+                <AlertDialog.Heading>
+                  {t('settings.sniTitle')} — {sniTarget?.name ?? ''}
+                </AlertDialog.Heading>
+              </AlertDialog.Header>
+              <AlertDialog.Body>
+                <p className={styles.sniWarning}>{t('settings.sniWarning')}</p>
+                {sniTarget && (
+                  <p className={styles.fpCurrent}>
+                    {t('settings.sniCurrent', { sni: sniTarget.sni || '—' })}
+                  </p>
+                )}
+                {sniTarget?.multi_route && (
+                  <div className={styles.fpField}>
+                    <span className={styles.fieldLabel}>{t('settings.fpRoute')}</span>
+                    <div className={styles.fpRouteGrid}>
+                      {Array.from({ length: sniTarget.routes }, (_, i) => i + 1).map((r) => (
+                        <button
+                          key={r}
+                          type="button"
+                          className={`${styles.fpRouteCard} ${
+                            sniRoute === r ? styles.fpRouteCardActive : ''
+                          }`}
+                          disabled={sniBusy}
+                          onClick={() => setSniRoute(r)}
+                        >
+                          {r}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div className={styles.fpField}>
+                  <span className={styles.fieldLabel}>{t('settings.sniSelect')}</span>
+                  {sniList === null ? (
+                    sniBusy ? (
+                      <div className={styles.sniSkeleton}>
+                        {Array.from({ length: 3 }, (_, i) => (
+                          <div key={i} className={styles.sniSkeletonCat}>
+                            <span className={styles.sniSkeletonLabel} />
+                            <div className={styles.sniSkeletonGrid}>
+                              {Array.from({ length: i === 1 ? 4 : 2 }, (_, j) => (
+                                <span key={j} className={styles.sniSkeletonCard} />
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className={styles.bypassLoadRow}>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          isDisabled={sniBusy}
+                          onPress={async () => {
+                            setSniBusy(true)
+                            setError(null)
+                            try {
+                              const result = await window.api.profiles.sniList(server.id, password)
+                              if (result.ok) {
+                                setSniList(result.snis ?? [])
+                              } else {
+                                setError(result.error ?? t('settings.sniFailed'))
+                              }
+                            } catch (err) {
+                              setError(err instanceof Error ? err.message : String(err))
+                            } finally {
+                              setSniBusy(false)
+                            }
+                          }}
+                        >
+                          <Download size={14} />
+                          {t('settings.loadSni')}
+                        </Button>
+                      </div>
+                    )
+                  ) : (
+                    <div className={styles.sniList}>
+                      {SNI_CATEGORIES.map((category) => {
+                        const items = sniList.filter((s) => s.category === category)
+                        if (items.length === 0) return null
+                        return (
+                          <div key={category} className={styles.sniCat}>
+                            <span className={styles.sniCatLabel}>
+                              {t(`settings.sniCategories.${category}`)}
+                            </span>
+                            <div className={styles.sniGrid}>
+                              {items.map((item) => (
+                                <button
+                                  key={item.sni}
+                                  type="button"
+                                  className={`${styles.sniCard} ${
+                                    sniValue === item.sni ? styles.sniCardActive : ''
+                                  }`}
+                                  disabled={sniBusy}
+                                  onClick={() => setSniValue(item.sni)}
+                                >
+                                  <span className={styles.sniCardName}>{item.sni}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+                <div className={styles.fpField}>
+                  <TextField variant="secondary" className={styles.bypassDomainField}>
+                    <Input
+                      value={sniValue}
+                      disabled={sniBusy}
+                      placeholder="www.example.com"
+                      onChange={(e) => setSniValue(e.target.value)}
+                    />
+                  </TextField>
+                </div>
+                <p className={styles.fpNote}>{t('settings.sniReconnectHint')}</p>
+              </AlertDialog.Body>
+              <AlertDialog.Footer>
+                <Button variant="secondary" isDisabled={sniBusy} onPress={() => setSniTarget(null)}>
+                  {t('dashboard.cancel')}
+                </Button>
+                <Button
+                  variant="primary"
+                  className={
+                    sniDone ? styles.btnSuccess : sniBusy ? styles.glowPulse : undefined
+                  }
+                  isDisabled={sniBusy || sniDone || !sniValue.trim()}
+                  onPress={changeSni}
+                >
+                  {sniDone ? <Check size={16} /> : null}
+                  {sniDone
+                    ? t('settings.done')
+                    : t(sniBusy ? 'settings.changingSni' : 'settings.changeSni')}
+                </Button>
+              </AlertDialog.Footer>
+            </AlertDialog.Dialog>
+          </AlertDialog.Container>
+        </AlertDialog.Backdrop>
+      </AlertDialog.Root>
+
+      <AlertDialog.Root
+        isOpen={portTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !portBusy) setPortTarget(null)
+        }}
+      >
+        <AlertDialog.Backdrop>
+          <AlertDialog.Container>
+            <AlertDialog.Dialog className={styles.confirmDialog}>
+              <AlertDialog.Header>
+                <AlertDialog.Heading>
+                  {t('settings.portTitle')} — {portTarget?.name ?? ''}
+                </AlertDialog.Heading>
+              </AlertDialog.Header>
+              <AlertDialog.Body>
+                <p className={styles.portWarning}>{t('settings.portWarning')}</p>
+                {portTarget && (
+                  <p className={styles.fpCurrent}>
+                    {t('settings.portCurrent', { port: portTarget.port ?? '—' })}
+                  </p>
+                )}
+                {portTarget?.multi_route && (
+                  <div className={styles.fpField}>
+                    <span className={styles.fieldLabel}>{t('settings.fpRoute')}</span>
+                    <div className={styles.fpRouteGrid}>
+                      {Array.from({ length: portTarget.routes }, (_, i) => i + 1).map((r) => (
+                        <button
+                          key={r}
+                          type="button"
+                          className={`${styles.fpRouteCard} ${
+                            portRoute === r ? styles.fpRouteCardActive : ''
+                          }`}
+                          disabled={portBusy}
+                          onClick={() => setPortRoute(r)}
+                        >
+                          {r}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div className={styles.fpField}>
+                  <span className={styles.fieldLabel}>{t('settings.portSelect')}</span>
+                  <div className={styles.portGrid}>
+                    <button
+                      type="button"
+                      className={`${styles.portCard} ${
+                        portMode === 'random' ? styles.portCardActive : ''
+                      }`}
+                      disabled={portBusy}
+                      onClick={() => {
+                        setPortMode('random')
+                        setPortValue('')
+                      }}
+                    >
+                      <span className={styles.portCardName}>{t('settings.portRandom')}</span>
+                      <span className={styles.portCardDesc}>{t('settings.portRandomHint')}</span>
+                    </button>
+                    {PORT_PRESETS.map((p) => (
+                      <button
+                        key={p}
+                        type="button"
+                        className={`${styles.portCard} ${
+                          portMode === 'preset' && portValue === String(p)
+                            ? styles.portCardActive
+                            : ''
+                        }`}
+                        disabled={portBusy}
+                        onClick={() => {
+                          setPortMode('preset')
+                          setPortValue(String(p))
+                        }}
+                      >
+                        <span className={styles.portCardName}>{p}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className={styles.fpField}>
+                  <TextField variant="secondary" className={styles.bypassDomainField}>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={65535}
+                      value={portMode === 'custom' ? portValue : ''}
+                      disabled={portBusy}
+                      placeholder={t('settings.portCustomPlaceholder')}
+                      onChange={(e) => {
+                        setPortMode('custom')
+                        setPortValue(e.target.value)
+                      }}
+                      onFocus={() => {
+                        setPortMode('custom')
+                        setPortValue('')
+                      }}
+                    />
+                  </TextField>
+                </div>
+                <p className={styles.fpNote}>{t('settings.portReconnectHint')}</p>
+              </AlertDialog.Body>
+              <AlertDialog.Footer>
+                <Button variant="secondary" isDisabled={portBusy} onPress={() => setPortTarget(null)}>
+                  {t('dashboard.cancel')}
+                </Button>
+                <Button
+                  variant="primary"
+                  className={
+                    portDone ? styles.btnSuccess : portBusy ? styles.glowPulse : undefined
+                  }
+                  isDisabled={
+                    portBusy ||
+                    portDone ||
+                    (portMode !== 'random' &&
+                      (!/^[0-9]+$/.test(portValue) ||
+                        Number(portValue) < 1 ||
+                        Number(portValue) > 65535))
+                  }
+                  onPress={changePort}
+                >
+                  {portDone ? <Check size={16} /> : null}
+                  {portDone
+                    ? t('settings.done')
+                    : t(portBusy ? 'settings.changingPort' : 'settings.changePort')}
                 </Button>
               </AlertDialog.Footer>
             </AlertDialog.Dialog>

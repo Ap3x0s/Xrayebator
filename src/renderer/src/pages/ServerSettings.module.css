@@ -40,6 +40,13 @@
   }
 }
 
+.btnSuccess {
+  border-color: var(--success) !important;
+  color: var(--success) !important;
+  background: color-mix(in srgb, var(--success) 14%, var(--bg-2)) !important;
+  box-shadow: 0 0 14px color-mix(in srgb, var(--success) 30%, transparent);
+}
+
 .iconDownloading {
   animation: iconDown 1s ease-in-out infinite;
 }
@@ -53,6 +60,8 @@
     transform: translateY(4px);
   }
 }
+
+
 
 .header {
   display: flex;
@@ -175,7 +184,7 @@
   flex-direction: column;
   gap: 6px;
   text-align: left;
-  font-family: var(--font-sans);
+  font-family: var(--font);
   padding: 12px 14px;
   border-radius: 14px;
   border: 1px solid var(--border);
@@ -220,7 +229,7 @@
 }
 
 .transportCardTag {
-  font-family: var(--font-sans);
+  font-family: var(--font);
   font-size: 10px;
   font-weight: 600;
   line-height: 1;
@@ -260,6 +269,21 @@
   box-shadow: 0 0 10px var(--warning);
   animation: breathing 1.6s ease-in-out infinite;
   flex-shrink: 0;
+}
+
+@keyframes breathing {
+  0% {
+    transform: scale(0.75);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.75);
+    opacity: 0.7;
+  }
 }
 
 .countField {
@@ -376,12 +400,19 @@
 }
 
 .profileUrl {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--text-2);
-  word-break: break-all;
   line-height: 1.4;
   user-select: text;
+}
+
+.profileUrlText {
+  word-break: break-all;
+  min-width: 0;
 }
 
 .profileActions {
@@ -432,6 +463,17 @@
   z-index: 100;
 }
 
+@keyframes toastIn {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .confirmDialog {
   background: var(--bg-2);
   border: 1px solid var(--border);
@@ -441,6 +483,276 @@
   max-width: 420px;
   width: 100%;
   outline: none;
+}
+
+.fpHint {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-2);
+  margin-bottom: 10px;
+}
+
+.fpCurrent {
+  font-size: 13px;
+  color: var(--text-1);
+  margin-bottom: 12px;
+}
+
+.fpField {
+  margin-top: 14px;
+}
+
+.fpGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.fpRouteGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.fpCard,
+.fpRouteCard {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-1);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.fpCardActive,
+.fpRouteCardActive {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.fpCardName {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-0);
+}
+
+.fpCardDesc {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-2);
+}
+
+.fpRouteCard {
+  min-width: 44px;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  color: var(--text-0);
+}
+
+.fpNote {
+  margin-top: 14px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-2);
+}
+
+.sectionTitleIcon {
+  vertical-align: -3px;
+  margin-right: 6px;
+  color: var(--accent);
+}
+
+.bypassLoadRow {
+  padding: 4px 0;
+}
+
+.bypassDomainField {
+  flex: 1;
+}
+
+.sniWarning {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--danger);
+  margin-bottom: 10px;
+}
+
+.sniList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 6px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding-right: 4px;
+  animation: fadeInUp 0.3s ease;
+}
+
+.sniSkeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 6px;
+}
+
+.sniSkeletonCat {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sniSkeletonLabel {
+  width: 90px;
+  height: 12px;
+  border-radius: 4px;
+  background: linear-gradient(
+    90deg,
+    var(--bg-2) 25%,
+    color-mix(in srgb, var(--bg-3) 60%, var(--bg-2)) 50%,
+    var(--bg-2) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+.sniSkeletonGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 6px;
+}
+
+.sniSkeletonCard {
+  height: 34px;
+  border-radius: 8px;
+  background: linear-gradient(
+    90deg,
+    var(--bg-1) 25%,
+    color-mix(in srgb, var(--bg-3) 60%, var(--bg-1)) 50%,
+    var(--bg-1) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.sniCat {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sniCatLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.sniGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 6px;
+}
+
+.sniCard {
+  display: flex;
+  align-items: center;
+  padding: 8px 10px;
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-1);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.sniCardActive {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--text-0);
+}
+
+.portWarning {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--danger);
+  margin-bottom: 10px;
+}
+
+.portGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.portCard {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-1);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.portCard:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.portCardActive {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.portCard:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.portCardName {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-0);
+}
+
+.portCardDesc {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-2);
 }
 
 @media (max-width: 900px) {

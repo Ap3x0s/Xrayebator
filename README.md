@@ -33,7 +33,7 @@ routes and hands them to the client as a single HTTPS subscription link. Current
 
 ```bash
 curl -fsSLo ./xrayebator-install.sh \
-  https://raw.githubusercontent.com/howdeploy/Xrayebator/main/install.sh
+  https://raw.githubusercontent.com/Ap3x0s/Xrayebator/main/install.sh
 less ./xrayebator-install.sh          # review the script before running it
 sudo bash ./xrayebator-install.sh
 
@@ -208,7 +208,7 @@ Download the script, review it, and only then run the local file as root:
 
 ```bash
 curl -fsSLo ./xrayebator-install.sh \
-  https://raw.githubusercontent.com/howdeploy/Xrayebator/main/install.sh
+  https://raw.githubusercontent.com/Ap3x0s/Xrayebator/main/install.sh
 less ./xrayebator-install.sh
 sudo bash ./xrayebator-install.sh
 ```
@@ -253,6 +253,48 @@ Use `1) Создать новый профиль` for manual control over SNI, t
 
 ---
 
+## Desktop GUI
+
+Alongside the terminal menu there is an optional desktop application (Electron + React, `src/`) that
+manages a VPS over SSH. It does not replace the bash engine — every operation is still performed
+server-side by `xrayebator`, and the GUI only drives the same commands over SSH.
+
+```text
+desktop app (Electron · React)
+    │  SSH + the documented CLI
+    ▼
+xrayebator (bash)   ──►  /usr/local/etc/xray/
+```
+
+Interface language (Русский / English / 简体中文) is switched in the header of the main screen and is
+remembered in `localStorage`. The terminal menu remains Russian.
+
+What the GUI can do:
+
+| Page | Operations |
+|---|---|
+| Dashboard | Server cards with reachability status, open, settings, delete; language switch |
+| Add server | Deploy a new VPS: upload `install.sh` + `xrayebator`, run the install, place the binary, run `quickstart --email`, save the server and the subscription URL |
+| Server keys | Refresh the subscription, copy the URL, show `vless://` links and QR codes |
+| Server settings | Password-gated profile management: list/create/delete profiles, change fingerprint, SNI and port, plus update or uninstall Xrayebator on the server |
+
+The GUI sends a shell password per operation and keeps it only in memory for the duration of the
+call. Server metadata (host, port, subscription URL, route list) lives in the local application
+storage of the desktop app; credentials are never stored.
+
+Build and run in the development mode:
+
+```bash
+npm install
+npm run dev          # Electron + Vite dev server
+npm run build        # compile the renderer and the main process
+```
+
+GUI tests: `npm test` (Vitest) runs the unit tests in `tests/`; `npm run typecheck` checks the
+TypeScript surface. See [Testing](docs/testing.md#desktop-gui).
+
+---
+
 ## Documentation
 
 | Document | Contents |
@@ -279,11 +321,13 @@ Russian and Chinese versions live in [`docs/ru/`](docs/ru/) and [`docs/zh-CN/`](
 - The installer does not check the OS version. The support matrix is declared, not enforced.
 - The Xray core is verified by SHA-256 unconditionally, while Loyalsoldier geo databases are
   downloaded without a checksum check.
-- `xrayebator-uninstall` does not remove everything. It stops and disables `xray`, deletes
-  `/usr/local/etc/xray`, `/usr/local/bin/xrayebator` and the `xray.service` and `xray@.service`
-  units. It does NOT remove the `/usr/local/bin/xray` binary, `subhttp`, `xrayebator-update`,
-  `xrayebator-uninstall`, the `xrayebator-sub.service` unit, nginx configs, geo databases, UFW rules
-  or the `xray` system user. Clean up the remains manually.
+- `xrayebator-uninstall` stops and disables `xray`, removes `/usr/local/bin/xray` and the geo
+  databases in `/usr/local/share/xray`, deletes `/usr/local/etc/xray`, `/var/log/xray`, the
+  `xrayebator`, `xrayebator-update`, `xrayebator-uninstall` and `subhttp.sh` binaries, the
+  `xray.service`, `xray@.service`, `xray.service.d` and `xrayebator-sub.service` units, the nginx
+  vhosts it created, its own certbot certificates and UFW rules, and the `xray` system user. It
+  leaves global Certbot state, the nginx package, foreign certbot certificates and UFW rules
+  untouched.
 - The `tcp-mux` route is kept for compatibility; it is not a mux preset.
 - H2, WebSocket, SplitHTTP and Clash/mihomo subscriptions are not supported.
 - The interface imposes no hard limit on users, but real capacity is bound by CPU, RAM, VPS
