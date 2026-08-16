@@ -165,7 +165,6 @@ export type DeployEvent =
 export interface ElectronAPI {
   servers: {
     list: () => Promise<Server[]>
-    add: (input: Omit<Server, 'id' | 'createdAt'>) => Promise<Server>
     remove: (id: string) => Promise<void>
     get: (id: string) => Promise<Server | null>
     check: (id: string) => Promise<boolean>
@@ -219,9 +218,5 @@ export interface ElectronAPI {
       serverId: string,
       password: string
     ) => Promise<ServerMaintenanceResult>
-  }
-  app: {
-    getVersion: () => Promise<string>
-    onUpdateAvailable: (callback: (version: string) => void) => () => void
   }
 }

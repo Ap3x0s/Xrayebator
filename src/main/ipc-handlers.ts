@@ -15,9 +15,6 @@ interface IpcContext {
 export function registerIpcHandlers({ store }: IpcContext): void {
   ipcMain.handle('servers:list', (): Server[] => store.list())
   ipcMain.handle('servers:get', (_e, id: string): Server | null => store.get(id) ?? null)
-  ipcMain.handle('servers:add', (_e, input: Omit<Server, 'id' | 'createdAt'>): Server => {
-    return store.add(input)
-  })
   ipcMain.handle('servers:remove', (_e, id: string): void => {
     store.remove(id)
   })
@@ -201,8 +198,6 @@ ipcMain.handle('profiles:remove', async (_e, serverId: string, password: string,
       return serverManagerFor(serverId, password).uninstall()
     }
   )
-
-  ipcMain.handle('app:version', () => process.env.npm_package_version ?? '0.1.0')
 }
 
 function checkServerReachable(server: Server): Promise<boolean> {

@@ -22,8 +22,6 @@ import type {
 const api: ElectronAPI = {
   servers: {
     list: (): Promise<Server[]> => ipcRenderer.invoke('servers:list'),
-    add: (input: Omit<Server, 'id' | 'createdAt'>): Promise<Server> =>
-      ipcRenderer.invoke('servers:add', input),
     remove: (id: string): Promise<void> => ipcRenderer.invoke('servers:remove', id),
     get: (id: string): Promise<Server | null> => ipcRenderer.invoke('servers:get', id),
     check: (id: string): Promise<boolean> => ipcRenderer.invoke('servers:check', id)
@@ -95,16 +93,6 @@ const api: ElectronAPI = {
       ipcRenderer.invoke('server:update', serverId, password, branch),
     uninstall: (serverId: string, password: string): Promise<ServerMaintenanceResult> =>
       ipcRenderer.invoke('server:uninstall', serverId, password)
-  },
-
-  app: {
-    getVersion: (): Promise<string> => ipcRenderer.invoke('app:version'),
-    onUpdateAvailable: (callback: (version: string) => void): (() => void) => {
-      const listener = (_e: Electron.IpcRendererEvent, version: string): void =>
-        callback(version)
-      ipcRenderer.on('update:available', listener)
-      return () => ipcRenderer.removeListener('update:available', listener)
-    }
   }
 }
 
