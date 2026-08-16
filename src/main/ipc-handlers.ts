@@ -129,12 +129,55 @@ export function registerIpcHandlers({ store }: IpcContext): void {
     }
   )
 
-  ipcMain.handle('profiles:remove', async (_e, serverId: string, password: string, name: string) => {
+ipcMain.handle('profiles:remove', async (_e, serverId: string, password: string, name: string) => {
     const manager = profileManagerFor(serverId, password)
     const result = await manager.remove(name)
-    if (!result.ok) throw new Error(result.error ?? 'Не удалось удалить профиль')
     return result
   })
+
+  ipcMain.handle(
+    'profiles:changeFingerprint',
+    async (
+      _e,
+      serverId: string,
+      password: string,
+      input: { name: string; route?: number; fingerprint: string }
+    ) => {
+      const manager = profileManagerFor(serverId, password)
+      return manager.changeFingerprint(input)
+    }
+  )
+
+  ipcMain.handle(
+    'profiles:changeSni',
+    async (
+      _e,
+      serverId: string,
+      password: string,
+      input: { name: string; route?: number; sni: string }
+    ) => {
+      const manager = profileManagerFor(serverId, password)
+      return manager.changeSni(input)
+    }
+  )
+
+  ipcMain.handle('profiles:sniList', async (_e, serverId: string, password: string) => {
+    const manager = profileManagerFor(serverId, password)
+    return manager.sniList()
+  })
+
+  ipcMain.handle(
+    'profiles:changePort',
+    async (
+      _e,
+      serverId: string,
+      password: string,
+      input: { name: string; route?: number; port: number | 'random' }
+    ) => {
+      const manager = profileManagerFor(serverId, password)
+      return manager.changePort(input)
+    }
+  )
 
   const serverManagerFor = (serverId: string, password: string): ServerManager => {
     const server = store.get(serverId)

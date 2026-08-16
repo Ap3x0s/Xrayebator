@@ -37,6 +37,13 @@
   gap: 12px;
 }
 
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+}
+
 .empty {
   padding: 40px;
   text-align: center;
@@ -89,6 +96,17 @@
   box-shadow: var(--shadow-lg);
   animation: toastIn 0.3s ease;
   z-index: 100;
+}
+
+@keyframes toastIn {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .qrModal {

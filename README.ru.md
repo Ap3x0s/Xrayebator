@@ -33,7 +33,7 @@ Xrayebator ставит Xray-core, поднимает Reality-инбаунды �
 
 ```bash
 curl -fsSLo ./xrayebator-install.sh \
-  https://raw.githubusercontent.com/howdeploy/Xrayebator/main/install.sh
+  https://raw.githubusercontent.com/Ap3x0s/Xrayebator/main/install.sh
 less ./xrayebator-install.sh          # просмотрите скрипт перед запуском
 sudo bash ./xrayebator-install.sh
 
@@ -207,7 +207,7 @@ HAPP-флоу создаёт или переиспользует профиль 
 
 ```bash
 curl -fsSLo ./xrayebator-install.sh \
-  https://raw.githubusercontent.com/howdeploy/Xrayebator/main/install.sh
+  https://raw.githubusercontent.com/Ap3x0s/Xrayebator/main/install.sh
 less ./xrayebator-install.sh
 sudo bash ./xrayebator-install.sh
 ```
@@ -248,6 +248,48 @@ sudo bash ./xrayebator-install.sh
 
 ---
 
+## Десктоп-GUI
+
+Помимо терминального меню есть опциональное десктоп-приложение (Electron + React, `src/`), которое
+управляет VPS по SSH. Оно не заменяет bash-движок — на сервере все операции по-прежнему выполняет
+`xrayebator`, а GUI лишь гоняет те же команды через SSH.
+
+```text
+десктоп-приложение (Electron · React)
+    │  SSH + документированный CLI
+    ▼
+xrayebator (bash)   ──►  /usr/local/etc/xray/
+```
+
+Язык интерфейса (Русский / English / 简体中文) переключается в шапке главного экрана и запоминается
+в `localStorage`. Терминальное меню остаётся русским.
+
+Что умеет GUI:
+
+| Страница | Операции |
+|---|---|
+| Dashboard | Карточки серверов со статусом доступности: открыть, настройки, удалить; переключатель языка |
+| Добавить сервер | Развернуть новый VPS: загрузить `install.sh` + `xrayebator`, запустить установку, положить бинарь, выполнить `quickstart --email`, сохранить сервер и URL подписки |
+| Ключи сервера | Обновить подписку, скопировать URL, показать ссылки `vless://` и QR-коды |
+| Настройки сервера | Управление профилями под паролем: список/создание/удаление профилей, смена fingerprint, SNI и порта, плюс обновление или удаление Xrayebator на сервере |
+
+GUI отправляет SSH-пароль на каждую операцию и держит его только в памяти на время вызова.
+Метаданные сервера (хост, порт, URL подписки, список маршрутов) живут в локальном хранилище
+приложения; креды не сохраняются.
+
+Сборка и запуск в dev-режиме:
+
+```bash
+npm install
+npm run dev          # Electron + Vite dev server
+npm run build        # скомпилировать renderer и main process
+```
+
+Тесты GUI: `npm test` (Vitest) гоняет unit-тесты из `tests/`; `npm run typecheck` проверяет
+TypeScript. См. [Тестирование](docs/ru/testing.md#десктоп-gui).
+
+---
+
 ## Документация
 
 | Документ | О чём |
@@ -274,11 +316,12 @@ sudo bash ./xrayebator-install.sh
 - Версию ОС установщик не проверяет. Матрица поддержки заявленная, а не форсируемая.
 - Ядро Xray проверяется по SHA-256 обязательно, а geo-базы Loyalsoldier скачиваются без сверки
   контрольной суммы.
-- `xrayebator-uninstall` снимает не всё: он останавливает и отключает `xray`, удаляет
-  `/usr/local/etc/xray`, `/usr/local/bin/xrayebator` и юниты `xray.service` и `xray@.service`. Он
-  НЕ удаляет бинарь `/usr/local/bin/xray`, `subhttp`, `xrayebator-update`, `xrayebator-uninstall`,
-  юнит `xrayebator-sub.service`, конфиги nginx, geo-базы, правила UFW и системного пользователя
-  `xray`. Остатки убирайте вручную.
+- `xrayebator-uninstall` останавливает и отключает `xray`, удаляет бинарь `/usr/local/bin/xray` и
+  geo-базы из `/usr/local/share/xray`, вычищает `/usr/local/etc/xray` и `/var/log/xray`, бинари
+  `xrayebator`, `xrayebator-update`, `xrayebator-uninstall` и `subhttp.sh`, юниты `xray.service`,
+  `xray@.service`, `xray.service.d` и `xrayebator-sub.service`, созданные им nginx-vhost'ы, свои
+  сертификаты certbot и правила UFW, а также системного пользователя `xray`. Глобальное состояние
+  Certbot, пакет nginx, чужие сертификаты certbot и правила UFW не трогаются.
 - Маршрут `tcp-mux` сохраняется для совместимости, но это не mux-пресет.
 - H2, WebSocket, SplitHTTP и подписки Clash/mihomo не поддерживаются.
 - Ёмкость по пользователям ничем не ограничена в интерфейсе, но упирается в CPU, RAM, канал VPS,

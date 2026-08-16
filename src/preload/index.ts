@@ -6,6 +6,13 @@ import type {
   ProfileCreateInput,
   ProfileCreateResult,
   ProfileDeleteResult,
+  ProfileFingerprintInput,
+  ProfileFingerprintResult,
+  ProfilePortInput,
+  ProfilePortResult,
+  ProfileSniInput,
+  ProfileSniResult,
+  SniListResult,
   Server,
   ServerMaintenanceResult,
   ServerProfile,
@@ -56,7 +63,27 @@ const api: ElectronAPI = {
       password: string,
       name: string
     ): Promise<ProfileDeleteResult> =>
-      ipcRenderer.invoke('profiles:remove', serverId, password, name)
+      ipcRenderer.invoke('profiles:remove', serverId, password, name),
+    changeFingerprint: (
+      serverId: string,
+      password: string,
+      input: ProfileFingerprintInput
+    ): Promise<ProfileFingerprintResult> =>
+      ipcRenderer.invoke('profiles:changeFingerprint', serverId, password, input),
+    changeSni: (
+      serverId: string,
+      password: string,
+      input: ProfileSniInput
+    ): Promise<ProfileSniResult> =>
+      ipcRenderer.invoke('profiles:changeSni', serverId, password, input),
+    sniList: (serverId: string, password: string): Promise<SniListResult> =>
+      ipcRenderer.invoke('profiles:sniList', serverId, password),
+    changePort: (
+      serverId: string,
+      password: string,
+      input: ProfilePortInput
+    ): Promise<ProfilePortResult> =>
+      ipcRenderer.invoke('profiles:changePort', serverId, password, input)
   },
 
   server: {
