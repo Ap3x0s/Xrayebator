@@ -592,6 +592,121 @@ _subscription_is_local_only() {
   [[ "$domain" == "127.0.0.1" || "$domain" == "localhost" || "$port" == "8080" ]]
 }
 
+# Validate the documented HAPP routing-profile schema before broadcasting it to
+# every subscriber. Plain `jq -e .` is not enough: the legacy
+# {"name":"xrayebator-default","rules":[]} payload is valid JSON, but it is not
+# a HAPP routing profile and leaves the client with a broken, locked profile.
+_happ_validate_routing_json() {
+  jq -e '
+    def boolean_string: . == "true" or . == "false";
+    def dns_type: . == "DoH" or . == "DoT" or . == "DoU";
+    def string_array: type == "array" and all(.[]; type == "string");
+    def https_url: type == "string" and test("^https://[^[:space:]]+$");
+    type == "object" and
+    (.Name | type == "string" and length > 0 and length <= 128 and (test("[\\r\\n]") | not)) and
+    (.GlobalProxy | boolean_string) and
+    (.RemoteDNSType | dns_type) and
+    (.RemoteDNSDomain | type == "string") and
+    (.RemoteDNSIP | type == "string") and
+    (.DomesticDNSType | dns_type) and
+    (.DomesticDNSDomain | type == "string") and
+    (.DomesticDNSIP | type == "string") and
+    (.Geoipurl | https_url) and
+    (.Geositeurl | https_url) and
+    (.LastUpdated |
+      (type == "string" and test("^[0-9]+$")) or
+      (type == "number" and . >= 0 and floor == .)
+    ) and
+    ((.DnsHosts | type) == "object") and
+    (all(.DnsHosts[]; type == "string")) and
+    (.DirectSites | string_array) and
+    (.DirectIp | string_array) and
+    (.ProxySites | string_array) and
+    (.ProxyIp | string_array) and
+    (.BlockSites | string_array) and
+    (.BlockIp | string_array) and
+    (.DomainStrategy == "AsIs" or .DomainStrategy == "IPIfNonMatch" or .DomainStrategy == "IPOnDemand") and
+    (.FakeDNS | boolean_string)
+  ' >/dev/null 2>&1
+}
+
+_happ_validate_routing_json_file() {
+  local routing_file="$1"
+  [[ -s "$routing_file" ]] || return 1
+  _happ_validate_routing_json < "$routing_file"
+}
+
+# LastUpdated must increase when either the handler or a geo database changes,
+# otherwise HAPP can keep the stale profile that failed its previous download.
+_happ_routing_last_updated() {
+  local newest=0 candidate timestamp
+
+  for candidate in "$@"; do
+    [[ -e "$candidate" ]] || continue
+    timestamp=$(stat -c %Y "$candidate" 2>/dev/null) || continue
+    [[ "$timestamp" =~ ^[0-9]+$ ]] || continue
+    if (( timestamp > newest )); then
+      newest=$timestamp
+    fi
+  done
+
+  if (( newest == 0 )); then
+    newest=$(date +%s)
+  fi
+  printf '%s' "$newest"
+}
+
+# Build a complete HAPP routing profile. Geo files are downloaded from the same
+# authenticated subscription endpoint, so clients behind censorship do not need
+# direct access to GitHub. GlobalProxy=true keeps Google/YouTube and all other
+# public traffic inside the tunnel; only local/private IPv4 ranges bypass it.
+_happ_default_routing_json() {
+  local base_url="$1"
+  local token="$2"
+  local last_updated="$3"
+
+  [[ "$base_url" =~ ^https://[^[:space:]]+$ ]] || return 1
+  [[ "$token" =~ ^[a-f0-9]{32}$ ]] || return 1
+  [[ "$last_updated" =~ ^[0-9]+$ ]] || return 1
+
+  jq -cn \
+    --arg geoip_url "${base_url}/sub/${token}/geoip.dat" \
+    --arg geosite_url "${base_url}/sub/${token}/geosite.dat" \
+    --arg last_updated "$last_updated" '
+      {
+        Name: "xrayebator-default",
+        GlobalProxy: "true",
+        RemoteDNSType: "DoH",
+        RemoteDNSDomain: "https://cloudflare-dns.com/dns-query",
+        RemoteDNSIP: "1.1.1.1",
+        DomesticDNSType: "DoH",
+        DomesticDNSDomain: "https://cloudflare-dns.com/dns-query",
+        DomesticDNSIP: "1.1.1.1",
+        Geoipurl: $geoip_url,
+        Geositeurl: $geosite_url,
+        LastUpdated: $last_updated,
+        DnsHosts: {
+          "cloudflare-dns.com": "1.1.1.1"
+        },
+        DirectSites: [],
+        DirectIp: [
+          "10.0.0.0/8",
+          "172.16.0.0/12",
+          "192.168.0.0/16",
+          "169.254.0.0/16",
+          "224.0.0.0/4",
+          "255.255.255.255"
+        ],
+        ProxySites: [],
+        ProxyIp: [],
+        BlockSites: [],
+        BlockIp: [],
+        DomainStrategy: "IPIfNonMatch",
+        FakeDNS: "false"
+      }
+    '
+}
+
 _connection_server_address() {
   if [[ -n "${XRAYEBATOR_SERVER_ADDR_OVERRIDE:-}" ]]; then
     echo "$XRAYEBATOR_SERVER_ADDR_OVERRIDE"
@@ -2666,11 +2781,11 @@ _migrate_subhttp_client_compat_2026() {
 
 _migrate_subhttp_no_default_happ_routing_2026() {
   if [[ ! -f /usr/local/etc/xray/.subscription_installed ]]; then
-    echo -e "${CYAN}  → HAPP subscription не установлена — no-default-routing migration skip${NC}"
+    echo -e "${CYAN}  → HAPP subscription не установлена — legacy-routing migration skip${NC}"
     return 1
   fi
 
-  echo -e "${CYAN}  → Регенерация subhttp.sh без default HAPP routing profile...${NC}"
+  echo -e "${CYAN}  → Регенерация subhttp.sh без legacy rules:[] routing payload...${NC}"
   if ! install_subscription_server >/dev/null 2>&1; then
     echo -e "${RED}  ✗ Не удалось регенерировать subhttp.sh${NC}"
     return 2
@@ -2682,6 +2797,32 @@ _migrate_subhttp_no_default_happ_routing_2026() {
       return 2
     }
     echo -e "${GREEN}  ✓ xrayebator-sub.service перезапущен${NC}"
+  fi
+
+  return 1
+}
+
+_migrate_subhttp_managed_happ_routing_2026() {
+  if [[ ! -f /usr/local/etc/xray/.subscription_installed ]]; then
+    echo -e "${CYAN}  → HAPP subscription не установлена — managed-routing migration skip${NC}"
+    return 1
+  fi
+
+  # subhttp runs as xray and must be able to stream both databases to HAPP.
+  chmod 644 /usr/local/share/xray/geoip.dat /usr/local/share/xray/geosite.dat 2>/dev/null || true
+
+  echo -e "${CYAN}  → Регенерация subhttp.sh с управляемым HAPP routing profile...${NC}"
+  if ! install_subscription_server >/dev/null 2>&1; then
+    echo -e "${RED}  ✗ Не удалось регенерировать subhttp.sh${NC}"
+    return 2
+  fi
+
+  if systemctl is-active --quiet xrayebator-sub.service; then
+    systemctl restart xrayebator-sub.service || {
+      echo -e "${RED}  ✗ Не удалось перезапустить xrayebator-sub.service${NC}"
+      return 2
+    }
+    echo -e "${GREEN}  ✓ HAPP routing profile и geo delivery активированы${NC}"
   fi
 
   return 1
@@ -4527,6 +4668,7 @@ install_subscription_server() {
     return 1
   fi
   chmod 755 /usr/local/bin/xrayebator 2>/dev/null || true
+  chmod 644 /usr/local/share/xray/geoip.dat /usr/local/share/xray/geosite.dat 2>/dev/null || true
 
   # Pre-flight: socat (handler bind), openssl/base64/jq уже гарантированы install.sh.
   if ! command -v socat &>/dev/null; then
@@ -4586,6 +4728,9 @@ HAPP_SUPPORT_URL="${HAPP_SUPPORT_URL:-https://github.com/howdeploy/Xrayebator}"
 HAPP_WEB_URL="${HAPP_WEB_URL:-https://github.com/howdeploy/Xrayebator}"
 HAPP_ANNOUNCE_FILE="${HAPP_ANNOUNCE_FILE:-/usr/local/etc/xray/announce.txt}"
 HAPP_ROUTING_JSON_FILE="${HAPP_ROUTING_JSON_FILE:-/usr/local/etc/xray/.happ_routing.json}"
+HAPP_ROUTING_ENABLED="${HAPP_ROUTING_ENABLED:-true}"
+HAPP_GEOIP_FILE="${HAPP_GEOIP_FILE:-/usr/local/share/xray/geoip.dat}"
+HAPP_GEOSITE_FILE="${HAPP_GEOSITE_FILE:-/usr/local/share/xray/geosite.dat}"
 
 # Parse HTTP request line: "GET /sub/<32hex> HTTP/1.1\r"
 read -r request_line || true
@@ -4640,12 +4785,16 @@ emit_410_stale() {
 # Method check: только GET. Любой другой — 404 (НЕ 405: не раскрываем существование endpoint).
 [[ "$method" == "GET" ]] || emit_404
 
-# Strict regex (REQ-C05): /sub/<32-hex>. Любой иной path — 404.
-if ! [[ "$path" =~ ^/sub/[a-f0-9]{32}$ ]]; then
+# Strict regex (REQ-C05): subscription and its two authenticated geo assets.
+asset=""
+if [[ "$path" =~ ^/sub/([a-f0-9]{32})$ ]]; then
+  token="${BASH_REMATCH[1]}"
+elif [[ "$path" =~ ^/sub/([a-f0-9]{32})/(geoip|geosite)\.dat$ ]]; then
+  token="${BASH_REMATCH[1]}"
+  asset="${BASH_REMATCH[2]}"
+else
   emit_404
 fi
-
-token="${path#/sub/}"
 
 # Найти profile JSON с .sub_token == $token.
 profile_file=""
@@ -4662,6 +4811,44 @@ done
 
 profile_name=$(basename "$profile_file" .json)
 short_token="${token:0:8}"
+
+# Geo databases use the already authenticated subscription endpoint. This keeps
+# downloads working when GitHub is blocked and avoids changing nginx on existing
+# installations. The token is checked above before either file is disclosed.
+serve_geo_asset() {
+  local asset="$1"
+  local asset_file asset_name asset_size
+
+  case "$asset" in
+    geoip)
+      asset_file="$HAPP_GEOIP_FILE"
+      asset_name="geoip.dat"
+      ;;
+    geosite)
+      asset_file="$HAPP_GEOSITE_FILE"
+      asset_name="geosite.dat"
+      ;;
+    *)
+      emit_404
+      ;;
+  esac
+
+  [[ -s "$asset_file" && -r "$asset_file" ]] || emit_404
+  asset_size=$(stat -c%s "$asset_file" 2>/dev/null) || emit_500 "cannot stat ${asset_name}"
+
+  printf 'HTTP/1.1 200 OK\r\n'
+  printf 'content-type: application/octet-stream\r\n'
+  printf 'content-disposition: attachment; filename="%s"\r\n' "$asset_name"
+  printf 'content-length: %s\r\n' "$asset_size"
+  printf 'connection: close\r\n'
+  printf 'cache-control: private, max-age=3600\r\n'
+  printf 'x-content-type-options: nosniff\r\n'
+  printf '\r\n'
+  cat "$asset_file"
+  exit 0
+}
+
+[[ -n "$asset" ]] && serve_geo_asset "$asset"
 
 # Построить все vless:// маршруты профиля через pure-функции из xrayebator.
 vless_urls=$(_generate_vless_urls_for_profile "$profile_file" 2>/dev/null) || emit_410_stale
@@ -4748,16 +4935,37 @@ if [[ -s "$ANNOUNCE_FILE" ]]; then
   fi
 fi
 
-# HAPP routing import payload: только явный opt-in.
-# Важно: это маршрутизация приложения HAPP, а не список Xrayebator connection routes.
-# Пустой fallback rules:[] опасен — он может перезаписать/активировать пустой routing
-# profile в клиенте. Поэтому по умолчанию отдаём только VLESS-ноды.
+# HAPP routing import payload. The managed default is emitted for every HAPP
+# subscriber unless the operator explicitly disables it. A schema-valid custom
+# file overrides it; malformed custom JSON is ignored in favour of the safe
+# default instead of being broadcast to all clients.
 routing_uri=""
-if [[ -s "$HAPP_ROUTING_JSON_FILE" ]] && jq -e . "$HAPP_ROUTING_JSON_FILE" >/dev/null 2>&1; then
-  routing_json=$(cat "$HAPP_ROUTING_JSON_FILE")
-  # base64url (RFC 4648 §5): base64 → tr +/ -_ → strip padding =.
-  routing_b64url=$(printf '%s' "$routing_json" | base64 -w0 | tr '+/' '-_' | tr -d '=')
-  routing_uri="happ://routing/onadd/${routing_b64url}"
+routing_json=""
+if [[ "${HAPP_ROUTING_ENABLED,,}" == "true" ]]; then
+  if [[ -s "$HAPP_ROUTING_JSON_FILE" ]]; then
+    if _happ_validate_routing_json_file "$HAPP_ROUTING_JSON_FILE"; then
+      routing_json=$(jq -c . "$HAPP_ROUTING_JSON_FILE" 2>/dev/null) || routing_json=""
+    else
+      printf 'xrayebator-sub: invalid HAPP routing profile ignored: %s\n' \
+        "$HAPP_ROUTING_JSON_FILE" >&2
+    fi
+  fi
+
+  if [[ -z "$routing_json" ]] &&
+     ! _subscription_is_local_only &&
+     [[ -s "$HAPP_GEOIP_FILE" && -r "$HAPP_GEOIP_FILE" ]] &&
+     [[ -s "$HAPP_GEOSITE_FILE" && -r "$HAPP_GEOSITE_FILE" ]]; then
+    routing_last_updated=$(_happ_routing_last_updated \
+      /usr/local/bin/xrayebator "$HAPP_GEOIP_FILE" "$HAPP_GEOSITE_FILE")
+    routing_json=$(_happ_default_routing_json \
+      "$(_subscription_base_url)" "$token" "$routing_last_updated" 2>/dev/null) || routing_json=""
+  fi
+
+  if [[ -n "$routing_json" ]] && printf '%s' "$routing_json" | _happ_validate_routing_json; then
+    # HAPP documents regular padded Base64 for routing links.
+    routing_b64=$(printf '%s' "$routing_json" | base64 -w0)
+    routing_uri="happ://routing/onadd/${routing_b64}"
+  fi
 fi
 
 # subscription-userinfo expire: jq override hook (.expire поле в profile JSON),
@@ -4779,7 +4987,7 @@ else
   {
     printf '%s' "$happ_vless_urls"
     if [[ -n "$routing_uri" ]]; then
-      printf '%s\n' "$routing_uri"
+      printf '\n%s\n' "$routing_uri"
     fi
   } > "$body_tmp"
 fi
@@ -4846,10 +5054,13 @@ HAPP_PROFILE_UPDATE_INTERVAL=24
 # Если файл существует и не пуст — его содержимое попадёт в #announce: base64:... (UTF-8 safe).
 HAPP_ANNOUNCE_FILE="/usr/local/etc/xray/announce.txt"
 
-# Файл с кастомным HAPP routing JSON (опционально). Если отсутствует или пустой —
-# routing profile НЕ отправляется, чтобы не сбрасывать маршрутизацию клиента.
+# Управляемый routing включён по умолчанию. Он включает Global Proxy, безопасный
+# DNS и скачивает geo-базы через защищённый URL этой же подписки.
+HAPP_ROUTING_ENABLED=true
+
+# Валидный кастомный HAPP routing JSON переопределяет управляемый профиль.
+# Невалидный JSON игнорируется с записью причины в journal xrayebator-sub.
 # Важно: это routing приложения HAPP, не список Xrayebator connection routes.
-# Base64url-кодируется в happ://routing/onadd/<...>.
 HAPP_ROUTING_JSON_FILE="/usr/local/etc/xray/.happ_routing.json"
 HAPP_DEFAULTS_EOF
     chmod 644 /usr/local/etc/xray/.happ_defaults.env
@@ -4875,7 +5086,7 @@ ExecStart=/usr/bin/socat TCP-LISTEN:8080,reuseaddr,fork,bind=127.0.0.1 EXEC:/usr
 
 # REQ-C09 hardening:
 ProtectSystem=strict
-ReadOnlyPaths=/usr/local/etc/xray /usr/local/bin/xrayebator /usr/local/bin/subhttp.sh
+ReadOnlyPaths=/usr/local/etc/xray /usr/local/share/xray /usr/local/bin/xrayebator /usr/local/bin/subhttp.sh
 ReadWritePaths=/tmp
 NoNewPrivileges=yes
 MemoryDenyWriteExecute=yes
@@ -5811,7 +6022,7 @@ happ_settings_menu() {
   while true; do
     show_ascii
     # Локальный source — читаем текущие значения.
-    local HAPP_SERVER_NAME HAPP_SUPPORT_URL HAPP_WEB_URL HAPP_PROFILE_UPDATE_INTERVAL HAPP_ANNOUNCE_FILE HAPP_ROUTING_JSON_FILE
+    local HAPP_SERVER_NAME HAPP_SUPPORT_URL HAPP_WEB_URL HAPP_PROFILE_UPDATE_INTERVAL HAPP_ANNOUNCE_FILE HAPP_ROUTING_JSON_FILE HAPP_ROUTING_ENABLED
     # shellcheck disable=SC1090
     source "$env_file"
 
@@ -5825,9 +6036,10 @@ happ_settings_menu() {
     echo -e "${CYAN} 4)${NC} HAPP_PROFILE_UPDATE_INTERVAL = ${YELLOW}${HAPP_PROFILE_UPDATE_INTERVAL:-24}${NC} часов"
     echo -e "${CYAN} 5)${NC} HAPP_ANNOUNCE_FILE = ${YELLOW}${HAPP_ANNOUNCE_FILE:-(не задано)}${NC}"
     echo -e "${CYAN} 6)${NC} HAPP_ROUTING_JSON_FILE = ${YELLOW}${HAPP_ROUTING_JSON_FILE:-(не задано)}${NC}"
+    echo -e "${CYAN} 7)${NC} HAPP_ROUTING_ENABLED = ${YELLOW}${HAPP_ROUTING_ENABLED:-true}${NC}"
     echo -e "${CYAN} 0)${NC} Назад"
     echo ""
-    echo -n -e "${YELLOW}Изменить (1-6, 0=назад): ${NC}"
+    echo -n -e "${YELLOW}Изменить (1-7, 0=назад): ${NC}"
     local choice
     read -r choice
     case "$choice" in
@@ -5838,6 +6050,7 @@ happ_settings_menu() {
       4) _happ_edit_field "$env_file" "HAPP_PROFILE_UPDATE_INTERVAL" "$HAPP_PROFILE_UPDATE_INTERVAL" ;;
       5) _happ_edit_field "$env_file" "HAPP_ANNOUNCE_FILE" "$HAPP_ANNOUNCE_FILE" ;;
       6) _happ_edit_field "$env_file" "HAPP_ROUTING_JSON_FILE" "$HAPP_ROUTING_JSON_FILE" ;;
+      7) _happ_edit_field "$env_file" "HAPP_ROUTING_ENABLED" "${HAPP_ROUTING_ENABLED:-true}" ;;
       *) echo -e "${RED}✗ Некорректный выбор${NC}"; sleep 1 ;;
     esac
   done
@@ -6080,7 +6293,8 @@ main_menu() {
   run_migration "bypass_routing_2026" "Bypass routing first-run prompt (опционально)" _migrate_bypass_routing_2026 || ((migration_failures++))
   run_migration "subhttp_multiroute_2026" "HAPP subhttp multi-route handler" _migrate_subhttp_multiroute_2026 || ((migration_failures++))
   run_migration "subhttp_client_compat_2026" "HAPP/v2rayNG subscription client compatibility" _migrate_subhttp_client_compat_2026 || ((migration_failures++))
-  run_migration "subhttp_no_default_happ_routing_2026" "HAPP subscription: no default routing profile" _migrate_subhttp_no_default_happ_routing_2026 || ((migration_failures++))
+  run_migration "subhttp_no_default_happ_routing_2026" "HAPP subscription: remove invalid legacy routing payload" _migrate_subhttp_no_default_happ_routing_2026 || ((migration_failures++))
+  run_migration "subhttp_managed_happ_routing_2026" "HAPP subscription: managed routing and geo delivery" _migrate_subhttp_managed_happ_routing_2026 || ((migration_failures++))
   run_migration "subhttp_stale_profiles_410_2026" "HAPP subscription: stale profile diagnostics" _migrate_subhttp_stale_profiles_410_2026 || ((migration_failures++))
   run_migration "subhttp_happ_xhttp_compat_2026" "HAPP subscription: XHTTP mode/no-limit compatibility" _migrate_subhttp_happ_xhttp_compat_2026 || ((migration_failures++))
   run_migration "subhttp_happ_legacy_xhttp_2026" "HAPP subscription: prefer legacy XHTTP route" _migrate_subhttp_happ_legacy_xhttp_2026 || ((migration_failures++))

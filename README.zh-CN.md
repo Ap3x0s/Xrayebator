@@ -85,7 +85,7 @@ Xrayebator 同时解决这两个问题：
 | 安装 Xray-core | 从 GitHub 下载发行版，强制用 `.dgst` 校验 SHA-256，通过 `install -m 755` 安装二进制并自检 | `install.sh` |
 | Reality 入站 | 在 `30000-60000` 的空闲端口上建立入站，同时核对 `config.json` 与实际监听的套接字 | `xrayebator` |
 | 多线路配置档 | 一个配置档 = 共享 `sub_token` 的一组线路；多个配置档可共用同一端口 | `profiles/<name>.json` |
-| HAPP 订阅 | 本地 HTTP 服务提供 `vless://` 列表和 HAPP 元数据，由 nginx 通过 HTTPS 对外发布 | `subhttp.sh`、`xrayebator-sub.service` |
+| HAPP 订阅 | 提供 `vless://` 列表、托管的 Global Proxy 路由及令牌保护的 geo 数据库，由 nginx 通过 HTTPS 对外发布 | `subhttp.sh`、`xrayebator-sub.service` |
 | 后量子 XHTTP | `xhttp-pq` 线路使用 VLESS 加密 `mlkem768x25519plus` | `.vless_encryption`、`.vless_decryption` |
 | v2ray 兼容 | `v2rayNG` 与 `v2rayN` 获得不含 HAPP 元数据的经典 base64 订阅体 | `subhttp.sh` |
 | 吊销订阅 | 生成新的 32 位十六进制令牌，旧链接立即失效 | `openssl rand -hex 16` |
@@ -227,10 +227,10 @@ sudo bash ./xrayebator-install.sh
 > 临时 Xray-core，并不能证明主 TUN 正常。在 Linux 上，`ss -lntp | grep ':10808'`
 > 应当显示 HAPP 主 core 正在监听。
 
-还要检查 HAPP 中当前启用的 **Routing** 配置。其他付费 VPN 遗留的路由配置可能覆盖
-Xrayebator，把 Telegram 直接发送而不经过 VPS，即使线路延迟仍显示绿色。请禁用第三方
-Routing 并使用 Global Proxy；如果存在 `xrayebator-default`，也可以选择该配置。
-尤其不要使用 `globalProxy: false` 且没有 Telegram 专用代理规则的配置。
+当前版本会发布并启用托管的 `xrayebator-default` 配置，其中使用 Global Proxy 和
+Cloudflare DoH。geo 数据库通过同一个受令牌保护的订阅 URL 下载，不再要求客户端直连
+GitHub。服务器更新后，请强制刷新订阅并重新连接一次；HAPP 会覆盖同名旧配置，并在两个
+geo 文件下载成功后清除红色警告。测试时仍应禁用可能覆盖订阅的第三方 Routing 配置。
 
 如需手工控制 SNI、传输方式或单条线路，请使用 `1) Создать новый профиль`。
 

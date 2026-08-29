@@ -84,9 +84,16 @@ https://<域名或IP>/sub/<32位十六进制令牌>
 
 各客户端的行为：
 
-- HAPP 收到纯文本的 `vless://` 列表、HAPP 头部以及可选的 `happ://routing/onadd/...`；
+- HAPP 收到纯文本的 `vless://` 列表、HAPP 头部以及默认启用的托管
+  `happ://routing/onadd/...` 配置；
+- 该配置通过令牌保护的 `/sub/<token>/geoip.dat` 与 `/sub/<token>/geosite.dat`
+  下载 geo 数据库，因此客户端无需直连 GitHub；
 - `v2rayNG` 与 `v2rayN` 收到不含 HAPP 元数据的经典 base64 订阅体；
 - 没有存活入站的配置档不会出现在订阅菜单中，其旧链接返回 `410 Gone`。
+
+如需关闭，可在 `.happ_defaults.env` 中设置 `HAPP_ROUTING_ENABLED=false`。自定义
+`.happ_routing.json` 只有通过严格的 HAPP 结构校验后才会覆盖托管配置；无效 JSON 会回退到
+托管配置，并把原因写入服务日志。
 
 ## 配置改动流程
 
