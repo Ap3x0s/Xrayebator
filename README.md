@@ -213,6 +213,13 @@ sudo bash ./xrayebator-install.sh
 > [Firewall and host networking](docs/configuration.md#firewall-and-host-networking) BEFORE running it,
 > especially if SSH listens on a non-standard port.
 
+### Community projects
+
+- **[Xrayebator OpenWrt/Cudy companion](https://github.com/slavytich23/xrayebator-openwrt-cudy)** —
+  an independent community toolkit for running an Xray client on OpenWrt/Cudy routers, with staged
+  activation and automatic rollback, fail-closed routing, tunnel health and memory supervision, and
+  optional Windows dual-uplink failover. It is not an official Xrayebator component.
+
 ### HAPP subscription in five steps
 
 1. Open the menu:

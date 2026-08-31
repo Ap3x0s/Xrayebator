@@ -212,6 +212,13 @@ sudo bash ./xrayebator-install.sh
 > [Firewall и параметры хоста](docs/ru/configuration.md#firewall-и-параметры-хоста) ДО запуска, особенно
 > если SSH висит на нестандартном порту.
 
+### КОМЬЮНИТИ ПРОЕКТЫ
+
+- **[Xrayebator OpenWrt/Cudy companion](https://github.com/slavytich23/xrayebator-openwrt-cudy)** —
+  независимый набор для запуска Xray-клиента на OpenWrt/Cudy: безопасное включение с автооткатом,
+  fail-closed маршрутизация, контроль здоровья и памяти туннеля и опциональный резервный интернет
+  Windows. Это не официальный компонент Xrayebator.
+
 ### Подписка HAPP за пять шагов
 
 1. Запустите меню:

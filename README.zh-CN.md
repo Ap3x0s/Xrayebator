@@ -207,6 +207,13 @@ sudo bash ./xrayebator-install.sh
 > [防火墙与主机网络设置](docs/zh-CN/configuration.md#防火墙与主机网络设置)，
 > 尤其是当 SSH 监听在非标准端口时。
 
+### 社区项目
+
+- **[Xrayebator OpenWrt/Cudy companion](https://github.com/slavytich23/xrayebator-openwrt-cudy)** —
+  独立的社区工具包，用于在 OpenWrt/Cudy 路由器上运行 Xray 客户端，提供分阶段启用与自动回滚、
+  故障时阻断直连、隧道健康与内存监控，以及可选的 Windows 双链路故障转移。它不是 Xrayebator
+  的官方组件。
+
 ### 五步完成 HAPP 订阅
 
 1. 打开菜单：
