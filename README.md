@@ -94,7 +94,7 @@ about.
 | Xray-core installation | Downloads the release from GitHub, always verifies SHA-256 against `.dgst`, installs the binary via `install -m 755`, runs a self-test | `install.sh` |
 | Reality inbounds | Brings up inbounds on free ports in `30000-60000`, checking both `config.json` and actually listening sockets | `xrayebator` |
 | Multi-route profile | One profile = a set of routes with a shared `sub_token`; several profiles may share one port | `profiles/<name>.json` |
-| HAPP subscription | A local HTTP server serves the `vless://` list and HAPP metadata; nginx publishes it over HTTPS | `subhttp.sh`, `xrayebator-sub.service` |
+| HAPP subscription | Serves the `vless://` list, a managed Global Proxy routing profile and token-protected geo databases; nginx publishes it over HTTPS | `subhttp.sh`, `xrayebator-sub.service` |
 | Post-quantum XHTTP | The `xhttp-pq` route runs VLESS encryption `mlkem768x25519plus` | `.vless_encryption`, `.vless_decryption` |
 | v2ray compatibility | `v2rayNG` and `v2rayN` receive a classic base64 body without HAPP metadata | `subhttp.sh` |
 | Subscription revoke | Generates a new 32-character hex token; the old URL stops working | `openssl rand -hex 16` |
@@ -218,6 +218,13 @@ sudo bash ./xrayebator-install.sh
 > [Firewall and host networking](docs/configuration.md#firewall-and-host-networking) BEFORE running it,
 > especially if SSH listens on a non-standard port.
 
+### Community projects
+
+- **[Xrayebator OpenWrt/Cudy companion](https://github.com/slavytich23/xrayebator-openwrt-cudy)** —
+  an independent community toolkit for running an Xray client on OpenWrt/Cudy routers, with staged
+  activation and automatic rollback, fail-closed routing, tunnel health and memory supervision, and
+  optional Windows dual-uplink failover. It is not an official Xrayebator component.
+
 ### HAPP subscription in five steps
 
 1. Open the menu:
@@ -240,11 +247,12 @@ sudo bash ./xrayebator-install.sh
 > subscription. A green route ping uses a separate temporary Xray-core and does not prove that the
 > main TUN is healthy. On Linux, `ss -lntp | grep ':10808'` must show the main HAPP core listening.
 
-Also check the active **Routing** profile in HAPP. Routing profiles left over from another paid VPN
-can override Xrayebator and send Telegram directly instead of through the VPS, even while route
-pings stay green. Disable third-party routing and use Global Proxy, or select
-`xrayebator-default` if that profile is present. In particular, avoid profiles with
-`globalProxy: false` and no explicit Telegram proxy rule.
+Current builds publish and activate the managed `xrayebator-default` profile with Global Proxy and
+Cloudflare DoH. Its geo databases are downloaded through the same authenticated subscription URL,
+not directly from GitHub. After a server update, force-refresh the subscription and reconnect once:
+HAPP overwrites the old profile with the same name and clears its red geo-file warning after both
+downloads succeed. Third-party routing profiles can still override the subscription, so disable
+them while testing.
 
 Use `1) Создать новый профиль` for manual control over SNI, transport or a single route.
 

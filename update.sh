@@ -615,6 +615,8 @@ else
   echo -e "${YELLOW}  ⚠ geosite.dat: недоступен (GitHub?)${NC}"
 fi
 
+chmod 644 "${XRAY_DAT_DIR}/geoip.dat" "${XRAY_DAT_DIR}/geosite.dat" 2>/dev/null || true
+
 if [[ "$GEO_UPDATED" == "true" ]]; then
   echo -e "${GREEN}✓ Geo-базы обновлены${NC}\n"
 else

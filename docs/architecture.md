@@ -96,10 +96,17 @@ empty value falls back to the profile name.
 
 Per-client behaviour:
 
-- HAPP receives a plain-text `vless://` list, HAPP headers and an optional `happ://routing/onadd/...`;
+- HAPP receives a plain-text `vless://` list, HAPP headers and the managed
+  `happ://routing/onadd/...` profile by default;
+- the profile downloads `geoip.dat` and `geosite.dat` from token-protected
+  `/sub/<token>/geoip.dat` and `/sub/<token>/geosite.dat`, so the client does not need direct GitHub access;
 - `v2rayNG` and `v2rayN` receive the classic base64 body without HAPP metadata;
 - profiles without a live inbound are hidden from the subscription menu and their old URLs return
   `410 Gone`.
+
+Set `HAPP_ROUTING_ENABLED=false` in `.happ_defaults.env` to opt out. A custom
+`.happ_routing.json` overrides the managed profile only after strict HAPP-schema validation;
+malformed JSON falls back to the managed profile and is reported in the service journal.
 
 ## Config edits
 

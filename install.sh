@@ -703,6 +703,8 @@ else
   echo -e "${YELLOW}  ⚠ Не удалось загрузить geosite.dat, используется стандартный${NC}"
 fi
 
+chmod 644 "${XRAY_DAT_DIR}/geoip.dat" "${XRAY_DAT_DIR}/geosite.dat" 2>/dev/null || true
+
 echo -e "${GREEN}✓ Geo-базы настроены (Loyalsoldier enhanced)${NC}\n"
 
 _step_mark 35
