@@ -3,7 +3,7 @@
 # ═══════════════════════════════════════════════════════════
 # XRAYEBATOR INSTALLER v3.0
 # Автоматическая установка Xray Reality VPN
-# GitHub: howdeploy & Ap3x0s — https://github.com/Ap3x0s/Xrayebator
+# GitHub: howdeploy — https://github.com/howdeploy/Xrayebator
 # ═══════════════════════════════════════════════════════════
 
 # Цвета
@@ -16,7 +16,7 @@ MAGENTA='\033[0;35m'
 NC='\033[0m'
 
 # GitHub репозиторий
-GITHUB_USER="Ap3x0s"
+GITHUB_USER="howdeploy"
 GITHUB_REPO="Xrayebator"
 GITHUB_BRANCH="main"
 RAW_BASE_URL="https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/${GITHUB_BRANCH}"

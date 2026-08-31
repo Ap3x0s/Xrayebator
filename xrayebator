@@ -2,7 +2,7 @@
 
 # ═══════════════════════════════════════════════════════════
 # XRAYEBATOR v3.0 - Xray Reality VPN Manager
-# GitHub: howdeploy & Ap3x0s — https://github.com/Ap3x0s/Xrayebator
+# GitHub: howdeploy — https://github.com/howdeploy/Xrayebator
 # License: MIT
 # HAPP subscription + multi-route profile release
 # ═══════════════════════════════════════════════════════════
@@ -4893,7 +4893,7 @@ fi
 # Показать ASCII арт
 show_ascii() {
   clear
-  local ASCII_URL="https://raw.githubusercontent.com/Ap3x0s/Xrayebator/main/ascii_art.txt"
+  local ASCII_URL="https://raw.githubusercontent.com/howdeploy/Xrayebator/main/ascii_art.txt"
   if [[ ! -f "$ASCII_ART" ]]; then
     mkdir -p "$(dirname "$ASCII_ART")"
     curl -fsSL "$ASCII_URL" -o "$ASCII_ART" 2>/dev/null || true
@@ -5210,7 +5210,7 @@ update_command() {
     up_script=$(command -v xrayebator 2>/dev/null || echo /usr/local/bin/xrayebator)
     up_tmp=$(mktemp /tmp/xrayebator_update_XXXXXX)
     if curl -fsSL --connect-timeout 10 --max-time 60 \
-        "https://raw.githubusercontent.com/Ap3x0s/Xrayebator/${branch}/xrayebator" -o "$up_tmp" \
+        "https://raw.githubusercontent.com/howdeploy/Xrayebator/${branch}/xrayebator" -o "$up_tmp" \
         && [[ -s "$up_tmp" ]] && bash -n "$up_tmp"; then
       chmod 755 "$up_tmp"
       if mv "$up_tmp" "$up_script"; then
@@ -5439,8 +5439,8 @@ fi
 # Fallback-defaults если .happ_defaults.env отсутствует или не задаёт переменную.
 HAPP_PROFILE_UPDATE_INTERVAL="${HAPP_PROFILE_UPDATE_INTERVAL:-24}"
 HAPP_SERVER_NAME="${HAPP_SERVER_NAME:-}"
-HAPP_SUPPORT_URL="${HAPP_SUPPORT_URL:-https://github.com/Ap3x0s/Xrayebator}"
-HAPP_WEB_URL="${HAPP_WEB_URL:-https://github.com/Ap3x0s/Xrayebator}"
+HAPP_SUPPORT_URL="${HAPP_SUPPORT_URL:-https://github.com/howdeploy/Xrayebator}"
+HAPP_WEB_URL="${HAPP_WEB_URL:-https://github.com/howdeploy/Xrayebator}"
 HAPP_ANNOUNCE_FILE="${HAPP_ANNOUNCE_FILE:-/usr/local/etc/xray/announce.txt}"
 HAPP_ROUTING_JSON_FILE="${HAPP_ROUTING_JSON_FILE:-/usr/local/etc/xray/.happ_routing.json}"
 HAPP_ROUTING_ENABLED="${HAPP_ROUTING_ENABLED:-true}"
@@ -5762,10 +5762,10 @@ SUBHTTP_EOF
 HAPP_SERVER_NAME=""
 
 # URL поддержки (HAPP импортирует, кликабельно у юзера в клиенте):
-HAPP_SUPPORT_URL="https://github.com/Ap3x0s/Xrayebator"
+HAPP_SUPPORT_URL="https://github.com/howdeploy/Xrayebator"
 
 # URL веб-страницы профиля (HAPP покажет в info клиента):
-HAPP_WEB_URL="https://github.com/Ap3x0s/Xrayebator"
+HAPP_WEB_URL="https://github.com/howdeploy/Xrayebator"
 
 # Интервал автообновления подписки в часах (HAPP читает как hint):
 HAPP_PROFILE_UPDATE_INTERVAL=24
@@ -5794,7 +5794,7 @@ HAPP_DEFAULTS_EOF
   cat > /etc/systemd/system/xrayebator-sub.service << 'SUBUNIT_EOF'
 [Unit]
 Description=Xrayebator HAPP subscription handler (socat + subhttp.sh)
-Documentation=https://github.com/Ap3x0s/Xrayebator
+Documentation=https://github.com/howdeploy/Xrayebator
 After=network-online.target xray.service
 Wants=network-online.target
 
@@ -10147,6 +10147,7 @@ quickstart_command() {
   run_migration "subhttp_happ_xhttp_compat_2026" "Subhttp HAPP XHTTP compat" _migrate_subhttp_happ_xhttp_compat_2026 >/dev/null 2>&1 || true
   run_migration "subhttp_no_default_happ_routing_2026" "Subhttp no default HAPP routing profile" _migrate_subhttp_no_default_happ_routing_2026 >/dev/null 2>&1 || true
   run_migration "subhttp_stale_profiles_410_2026" "Subhttp stale profile 410 handler" _migrate_subhttp_stale_profiles_410_2026 >/dev/null 2>&1 || true
+  run_migration "subhttp_managed_happ_routing_2026" "HAPP subscription: managed routing and geo delivery" _migrate_subhttp_managed_happ_routing_2026 >/dev/null 2>&1 || true
   run_migration "xhttp_xmux_throughput_2026" "XHTTP xmux throughput profile" _migrate_xhttp_xmux_throughput_2026 >/dev/null 2>&1 || true
   run_migration "xmux_explicit_2026" "Explicit xmux block" migrate_xmux_explicit_2026 >/dev/null 2>&1 || true
   fix_xray_permissions >/dev/null 2>&1 || true
@@ -11823,7 +11824,7 @@ if [[ "$XRAYEBATOR_SOURCED" -eq 0 ]]; then
       echo -e "  config:    /usr/local/etc/xray/config.json"
       echo -e "  profiles:  /usr/local/etc/xray/profiles/"
       echo -e "  backups:   /usr/local/etc/xray/backups/"
-      echo -e "  docs:      https://github.com/Ap3x0s/Xrayebator"
+      echo -e "  docs:      https://github.com/howdeploy/Xrayebator"
       exit 0
       ;;
     *)
