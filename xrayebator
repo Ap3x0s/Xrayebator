@@ -11708,10 +11708,22 @@ port_change_command() {
     return 1
   fi
 
+  # Сначала гарантируем доступность нового порта. Пока Xray не перезапущен,
+  # конфиг можно безопасно откатить, не обрывая клиентов на старом порту.
+  if ! open_firewall_port "$new_port" >&2; then
+    _restore_config_backup "$rollback_config" >&2 || true
+    _restore_profiles_snapshot "$profiles_snapshot" >&2 || true
+    _discard_profiles_snapshot "$profiles_snapshot"
+    exec 1>&3 3>&-
+    echo '{"ok":false,"error":"Не удалось открыть новый порт в файрволе — изменения откачены"}'
+    return 1
+  fi
+
   fix_xray_permissions
   if ! safe_restart_xray "$rollback_config"; then
     _restore_profiles_snapshot "$profiles_snapshot" >&2 || true
     _discard_profiles_snapshot "$profiles_snapshot"
+    close_firewall_port "$new_port" >&2 || true
     exec 1>&3 3>&-
     echo '{"ok":false,"error":"Xray не принял новый порт — config и profile JSON откачены"}'
     return 1
@@ -11719,18 +11731,11 @@ port_change_command() {
   _discard_profiles_snapshot "$profiles_snapshot"
 
   exec 1>&3 3>&-
-  local fw_warning=""
-  if ! open_firewall_port "$new_port" >/dev/null 2>&1; then
-    fw_warning="firewall"
-  fi
   close_firewall_port "$old_port" >/dev/null 2>&1 || true
 
   local warning_str=""
   if [[ "$vision_warning" == "true" ]]; then
     warning_str=", \"warning\":\"Порт 443 с TCP/Vision — рискованно, клиенты могут не подключиться\""
-  fi
-  if [[ -n "$fw_warning" ]]; then
-    warning_str="${warning_str:+$warning_str,}\"firewall_warning\":true"
   fi
   if [[ -n "$warning_str" ]]; then
     warning_str="{\"ok\":true,\"name\":\"$name\",\"port\":$new_port,\"old_port\":$old_port,\"transport\":\"$profile_transport\",\"route\":\"$route_label\",\"reconnect\":true,${warning_str}}"

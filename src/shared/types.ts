@@ -1,3 +1,22 @@
+export type SshAuthMethod = 'password' | 'privateKey'
+
+export type SshPrivilegeMode = 'root' | 'sudo'
+
+export interface SshAccessInput {
+  username: string
+  authMethod: SshAuthMethod
+  password?: string
+  privateKeyPath?: string
+  passphrase?: string
+  privilegeMode: SshPrivilegeMode
+  sudoPassword?: string
+}
+
+export interface PrivateKeySelection {
+  path: string
+  name: string
+}
+
 export interface Server {
   id: string
   name: string
@@ -12,6 +31,10 @@ export interface Server {
   routesCount: number | null
   subscriptionUrl: string
   keys: VlessLink[]
+  authMethod?: SshAuthMethod
+  privilegeMode?: SshPrivilegeMode
+  privateKeyPath?: string | null
+  hostKeyFingerprint?: string | null
 }
 
 export interface VlessLink {
@@ -145,9 +168,8 @@ export type DeployStatus = 'pending' | 'running' | 'done' | 'error'
 export interface DeployStartPayload {
   host: string
   port: number
-  username: string
-  password: string
   email: string
+  access: SshAccessInput
 }
 
 export interface DeployDonePayload {
@@ -163,11 +185,15 @@ export type DeployEvent =
   | { type: 'error'; message: string }
 
 export interface ElectronAPI {
+  ssh: {
+    selectPrivateKey: () => Promise<PrivateKeySelection | null>
+  }
   servers: {
     list: () => Promise<Server[]>
     remove: (id: string) => Promise<void>
     get: (id: string) => Promise<Server | null>
     check: (id: string) => Promise<boolean>
+    forgetHostKey: (id: string) => Promise<void>
   }
   deploy: {
     start: (payload: DeployStartPayload) => void
@@ -179,44 +205,43 @@ export interface ElectronAPI {
   profiles: {
     list: (
       serverId: string,
-      password: string
+      access: SshAccessInput
     ) => Promise<{ ok: boolean; profiles: ServerProfile[]; error?: string }>
     create: (
       serverId: string,
-      password: string,
+      access: SshAccessInput,
       input: ProfileCreateInput
     ) => Promise<ProfileCreateResult>
     remove: (
       serverId: string,
-      password: string,
+      access: SshAccessInput,
       name: string
     ) => Promise<ProfileDeleteResult>
     changeFingerprint: (
       serverId: string,
-      password: string,
+      access: SshAccessInput,
       input: ProfileFingerprintInput
     ) => Promise<ProfileFingerprintResult>
     changeSni: (
       serverId: string,
-      password: string,
+      access: SshAccessInput,
       input: ProfileSniInput
     ) => Promise<ProfileSniResult>
-    sniList: (serverId: string, password: string) => Promise<SniListResult>
+    sniList: (serverId: string, access: SshAccessInput) => Promise<SniListResult>
     changePort: (
       serverId: string,
-      password: string,
+      access: SshAccessInput,
       input: ProfilePortInput
     ) => Promise<ProfilePortResult>
   }
   server: {
     update: (
       serverId: string,
-      password: string,
-      branch: string
+      access: SshAccessInput
     ) => Promise<ServerMaintenanceResult>
     uninstall: (
       serverId: string,
-      password: string
+      access: SshAccessInput
     ) => Promise<ServerMaintenanceResult>
   }
 }

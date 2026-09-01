@@ -16,7 +16,8 @@ import {
   Check
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import type { Server, ServerProfile, SniEntry } from '@shared/types'
+import type { Server, ServerProfile, SniEntry, SshAccessInput } from '@shared/types'
+import { isSshAccessReady, SshAccessForm } from '../components/SshAccessForm'
 import styles from './ServerSettings.module.css'
 
 interface ServerSettingsProps {
@@ -53,11 +54,24 @@ export const PORT_PRESETS = [443, 8443, 2053, 2083, 2087, 2096, 9443, 8080] as c
 
 export function ServerSettings({ server, onBack }: ServerSettingsProps): React.JSX.Element {
   const { t } = useTranslation()
-  const [password, setPassword] = useState('')
+  const [access, setAccess] = useState<SshAccessInput>({
+    username: server.username || 'root',
+    authMethod: server.authMethod ?? 'password',
+    password: '',
+    privateKeyPath: server.privateKeyPath ?? undefined,
+    passphrase: '',
+    privilegeMode: server.privilegeMode ?? 'root',
+    sudoPassword: ''
+  })
   const [busy, setBusy] = useState(false)
   const [profiles, setProfiles] = useState<ServerProfile[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
+  const [hostKeyFingerprint, setHostKeyFingerprint] = useState<string | null>(
+    server.hostKeyFingerprint ?? null
+  )
+  const [confirmHostKeyReset, setConfirmHostKeyReset] = useState(false)
+  const [hostKeyResetBusy, setHostKeyResetBusy] = useState(false)
 
   const [name, setName] = useState('')
   const [transport, setTransport] = useState('xhttp')
@@ -90,6 +104,7 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
   const [portDone, setPortDone] = useState(false)
 
   const connected = profiles !== null
+  const accessReady = isSshAccessReady(access)
 
   const futureNames = useMemo(() => {
     const base = name.trim() || 'phone-1'
@@ -107,15 +122,19 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
   }
 
   const load = async (): Promise<void> => {
-    if (!password.trim()) {
+    if (!accessReady) {
       setError(t('settings.errorPassword'))
       return
     }
     setBusy(true)
     setError(null)
     try {
-      const result = await window.api.profiles.list(server.id, password)
+      const result = await window.api.profiles.list(server.id, access)
       setProfiles(result.profiles ?? [])
+      void window.api.servers
+        .get(server.id)
+        .then((refreshed) => setHostKeyFingerprint(refreshed?.hostKeyFingerprint ?? null))
+        .catch(() => {})
     } catch (err) {
       setProfiles(null)
       setError(err instanceof Error ? err.message : String(err))
@@ -125,7 +144,7 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
   }
 
   const create = async (): Promise<void> => {
-    if (!password.trim()) {
+    if (!accessReady) {
       setError(t('settings.errorPassword'))
       return
     }
@@ -140,7 +159,7 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
     let createdCount = 0
     let failedMessage: string | null = null
     try {
-      const result = await window.api.profiles.create(server.id, password, {
+      const result = await window.api.profiles.create(server.id, access, {
         name: name.trim(),
         transport,
         count: Math.min(Math.max(Number(count) || 1, 1), 50)
@@ -156,7 +175,7 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
     // Профили могли создаться на сервере, даже если ответ не распарсился —
     // всегда перечитываем список, чтобы показать реальное состояние.
     try {
-      const fresh = await window.api.profiles.list(server.id, password)
+      const fresh = await window.api.profiles.list(server.id, access)
       setProfiles(fresh.profiles ?? [])
       // Если create вернул ошибку парсинга («пустой ответ»), но заказанные
       // профили реально появились на сервере — считаем создание успешным.
@@ -183,18 +202,18 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
   }
 
   const remove = async (profile: ServerProfile): Promise<void> => {
-    if (!password.trim()) return
+    if (!accessReady) return
     setBusy(true)
     setError(null)
     try {
-      const result = await window.api.profiles.remove(server.id, password, profile.name)
+      const result = await window.api.profiles.remove(server.id, access, profile.name)
       if (result.ok) {
         toastText(t('settings.deleted', { name: profile.name }))
         setProfiles((prev) => (prev ?? []).filter((p) => p.name !== profile.name))
       } else {
         // Удаление могло пройти на сервере, даже если ответ не распарсился.
         // Перечитываем список: профиля больше нет — считаем удаление успешным.
-        const fresh = await window.api.profiles.list(server.id, password)
+        const fresh = await window.api.profiles.list(server.id, access)
         const stillThere = (fresh.profiles ?? []).some((p) => p.name === profile.name)
         if (stillThere) {
           setError(result.error ?? t('settings.deleteFailed'))
@@ -211,7 +230,7 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
   }
 
   const changeFingerprint = async (): Promise<void> => {
-    if (!fpTarget || !password.trim()) return
+    if (!fpTarget || !accessReady) return
     setFpBusy(true)
     setError(null)
     const input = {
@@ -220,10 +239,10 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
       ...(fpTarget.multi_route ? { route: fpRoute - 1 } : {})
     }
     try {
-      const result = await window.api.profiles.changeFingerprint(server.id, password, input)
+      const result = await window.api.profiles.changeFingerprint(server.id, access, input)
       if (result.ok) {
         toastText(t('settings.fpChanged', { name: fpTarget.name, fp: result.fingerprint ?? fpValue }))
-        const fresh = await window.api.profiles.list(server.id, password)
+        const fresh = await window.api.profiles.list(server.id, access)
         setProfiles(fresh.profiles ?? [])
         setFpDone(true)
         setTimeout(() => {
@@ -241,7 +260,7 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
   }
 
   const changeSni = async (): Promise<void> => {
-    if (!sniTarget || !sniValue.trim()) return
+    if (!sniTarget || !sniValue.trim() || !accessReady) return
     setSniBusy(true)
     setError(null)
     const input = {
@@ -250,10 +269,10 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
       ...(sniTarget.multi_route ? { route: sniRoute - 1 } : {})
     }
     try {
-      const result = await window.api.profiles.changeSni(server.id, password, input)
+      const result = await window.api.profiles.changeSni(server.id, access, input)
       if (result.ok) {
         toastText(t('settings.sniChanged', { name: sniTarget.name, sni: result.sni ?? input.sni }))
-        const fresh = await window.api.profiles.list(server.id, password)
+        const fresh = await window.api.profiles.list(server.id, access)
         setProfiles(fresh.profiles ?? [])
         setSniDone(true)
         setTimeout(() => {
@@ -271,7 +290,7 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
   }
 
   const changePort = async (): Promise<void> => {
-    if (!portTarget || !password.trim()) return
+    if (!portTarget || !accessReady) return
     setPortBusy(true)
     setError(null)
     const input = {
@@ -280,11 +299,15 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
       ...(portTarget.multi_route ? { route: portRoute - 1 } : {})
     }
     try {
-      const result = await window.api.profiles.changePort(server.id, password, input)
+      const result = await window.api.profiles.changePort(server.id, access, input)
       if (result.ok) {
-        toastText(t('settings.portChanged', { name: portTarget.name, port: result.port ?? input.port }))
-        const fresh = await window.api.profiles.list(server.id, password)
+        const fresh = await window.api.profiles.list(server.id, access)
         setProfiles(fresh.profiles ?? [])
+        if (result.firewall_warning) {
+          setError(t('settings.firewallWarning'))
+          return
+        }
+        toastText(t('settings.portChanged', { name: portTarget.name, port: result.port ?? input.port }))
         setPortDone(true)
         setTimeout(() => {
           setPortTarget(null)
@@ -307,12 +330,12 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
   }
 
   const updateServer = async (): Promise<void> => {
-    if (!password.trim()) return
+    if (!accessReady) return
     setBusy(true)
     setUpdating(true)
     setError(null)
     try {
-      const result = await window.api.server.update(server.id, password, 'experimental')
+      const result = await window.api.server.update(server.id, access)
       if (result.ok) {
         toastText(t('settings.updated'))
       } else {
@@ -326,14 +349,29 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
     }
   }
 
+  const forgetHostKey = async (): Promise<void> => {
+    setHostKeyResetBusy(true)
+    setError(null)
+    try {
+      await window.api.servers.forgetHostKey(server.id)
+      setHostKeyFingerprint(null)
+      setConfirmHostKeyReset(false)
+      toastText(t('sshAccess.hostKeyResetDone'))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setHostKeyResetBusy(false)
+    }
+  }
+
   const uninstallServer = async (): Promise<void> => {
-    if (!password.trim()) return
+    if (!accessReady) return
     setConfirmUninstall(false)
     setBusy(true)
     setUninstalling(true)
     setError(null)
     try {
-      const result = await window.api.server.uninstall(server.id, password)
+      const result = await window.api.server.uninstall(server.id, access)
       if (result.ok) {
         toastText(t('settings.uninstalled'))
       } else {
@@ -353,7 +391,12 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
   const reset = (): void => {
     setProfiles(null)
     setError(null)
-    setPassword('')
+    setAccess((current) => ({
+      ...current,
+      password: '',
+      passphrase: '',
+      sudoPassword: ''
+    }))
   }
 
   return (
@@ -377,7 +420,7 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
             <Button
               variant="secondary"
               size="sm"
-              isDisabled={busy && !updating}
+              isDisabled={busy}
               onPress={updateServer}
             >
               <CloudDownload
@@ -390,7 +433,7 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
               variant="danger-soft"
               size="sm"
               className={uninstalling ? styles.breathing : undefined}
-              isDisabled={busy && !uninstalling}
+              isDisabled={busy}
               onPress={() => setConfirmUninstall(true)}
             >
               <CloudOff size={16} />
@@ -405,23 +448,20 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
           <p className={styles.hint}>
             {t('settings.hint')}
           </p>
-          <div className={styles.passwordRow}>
-            <TextField variant="secondary" className={styles.passwordField}>
-              <Label>{t('settings.sshPassword')}</Label>
-              <Input
-                type="password"
-                value={password}
-                disabled={busy}
-                placeholder="••••••••"
-                onChange={(e) => setPassword(e.target.value)}
-              />
-            </TextField>
+          <SshAccessForm
+            value={access}
+            onChange={setAccess}
+            disabled={busy}
+            hostKeyFingerprint={hostKeyFingerprint}
+            onForgetHostKey={() => setConfirmHostKeyReset(true)}
+          />
+          <div className={styles.accessActions}>
             {!connected ? (
               <Button
                 variant="primary"
                 size="lg"
                 className={busy ? styles.glowPulse : undefined}
-                isDisabled={busy || !password.trim()}
+                isDisabled={busy || !accessReady}
                 onPress={load}
               >
                 <Play size={16} />
@@ -478,7 +518,7 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
                   variant="primary"
                   size="lg"
                   className={styles.createBtn}
-                  isDisabled={busy || !password.trim() || !name.trim()}
+                  isDisabled={busy || !accessReady || !name.trim()}
                   onPress={create}
                 >
                   {busy && <Spinner size="sm" />}
@@ -823,7 +863,7 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
                             setSniBusy(true)
                             setError(null)
                             try {
-                              const result = await window.api.profiles.sniList(server.id, password)
+                              const result = await window.api.profiles.sniList(server.id, access)
                               if (result.ok) {
                                 setSniList(result.snis ?? [])
                               } else {
@@ -1030,6 +1070,48 @@ export function ServerSettings({ server, onBack }: ServerSettingsProps): React.J
                   {portDone
                     ? t('settings.done')
                     : t(portBusy ? 'settings.changingPort' : 'settings.changePort')}
+                </Button>
+              </AlertDialog.Footer>
+            </AlertDialog.Dialog>
+          </AlertDialog.Container>
+        </AlertDialog.Backdrop>
+      </AlertDialog.Root>
+
+      <AlertDialog.Root
+        isOpen={confirmHostKeyReset}
+        onOpenChange={(open) => {
+          if (!open && !hostKeyResetBusy) setConfirmHostKeyReset(false)
+        }}
+      >
+        <AlertDialog.Backdrop>
+          <AlertDialog.Container>
+            <AlertDialog.Dialog className={styles.confirmDialog}>
+              <AlertDialog.Header>
+                <AlertDialog.Icon status="danger">
+                  <Fingerprint size={20} />
+                </AlertDialog.Icon>
+                <AlertDialog.Heading>{t('sshAccess.hostKeyResetTitle')}</AlertDialog.Heading>
+              </AlertDialog.Header>
+              <AlertDialog.Body>
+                {t('sshAccess.hostKeyResetBody', {
+                  server: server.name,
+                  fingerprint: hostKeyFingerprint ?? '—'
+                })}
+              </AlertDialog.Body>
+              <AlertDialog.Footer>
+                <Button
+                  variant="secondary"
+                  isDisabled={hostKeyResetBusy}
+                  onPress={() => setConfirmHostKeyReset(false)}
+                >
+                  {t('dashboard.cancel')}
+                </Button>
+                <Button
+                  variant="danger"
+                  isDisabled={hostKeyResetBusy}
+                  onPress={forgetHostKey}
+                >
+                  {t('sshAccess.resetHostKey')}
                 </Button>
               </AlertDialog.Footer>
             </AlertDialog.Dialog>

@@ -124,7 +124,8 @@ the same: marker missing → backup → edit → restart → create the marker.
 
 ## Desktop GUI
 
-The desktop app (`src/`) is a password-driven CLI front-end over SSH. It never edits `config.json`
+The desktop app (`src/`) is a CLI front-end over SSH with password/private-key authentication and
+direct-root/sudo privilege modes. Root + password is the default. It never edits `config.json`
 directly — every operation maps to a documented CLI command executed on the server:
 
 | GUI action | Server command |
@@ -138,14 +139,15 @@ directly — every operation maps to a documented CLI command executed on the se
 | Change SNI | `xrayebator sni-change --name N [--route R] --sni S` |
 | Load SNI candidates | `xrayebator sni-list` |
 | Change port | `xrayebator port-change --name N [--route R] --port P` |
-| Update server | `xrayebator update <branch>` (self-update + core) |
+| Update server | read `.current_branch` → `xrayebator update <branch>` (self-update + core) |
 | Uninstall | upload `uninstall.sh` → `yes | bash uninstall.sh` |
 
 The renderer talks to the main process only through `window.api` (exposed by the preload bridge via
-`contextBridge`, `contextIsolation: true`). The main process owns the only copy of the SSH library
-(`ssh2`); the renderer never sees credentials outside the single IPC call that needs them. Server
-metadata is persisted with `electron-store` in the application data directory; the SSH password is
-kept in memory for the duration of one operation only.
+`contextBridge`, `contextIsolation: true`, `sandbox: true`). Passwords and passphrases stay in the
+active renderer form/session and are sent per operation; they are never persisted. The main process
+owns `ssh2`, reads only private-key paths selected through its native dialog, and pins the SSH host
+key after the first successful authentication. `electron-store` contains only non-secret server
+metadata and connection preferences, including the key path and host-key fingerprint.
 
 Process boundaries:
 

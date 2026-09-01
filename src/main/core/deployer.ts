@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
 import { SshClient, SshCredentials } from './ssh-client'
+import { shellCommand, shellQuote } from './shell-command'
 import { fetchSubscription } from './subscription'
 import type { DeployStep, VlessLink } from '@shared/types'
 
@@ -9,11 +10,8 @@ export type DeployStepListener = (step: DeployStep, message: string) => void
 export type DeployLogListener = (text: string) => void
 
 export interface DeployInput {
-  host: string
-  port: number
-  username: string
-  password: string
   email: string
+  credentials: SshCredentials
 }
 
 export interface DeployResult {
@@ -63,18 +61,26 @@ export class Deployer {
   ) {}
 
   async deploy(input: DeployInput): Promise<DeployResult> {
-    const creds: SshCredentials = {
-      host: input.host,
-      port: input.port,
-      username: input.username,
-      password: input.password
+    if (!input.email || input.email.length > 254 || /[\r\n\0]/.test(input.email)) {
+      throw new Error('Некорректный email')
     }
-    const client = new SshClient(creds)
+    const client = new SshClient(input.credentials)
 
     try {
       this.onStep('ssh', 'Устанавливаю SSH-подключение...')
       await client.connect()
-      this.onLog(`SSH: подключение к ${input.host}:${input.port} установлено`)
+      this.onLog(
+        `SSH: подключение к ${input.credentials.host}:${input.credentials.port} установлено`
+      )
+
+      const privileges = await client.exec(shellCommand('id', ['-u']), { elevated: true })
+      if (privileges.code !== 0 || privileges.stdout.trim() !== '0') {
+        throw new Error(
+          input.credentials.privilegeMode === 'sudo'
+            ? 'Не удалось получить root через sudo. Проверьте sudo-пароль или настройте passwordless sudo.'
+            : 'SSH-сессия не имеет root-прав. Выберите режим sudo или войдите как root.'
+        )
+      }
 
       this.onStep('os_check', 'Проверяю ОС...')
       const os = await client.exec('cat /etc/os-release 2>/dev/null || true')
@@ -86,27 +92,41 @@ export class Deployer {
       this.onStep('upload', 'Загружаю скрипты на сервер...')
       const token = SshClient.randomToken()
       const remoteDir = `/tmp/xrayebator-${token}`
-      await client.exec(`mkdir -p ${remoteDir}`)
+      await client.exec(shellCommand('mkdir', ['-p', remoteDir]))
       await client.upload(readFileSync(join(scriptsDir(), 'install.sh')), `${remoteDir}/install.sh`)
       await client.upload(readFileSync(join(scriptsDir(), 'xrayebator')), `${remoteDir}/xrayebator`)
       this.onLog('Загружены install.sh и xrayebator в /tmp/xrayebator-...')
 
       this.onStep('install', 'Устанавливаю Xray...')
-      const install = await client.exec(`cd ${remoteDir} && bash install.sh`)
+      const install = await client.exec(
+        `cd ${shellQuote(remoteDir)} && ${shellCommand('bash', ['install.sh'])}`,
+        { elevated: true }
+      )
       if (install.code !== 0) {
         throw new Error(`install.sh завершился с кодом ${install.code}: ${install.stderr}`)
       }
       this.onLog(`install.sh: код ${install.code}; ${summarize(install.stdout)}`)
 
       this.onStep('binary', 'Устанавливаю xrayebator...')
-      const copy = await client.exec(`install -m 0755 ${remoteDir}/xrayebator /usr/local/bin/xrayebator`)
+      const copy = await client.exec(
+        shellCommand('install', [
+          '-m',
+          '0755',
+          `${remoteDir}/xrayebator`,
+          '/usr/local/bin/xrayebator'
+        ]),
+        { elevated: true }
+      )
       if (copy.code !== 0) {
         throw new Error(`Не удалось установить xrayebator: ${copy.stderr}`)
       }
       this.onLog('xrayebator установлен в /usr/local/bin/xrayebator')
 
       this.onStep('quickstart', 'Запускаю quickstart...')
-      const quick = await client.exec(`xrayebator quickstart --email ${input.email}`)
+      const quick = await client.exec(
+        shellCommand('xrayebator', ['quickstart', '--email', input.email]),
+        { elevated: true }
+      )
       if (quick.code !== 0) {
         // Серверный quickstart печатает статус в stderr, а JSON с причиной
         // ({ok:false,error:...}) — в stdout. Извлекаем причину из JSON в первую

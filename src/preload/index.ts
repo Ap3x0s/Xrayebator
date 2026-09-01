@@ -3,6 +3,7 @@ import type {
   DeployEvent,
   DeployStartPayload,
   ElectronAPI,
+  PrivateKeySelection,
   ProfileCreateInput,
   ProfileCreateResult,
   ProfileDeleteResult,
@@ -16,15 +17,23 @@ import type {
   Server,
   ServerMaintenanceResult,
   ServerProfile,
+  SshAccessInput,
   SubscriptionResult
 } from '@shared/types'
 
 const api: ElectronAPI = {
+  ssh: {
+    selectPrivateKey: (): Promise<PrivateKeySelection | null> =>
+      ipcRenderer.invoke('ssh:selectPrivateKey')
+  },
+
   servers: {
     list: (): Promise<Server[]> => ipcRenderer.invoke('servers:list'),
     remove: (id: string): Promise<void> => ipcRenderer.invoke('servers:remove', id),
     get: (id: string): Promise<Server | null> => ipcRenderer.invoke('servers:get', id),
-    check: (id: string): Promise<boolean> => ipcRenderer.invoke('servers:check', id)
+    check: (id: string): Promise<boolean> => ipcRenderer.invoke('servers:check', id),
+    forgetHostKey: (id: string): Promise<void> =>
+      ipcRenderer.invoke('servers:forgetHostKey', id)
   },
 
   deploy: {
@@ -47,52 +56,51 @@ const api: ElectronAPI = {
   profiles: {
     list: (
       serverId: string,
-      password: string
+      access: SshAccessInput
     ): Promise<{ ok: boolean; profiles: ServerProfile[]; error?: string }> =>
-      ipcRenderer.invoke('profiles:list', serverId, password),
+      ipcRenderer.invoke('profiles:list', serverId, access),
     create: (
       serverId: string,
-      password: string,
+      access: SshAccessInput,
       input: ProfileCreateInput
     ): Promise<ProfileCreateResult> =>
-      ipcRenderer.invoke('profiles:create', serverId, password, input),
+      ipcRenderer.invoke('profiles:create', serverId, access, input),
     remove: (
       serverId: string,
-      password: string,
+      access: SshAccessInput,
       name: string
     ): Promise<ProfileDeleteResult> =>
-      ipcRenderer.invoke('profiles:remove', serverId, password, name),
+      ipcRenderer.invoke('profiles:remove', serverId, access, name),
     changeFingerprint: (
       serverId: string,
-      password: string,
+      access: SshAccessInput,
       input: ProfileFingerprintInput
     ): Promise<ProfileFingerprintResult> =>
-      ipcRenderer.invoke('profiles:changeFingerprint', serverId, password, input),
+      ipcRenderer.invoke('profiles:changeFingerprint', serverId, access, input),
     changeSni: (
       serverId: string,
-      password: string,
+      access: SshAccessInput,
       input: ProfileSniInput
     ): Promise<ProfileSniResult> =>
-      ipcRenderer.invoke('profiles:changeSni', serverId, password, input),
-    sniList: (serverId: string, password: string): Promise<SniListResult> =>
-      ipcRenderer.invoke('profiles:sniList', serverId, password),
+      ipcRenderer.invoke('profiles:changeSni', serverId, access, input),
+    sniList: (serverId: string, access: SshAccessInput): Promise<SniListResult> =>
+      ipcRenderer.invoke('profiles:sniList', serverId, access),
     changePort: (
       serverId: string,
-      password: string,
+      access: SshAccessInput,
       input: ProfilePortInput
     ): Promise<ProfilePortResult> =>
-      ipcRenderer.invoke('profiles:changePort', serverId, password, input)
+      ipcRenderer.invoke('profiles:changePort', serverId, access, input)
   },
 
   server: {
     update: (
       serverId: string,
-      password: string,
-      branch: string
+      access: SshAccessInput
     ): Promise<ServerMaintenanceResult> =>
-      ipcRenderer.invoke('server:update', serverId, password, branch),
-    uninstall: (serverId: string, password: string): Promise<ServerMaintenanceResult> =>
-      ipcRenderer.invoke('server:uninstall', serverId, password)
+      ipcRenderer.invoke('server:update', serverId, access),
+    uninstall: (serverId: string, access: SshAccessInput): Promise<ServerMaintenanceResult> =>
+      ipcRenderer.invoke('server:uninstall', serverId, access)
   }
 }
 

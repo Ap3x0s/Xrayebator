@@ -1,4 +1,5 @@
 import { SshClient, SshCredentials } from './ssh-client'
+import { shellCommand } from './shell-command'
 import type { ServerProfile } from '@shared/types'
 
 export interface ProfileListOutput {
@@ -110,13 +111,14 @@ export function extractJson(raw: string): unknown {
 export class ProfileManager {
   constructor(private readonly creds: SshCredentials) {}
 
-  private async run(command: string): Promise<string> {
+  private async run(args: readonly string[]): Promise<string> {
     const client = new SshClient(this.creds)
     try {
       await client.connect()
-      const res = await client.exec(`xrayebator ${command}`)
+      const command = shellCommand('xrayebator', args)
+      const res = await client.exec(command, { elevated: true })
       if (res.code !== 0) {
-        throw new Error(`xrayebator ${command} → код ${res.code}: ${res.stderr.trim()}`)
+        throw new Error(`xrayebator ${args[0] ?? ''} → код ${res.code}: ${res.stderr.trim()}`)
       }
       return res.stdout
     } finally {
@@ -126,7 +128,7 @@ export class ProfileManager {
 
   async list(): Promise<ProfileListOutput> {
     try {
-      const stdout = await this.run('profiles')
+      const stdout = await this.run(['profiles'])
       const payload = extractJson(stdout)
       const profiles = Array.isArray(payload) ? (payload as unknown as ServerProfile[]) : []
       return { ok: true, profiles }
@@ -140,15 +142,10 @@ export class ProfileManager {
     input: { name: string; transport: string; port?: number; count?: number }
   ): Promise<ProfileCreateOutput> {
     try {
-      const args = [
-        `--name "${input.name}"`,
-        `--transport ${input.transport}`,
-        input.port ? `--port ${input.port}` : '',
-        input.count && input.count > 1 ? `--count ${input.count}` : ''
-      ]
-        .filter(Boolean)
-        .join(' ')
-      const stdout = await this.run(`profile-create ${args}`)
+      const args = ['profile-create', '--name', input.name, '--transport', input.transport]
+      if (input.port) args.push('--port', String(input.port))
+      if (input.count && input.count > 1) args.push('--count', String(input.count))
+      const stdout = await this.run(args)
       const payload = extractJson(stdout) as {
         ok?: boolean
         names?: string[]
@@ -168,7 +165,7 @@ export class ProfileManager {
 
   async remove(name: string): Promise<ProfileDeleteOutput> {
     try {
-      const stdout = await this.run(`profile-delete --name "${name}"`)
+      const stdout = await this.run(['profile-delete', '--name', name])
       const payload = extractJson(stdout) as {
         ok?: boolean
         name?: string
@@ -187,14 +184,10 @@ export class ProfileManager {
     fingerprint: string
   }): Promise<ProfileFingerprintOutput> {
     try {
-      const args = [
-        `--name "${input.name}"`,
-        typeof input.route === 'number' ? `--route ${input.route}` : '',
-        `--fp ${input.fingerprint}`
-      ]
-        .filter(Boolean)
-        .join(' ')
-      const stdout = await this.run(`fp-change ${args}`)
+      const args = ['fp-change', '--name', input.name]
+      if (typeof input.route === 'number') args.push('--route', String(input.route))
+      args.push('--fp', input.fingerprint)
+      const stdout = await this.run(args)
       const payload = extractJson(stdout) as {
         ok?: boolean
         name?: string
@@ -221,14 +214,10 @@ export class ProfileManager {
     sni: string
   }): Promise<ProfileSniOutput> {
     try {
-      const args = [
-        `--name "${input.name}"`,
-        typeof input.route === 'number' ? `--route ${input.route}` : '',
-        `--sni ${input.sni}`
-      ]
-        .filter(Boolean)
-        .join(' ')
-      const stdout = await this.run(`sni-change ${args}`)
+      const args = ['sni-change', '--name', input.name]
+      if (typeof input.route === 'number') args.push('--route', String(input.route))
+      args.push('--sni', input.sni)
+      const stdout = await this.run(args)
       const payload = extractJson(stdout) as {
         ok?: boolean
         name?: string
@@ -261,7 +250,7 @@ export class ProfileManager {
 
   async sniList(): Promise<SniListOutput> {
     try {
-      const stdout = await this.run('sni-list')
+      const stdout = await this.run(['sni-list'])
       const payload = extractJson(stdout) as {
         ok?: boolean
         snis?: { sni: string; category: string; priority: string }[]
@@ -284,14 +273,10 @@ export class ProfileManager {
     port: number | 'random'
   }): Promise<ProfilePortOutput> {
     try {
-      const args = [
-        `--name "${input.name}"`,
-        typeof input.route === 'number' ? `--route ${input.route}` : '',
-        input.port === 'random' ? '--port random' : `--port ${input.port}`
-      ]
-        .filter(Boolean)
-        .join(' ')
-      const stdout = await this.run(`port-change ${args}`)
+      const args = ['port-change', '--name', input.name]
+      if (typeof input.route === 'number') args.push('--route', String(input.route))
+      args.push('--port', String(input.port))
+      const stdout = await this.run(args)
       const payload = extractJson(stdout) as {
         ok?: boolean
         name?: string

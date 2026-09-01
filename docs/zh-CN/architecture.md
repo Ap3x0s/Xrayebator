@@ -122,8 +122,9 @@ safe_restart_xray ► xray run -test -config → systemctl restart
 
 ## 桌面图形界面
 
-桌面应用（`src/`）是通过 SSH 调用 CLI 的、以密码为前置条件的界面。它从不直接修改
-`config.json`：每个操作都映射到服务器上执行的一条已文档化 CLI 命令：
+桌面应用（`src/`）是通过 SSH 调用 CLI 的界面，支持密码/私钥认证以及直接 root/sudo；
+Root + 密码为默认方式。它从不直接修改 `config.json`：每个操作都映射到服务器上执行的
+一条已文档化 CLI 命令：
 
 | GUI 操作 | 服务器命令 |
 |---|---|
@@ -136,13 +137,14 @@ safe_restart_xray ► xray run -test -config → systemctl restart
 | 修改 SNI | `xrayebator sni-change --name N [--route R] --sni S` |
 | 加载候选 SNI | `xrayebator sni-list` |
 | 修改端口 | `xrayebator port-change --name N [--route R] --port P` |
-| 更新服务器 | `xrayebator update <分支>`（自更新 + 内核） |
+| 更新服务器 | 读取 `.current_branch` → `xrayebator update <分支>`（自更新 + 内核） |
 | 卸载服务器 | 上传 `uninstall.sh` → `yes | bash uninstall.sh` |
 
-渲染进程只能通过 `window.api` 与主进程通信（preload 桥接使用 `contextBridge`，
-`contextIsolation: true`）。主进程独占唯一的 SSH 库副本（`ssh2`）；渲染进程除单个需要凭据的
-IPC 调用外，永远不会接触凭据。服务器元数据通过 `electron-store` 保存在应用数据目录中；
-SSH 密码仅在一次操作期间驻留内存。
+渲染进程只能通过 `window.api` 与主进程通信（preload 桥接使用 `contextBridge`、
+`contextIsolation: true`、`sandbox: true`）。密码和密钥口令只保留在当前表单/会话内存中，
+每次操作时传给主进程，绝不持久化。主进程独占 `ssh2`，只读取通过系统对话框选择的私钥，
+并在首次成功认证后固定 SSH host key。`electron-store` 仅保存非敏感服务器元数据、访问方式、
+密钥路径和 host-key fingerprint。
 
 进程边界：
 

@@ -121,15 +121,10 @@
   line-height: 1.5;
 }
 
-.passwordRow {
+.accessActions {
   display: flex;
-  align-items: flex-end;
-  gap: 12px;
-}
-
-.passwordField {
-  flex: 1;
-  max-width: 420px;
+  justify-content: flex-end;
+  margin-top: 14px;
 }
 
 .passwordNote {

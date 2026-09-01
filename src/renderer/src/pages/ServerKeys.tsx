@@ -3,6 +3,7 @@ import QRCode from 'qrcode'
 import { Button, Chip, Spinner } from '@heroui/react'
 import { useTranslation } from 'react-i18next'
 import type { Server, VlessLink } from '@shared/types'
+import { vlessPort } from '@shared/vless'
 import styles from './ServerKeys.module.css'
 
 interface ServerKeysProps {
@@ -91,7 +92,7 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
           <div key={key.url} className={styles.keyCard}>
             <div className={styles.keyHeader}>
               <Chip size="sm" color="accent">
-                {key.transport.toUpperCase()} :443
+                {key.transport.toUpperCase()} :{vlessPort(key.url)}
               </Chip>
             </div>
             <div className={styles.keyUrl} title={key.url}>

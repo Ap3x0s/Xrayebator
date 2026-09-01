@@ -6,6 +6,19 @@ import { createTray } from './tray'
 import { initAutoUpdater } from './updater'
 import { createServerStore } from './core/servers'
 
+function openTrustedExternalUrl(rawUrl: string): void {
+  try {
+    const url = new URL(rawUrl)
+    const trustedHost = url.hostname === 'github.com' || url.hostname.endsWith('.github.com')
+    if (url.protocol !== 'https:' || !trustedHost || url.username || url.password) return
+    void shell.openExternal(url.toString()).catch((error) => {
+      console.error('[external-link] failed to open URL', error)
+    })
+  } catch {
+    // Invalid URLs are denied by default.
+  }
+}
+
 function createWindow(): BrowserWindow {
   const mainWindow = new BrowserWindow({
     width: 1024,
@@ -17,7 +30,7 @@ function createWindow(): BrowserWindow {
     title: 'Xrayebator',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false,
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false
     }
@@ -28,103 +41,19 @@ function createWindow(): BrowserWindow {
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    openTrustedExternalUrl(details.url)
     return { action: 'deny' }
+  })
+
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    event.preventDefault()
+    openTrustedExternalUrl(url)
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
-  }
-
-  const shotDir = process.env['XRAYEBATOR_SHOT_DIR']
-  if (shotDir) {
-    mainWindow.webContents.on('did-finish-load', () => {
-      setTimeout(async () => {
-        try {
-          const collect = async (): Promise<unknown> => {
-            return mainWindow.webContents.executeJavaScript(`
-            (() => {
-              const out = { body: {}, buttons: [], inputs: [], steps: [], cards: [], headers: [] };
-              const b = document.body.getBoundingClientRect();
-              out.body = { w: Math.round(b.width), h: Math.round(b.height) };
-              document.querySelectorAll('button').forEach((el) => {
-                const r = el.getBoundingClientRect();
-                const cs = getComputedStyle(el);
-                out.buttons.push({
-                  text: (el.textContent || '').trim().slice(0, 30),
-                  x: Math.round(r.x), y: Math.round(r.y),
-                  w: Math.round(r.width), h: Math.round(r.height),
-                  bg: cs.backgroundColor, color: cs.color,
-                  radius: cs.borderRadius, border: cs.borderColor,
-                  gap: cs.gap, align: cs.alignItems,
-                  overflow: cs.overflow
-                });
-              });
-              document.querySelectorAll('input').forEach((el) => {
-                const r = el.getBoundingClientRect();
-                const cs = getComputedStyle(el);
-                out.inputs.push({
-                  x: Math.round(r.x), y: Math.round(r.y),
-                  w: Math.round(r.width), h: Math.round(r.height),
-                  bg: cs.backgroundColor, color: cs.color,
-                  radius: cs.borderRadius, border: cs.borderColor, borderWidth: cs.borderWidth
-                });
-              });
-              document.querySelectorAll('li').forEach((el) => {
-                const r = el.getBoundingClientRect();
-                const cs = getComputedStyle(el);
-                out.steps.push({
-                  text: (el.textContent || '').trim().slice(0, 30),
-                  x: Math.round(r.x), y: Math.round(r.y),
-                  w: Math.round(r.width), h: Math.round(r.height),
-                  bg: cs.backgroundColor, color: cs.color,
-                  border: cs.borderColor, gap: cs.gap
-                });
-              });
-              document.querySelectorAll('[class*="card"], [class*="Card"]').forEach((el) => {
-                const r = el.getBoundingClientRect();
-                if (r.width < 50) return;
-                const cs = getComputedStyle(el);
-                out.cards.push({
-                  cls: (el.className || '').toString().slice(0, 60),
-                  x: Math.round(r.x), y: Math.round(r.y),
-                  w: Math.round(r.width), h: Math.round(r.height),
-                  bg: cs.backgroundColor, border: cs.borderColor, radius: cs.borderRadius
-                });
-              });
-              document.querySelectorAll('h1').forEach((el) => {
-                const r = el.getBoundingClientRect();
-                out.headers.push({ text: el.textContent, x: Math.round(r.x), y: Math.round(r.y), fs: getComputedStyle(el).fontSize });
-              });
-              return out;
-            })()
-          `)
-          }
-
-          const fs = require('node:fs')
-          const dump1 = await collect()
-          fs.writeFileSync(join(shotDir, `metrics-dashboard.json`), JSON.stringify(dump1, null, 2))
-
-          await mainWindow.webContents.executeJavaScript(`
-            (() => {
-              const btns = [...document.querySelectorAll('button')];
-              const add = btns.find((b) => (b.textContent || '').includes('первый сервер'));
-              if (add) add.click();
-              return true;
-            })()
-          `)
-          await new Promise((r) => setTimeout(r, 1500))
-          const dump2 = await collect()
-          fs.writeFileSync(join(shotDir, `metrics-deploy.json`), JSON.stringify(dump2, null, 2))
-
-          console.log('[shot] metrics saved')
-        } catch (e) {
-          console.error('[shot] error', e)
-        }
-      }, 2500)
-    })
   }
 
   return mainWindow
