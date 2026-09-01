@@ -90,3 +90,12 @@ ClientAliveInterval 60
 ClientAliveCountMax 120
 TCPKeepAlive yes
 ```
+
+## 桌面图形界面中的凭据
+
+桌面 GUI 从不保存 SSH 密码。渲染进程仅在一次 IPC 调用期间持有它；主进程把它直接传给 `ssh2`，
+调用结束时即丢弃。服务器元数据（主机、端口、用户名、订阅链接、线路列表）通过 `electron-store`
+保存在应用数据目录中——密码字段不在其中。
+
+`keytar` 列在依赖中，但 GUI 目前尚未把 SSH 密码存入系统钥匙串：密码是每次操作时手动输入的。
+将来可能在系统钥匙串中保存密码，但目前暂无此计划。

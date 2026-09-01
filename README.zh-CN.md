@@ -33,7 +33,7 @@ Xrayebator 安装 Xray-core，在随机端口上建立 Reality 入站，创建�
 
 ```bash
 curl -fsSLo ./xrayebator-install.sh \
-  https://raw.githubusercontent.com/howdeploy/Xrayebator/main/install.sh
+  https://raw.githubusercontent.com/Ap3x0s/Xrayebator/main/install.sh
 less ./xrayebator-install.sh          # 运行前请先审阅脚本
 sudo bash ./xrayebator-install.sh
 
@@ -90,7 +90,7 @@ Xrayebator 同时解决这两个问题：
 | 安装 Xray-core | 从 GitHub 下载发行版，强制用 `.dgst` 校验 SHA-256，通过 `install -m 755` 安装二进制并自检 | `install.sh` |
 | Reality 入站 | 在 `30000-60000` 的空闲端口上建立入站，同时核对 `config.json` 与实际监听的套接字 | `xrayebator` |
 | 多线路配置档 | 一个配置档 = 共享 `sub_token` 的一组线路；多个配置档可共用同一端口 | `profiles/<name>.json` |
-| HAPP 订阅 | 本地 HTTP 服务提供 `vless://` 列表和 HAPP 元数据，由 nginx 通过 HTTPS 对外发布 | `subhttp.sh`、`xrayebator-sub.service` |
+| HAPP 订阅 | 提供 `vless://` 列表、托管的 Global Proxy 路由及令牌保护的 geo 数据库，由 nginx 通过 HTTPS 对外发布 | `subhttp.sh`、`xrayebator-sub.service` |
 | 后量子 XHTTP | `xhttp-pq` 线路使用 VLESS 加密 `mlkem768x25519plus` | `.vless_encryption`、`.vless_decryption` |
 | v2ray 兼容 | `v2rayNG` 与 `v2rayN` 获得不含 HAPP 元数据的经典 base64 订阅体 | `subhttp.sh` |
 | 吊销订阅 | 生成新的 32 位十六进制令牌，旧链接立即失效 | `openssl rand -hex 16` |
@@ -202,7 +202,7 @@ XHTTP 候选下发。配置档 JSON 中仍然保留全部七条。
 
 ```bash
 curl -fsSLo ./xrayebator-install.sh \
-  https://raw.githubusercontent.com/howdeploy/Xrayebator/main/install.sh
+  https://raw.githubusercontent.com/Ap3x0s/Xrayebator/main/install.sh
 less ./xrayebator-install.sh
 sudo bash ./xrayebator-install.sh
 ```
@@ -211,6 +211,13 @@ sudo bash ./xrayebator-install.sh
 > [环境变量](docs/zh-CN/configuration.md#安装脚本的环境变量) 和
 > [防火墙与主机网络设置](docs/zh-CN/configuration.md#防火墙与主机网络设置)，
 > 尤其是当 SSH 监听在非标准端口时。
+
+### 社区项目
+
+- **[Xrayebator OpenWrt/Cudy companion](https://github.com/slavytich23/xrayebator-openwrt-cudy)** —
+  独立的社区工具包，用于在 OpenWrt/Cudy 路由器上运行 Xray 客户端，提供分阶段启用与自动回滚、
+  故障时阻断直连、隧道健康与内存监控，以及可选的 Windows 双链路故障转移。它不是 Xrayebator
+  的官方组件。
 
 ### 五步完成 HAPP 订阅
 
@@ -232,14 +239,55 @@ sudo bash ./xrayebator-install.sh
 > 临时 Xray-core，并不能证明主 TUN 正常。在 Linux 上，`ss -lntp | grep ':10808'`
 > 应当显示 HAPP 主 core 正在监听。
 
-还要检查 HAPP 中当前启用的 **Routing** 配置。其他付费 VPN 遗留的路由配置可能覆盖
-Xrayebator，把 Telegram 直接发送而不经过 VPS，即使线路延迟仍显示绿色。请禁用第三方
-Routing 并使用 Global Proxy；如果存在 `xrayebator-default`，也可以选择该配置。
-尤其不要使用 `globalProxy: false` 且没有 Telegram 专用代理规则的配置。
+当前版本会发布并启用托管的 `xrayebator-default` 配置，其中使用 Global Proxy 和
+Cloudflare DoH。geo 数据库通过同一个受令牌保护的订阅 URL 下载，不再要求客户端直连
+GitHub。服务器更新后，请强制刷新订阅并重新连接一次；HAPP 会覆盖同名旧配置，并在两个
+geo 文件下载成功后清除红色警告。测试时仍应禁用可能覆盖订阅的第三方 Routing 配置。
 
 如需手工控制 SNI、传输方式或单条线路，请使用 `1) Создать новый профиль`。
 
 > 终端界面为俄语。本文档逐项说明了所有菜单条目，因此界面语言不构成障碍。
+
+---
+
+## 桌面图形界面
+
+除了终端菜单，还有一个可选桌面应用（Electron + React，位于 `src/`），通过 SSH 管理 VPS。
+它并不替代 bash 引擎——服务器上的所有操作仍由 `xrayebator` 完成，图形界面只是通过 SSH
+调用同一组命令。
+
+```text
+桌面应用 (Electron · React)
+    │  SSH + 已文档化的 CLI
+    ▼
+xrayebator (bash)   ──►  /usr/local/etc/xray/
+```
+
+界面语言（Русский / English / 简体中文）在主屏幕页眉切换，并保存在 `localStorage` 中。
+终端菜单仍为俄语。
+
+GUI 的功能：
+
+| 页面 | 操作 |
+|---|---|
+| Dashboard | 服务器卡片与连通状态：打开、设置、删除；语言切换 |
+| 添加服务器 | 部署新 VPS：上传 `install.sh` 与 `xrayebator`，运行安装，放置二进制，执行 `quickstart --email`，保存服务器与订阅链接 |
+| 服务器密钥 | 刷新订阅、复制链接、显示 `vless://` 链接与二维码 |
+| 服务器设置 | 需要密码的配置档管理：列出/创建/删除配置档，修改指纹、SNI 和端口，以及更新或卸载服务器上的 Xrayebator |
+
+GUI 每次操作都会发送 SSH 密码，并且只在调用期间保存在内存中。服务器元数据（主机、端口、
+订阅链接、线路列表）存放在桌面应用的本地存储中；凭据从不落盘。
+
+开发模式下的构建与运行：
+
+```bash
+npm install
+npm run dev          # Electron + Vite dev server
+npm run build        # 编译 renderer 与 main process
+```
+
+GUI 测试：`npm test` (Vitest) 运行 `tests/` 中的单元测试；`npm run typecheck` 检查 TypeScript。
+参见 [测试](docs/zh-CN/testing.md#桌面图形界面)。
 
 ---
 
@@ -267,11 +315,12 @@ Routing 并使用 Global Proxy；如果存在 `xrayebator-default`，也可以�
   服务账户可以写入自己的配置与配置档。
 - 安装脚本不检查系统版本。支持矩阵只是声明，并非强制。
 - Xray 内核强制校验 SHA-256，而 Loyalsoldier 的 geo 数据库在下载时没有校验和。
-- `xrayebator-uninstall` 并不会清理干净。它停止并禁用 `xray`，删除 `/usr/local/etc/xray`、
-  `/usr/local/bin/xrayebator` 以及 `xray.service` 和 `xray@.service` 单元。它不会删除
-  `/usr/local/bin/xray` 二进制、`subhttp`、`xrayebator-update`、`xrayebator-uninstall`、
-  `xrayebator-sub.service` 单元、nginx 配置、geo 数据库、UFW 规则以及系统用户 `xray`。
-  残留需要手工清理。
+- `xrayebator-uninstall` 会停止并禁用 `xray`，删除 `/usr/local/bin/xray` 二进制和
+  `/usr/local/share/xray` 中的 geo 数据库，清除 `/usr/local/etc/xray` 与 `/var/log/xray`、
+  `xrayebator`、`xrayebator-update`、`xrayebator-uninstall`、`subhttp.sh` 二进制，以及
+  `xray.service`、`xray@.service`、`xray.service.d`、`xrayebator-sub.service` 单元、由它创建的
+  nginx vhost、它自己的 certbot 证书和 UFW 规则，还有系统用户 `xray`。全局 Certbot 状态、
+  nginx 软件包、他人的 certbot 证书和 UFW 规则不会被动到。
 - `tcp-mux` 线路仅为兼容保留，它并不是 mux 预设。
 - 不支持 H2、WebSocket、SplitHTTP 以及 Clash/mihomo 订阅。
 - 界面没有硬性的用户数上限，但实际容量受 CPU、内存、VPS 带宽、线路数量和服务商限制约束。

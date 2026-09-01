@@ -4,14 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Xrayebator — automated Xray Reality VPN manager for bypassing DPI censorship in Russia. Single Bash script (`xrayebator`, ~9300 lines) that turns a VPS into a managed VPN server with interactive terminal UI. The bash core is compatible with Debian 10+/Ubuntu 20.04+ (the installer does not gate on OS version, and the script itself runs anywhere with systemd + the listed dependencies). The **desktop GUI** (`gui/`, PySide6) intentionally supports a narrower set — Debian 12/13 and Ubuntu 22.04/24.04 only.
+Xrayebator — automated Xray Reality VPN manager for bypassing DPI censorship in Russia. Single Bash script (`xrayebator`, ~11400 lines) that turns a VPS into a managed VPN server with interactive terminal UI. The bash core is compatible with Debian 10+/Ubuntu 20.04+ (the installer does not gate on OS version, and the script itself runs anywhere with systemd + the listed dependencies). The **desktop GUI** lives in `src/` (Electron + React + TypeScript) and drives the same bash CLI over SSH. A legacy PySide6 GUI sits in `gui-legacy/` and is no longer the active desktop app.
 
 ## Validation
 
 There IS automated test coverage (despite what older notes said):
-- **`validation/`** — 16 bash test scripts that exercise migrations, vless URL generation, transaction safety, dedup, firewall and menu numbering. They run on the host (`bash validation/test-*.sh`); several require `jq`, `uuidgen`, `rg` and a Linux-flavoured environment, so they do NOT pass on a bare Windows Git Bash installation.
-- **`gui/tests/`** — 15 pytest modules covering SSH, deploy, connection, subscription and TUN runtime. Run with the GUI venv: `gui/.venv/Scripts/python -m pytest gui/tests`.
-- **CI** — `.github/workflows/gui-release.yml` runs `ruff` + `pytest gui/tests` on every push affecting `gui/` and builds Windows/macOS bundles.
+- **`validation/`** — 23 bash test scripts that exercise migrations, vless URL generation, transaction safety, dedup, firewall, menu numbering, the bypass/sni-change/port-change CLIs and quickstart regressions. They run on the host (`bash validation/test-*.sh`); several require `jq`, `uuidgen`, `rg` and a Linux-flavoured environment, so they do NOT pass on a bare Windows Git Bash installation.
+- **`gui-legacy/tests/`** — 16 pytest modules covering SSH, deploy, connection, subscription and TUN runtime (legacy PySide6 GUI). Run with the GUI venv: `gui-legacy/.venv/Scripts/python -m pytest gui-legacy/tests`.
+- **GUI (Electron)** — Vitest unit tests in `tests/`: `npm test`, plus `npm run typecheck`.
+- **CI** — `.github/workflows/ci-linux.yml` runs the full `validation/` suite; `.github/workflows/gui-release.yml` runs `ruff` + `pytest gui-legacy/tests` and builds Windows/macOS bundles; `.github/workflows/release.yml` ships the Electron app.
 
 Syntax checks used before a commit:
 ```bash
@@ -70,7 +71,7 @@ XHTTP transport stores SNI in TWO places: `realitySettings.serverNames` AND `xht
 
 ### Migration system
 
-Marker files in `/usr/local/etc/xray/` (e.g. `.xhttp_migrated`, `.config_optimized`). Migrations run once on first `main_menu()` launch after upgrade. Pattern for new migrations:
+Marker files in `/usr/local/etc/xray/` (e.g. `.xhttp_migrated`, `.config_optimized`). Migrations run once on first `main_menu()` launch after upgrade — and `quickstart` runs the same critical set (`test-quickstart-migration-parity.sh` keeps them in sync). Pattern for new migrations:
 ```bash
 if [[ ! -f "/usr/local/etc/xray/.my_migration_marker" ]]; then
   backup_config "my_migration"
@@ -133,6 +134,16 @@ Apart from the interactive menu (`sudo xrayebator`), the script exposes subcomma
 - `xrayebator quickstart --email <email>` — UI CLI used by the desktop app: installs the subscription server, obtains an IP-TLS cert via certbot, creates the **multi-route** HAPP profile (7 routes, includes `xhttp-legacy`), prints JSON `{"ok":true,...,config_url":"https://IP:8443/sub/<token>"}`.
 - `xrayebator happ-setup` — ensured the HAPP multi-route profile exists, restarts the subscription service, prints the same JSON payload.
 - `xrayebator probe-test` — probe-test candidate SNIs from `sni_list.txt` and print reachability scores.
+- `xrayebator profiles` — print all profiles as a flat JSON array (used by the GUI "Server settings" page).
+- `xrayebator profile-create --name NAME [--transport T] [--port P] [--count N]` — create 1..N profiles non-interactively (names `name`, `name-2`, ...). Emits `{"ok":true,"names":[...],"errors":[...]}`; `ok` stays `true` even when some profiles already exist (they land in `errors`).
+- `xrayebator profile-delete --name NAME` — delete a profile, emits `{"ok":true,"name":"..."}`. Inbound/firewall cleanup happens automatically.
+- `xrayebator fp-change --name NAME [--route R] --fp FINGERPRINT` — change the fingerprint for a profile (client-side, no Xray restart), emits JSON.
+- `xrayebator sni-change --name NAME [--route R] --sni SNI` — change the SNI for a profile; updates all profiles on the same port (`update_all_profiles_on_port()`), emits JSON.
+- `xrayebator sni-list` — print the SNI candidates from `sni_list.txt` grouped by category, emits JSON (used by the GUI SNI dialog).
+- `xrayebator port-change --name NAME [--route R] --port PORT|random` — change the port for a profile; updates the inbound, firewall, subscription and all profiles on the port, emits JSON (reconnect is required).
+- `xrayebator bypass list|add --domain D|remove --domain D|reset|bundle [--group a,b,c]` — manage bypass routing groups (JSON).
+
+CLI JSON hygiene: `profile-create`/`profile-delete` **must** print only JSON on stdout. The shared helpers (`backup_config`, `add_inbound`, `open_firewall_port`, `safe_restart_xray`, `close_firewall_port`) print colored status lines that would corrupt the parse, so the CLI paths redirect stdout→stderr around those calls (`exec 3>&1; exec 1>&2 ... exec 1>&3`). Keep it that way when editing.
 
 ### HAPP profile vs GUI quickstart — a subtle case
 

@@ -3,7 +3,7 @@
 # ═══════════════════════════════════════════════════════════
 # XRAYEBATOR INSTALLER v3.0
 # Автоматическая установка Xray Reality VPN
-# GitHub: https://github.com/howdeploy/Xrayebator
+# GitHub: howdeploy — https://github.com/howdeploy/Xrayebator
 # ═══════════════════════════════════════════════════════════
 
 # Цвета
@@ -702,6 +702,8 @@ if curl -fsSL "${LOYALSOLDIER_URL}/geosite.dat" -o "${XRAY_DAT_DIR}/geosite.dat.
 else
   echo -e "${YELLOW}  ⚠ Не удалось загрузить geosite.dat, используется стандартный${NC}"
 fi
+
+chmod 644 "${XRAY_DAT_DIR}/geoip.dat" "${XRAY_DAT_DIR}/geosite.dat" 2>/dev/null || true
 
 echo -e "${GREEN}✓ Geo-базы настроены (Loyalsoldier enhanced)${NC}\n"
 
