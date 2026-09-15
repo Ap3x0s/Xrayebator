@@ -125,7 +125,7 @@ above — it never touches `config.json` directly. All safety guarantees of `bac
 | Dashboard | Server cards, reachability check, open/settings/delete, language switch |
 | Add server | Full deploy over SSH with a step progress: `os check → upload → install → binary → quickstart` |
 | Server keys | Refresh the subscription, copy URL, show `vless://` links and QR codes |
-| Server settings | Profile management under an SSH password: list/create/delete, `fp-change`, `sni-change`, `port-change`, plus server update/uninstall |
+| Server settings | SSH password/private-key authentication with direct root or sudo; list/create/delete, `fp-change`, `sni-change`, `port-change`, plus server update/uninstall |
 
 Interface language (Русский / English / 简体中文) is switched in the Dashboard header and persisted in
 `localStorage` under `xrayebator-language`. Build and run:

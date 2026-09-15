@@ -118,7 +118,7 @@ UFW 由安装脚本自行管理：安装 `ufw` 包，若 UFW 未启用则执行 
 | Dashboard | 服务器卡片、连通性检查、打开/设置/删除、语言切换 |
 | 添加服务器 | 通过 SSH 完整部署，带步骤进度：`os check → upload → install → binary → quickstart` |
 | 服务器密钥 | 刷新订阅、复制链接、显示 `vless://` 链接与二维码 |
-| 服务器设置 | 在 SSH 密码保护下管理配置档：列出/创建/删除、`fp-change`、`sni-change`、`port-change`，以及更新/卸载服务器 |
+| 服务器设置 | 使用 SSH 密码或私钥，并选择直接 root 或 sudo：列出/创建/删除配置、`fp-change`、`sni-change`、`port-change`，以及更新/卸载服务器 |
 
 界面语言（Русский / English / 简体中文）在 Dashboard 页眉切换，并保存在 `localStorage` 的
 `xrayebator-language` 键中。构建与运行：

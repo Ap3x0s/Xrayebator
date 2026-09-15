@@ -95,9 +95,16 @@ https://<домен-или-ip>/sub/<32-hex-token>
 
 Поведение по клиентам:
 
-- HAPP получает plain-text список `vless://`, HAPP-заголовки и опциональный `happ://routing/onadd/...`;
+- HAPP получает plain-text список `vless://`, HAPP-заголовки и по умолчанию управляемый профиль
+  `happ://routing/onadd/...`;
+- профиль скачивает geo-базы через защищённые токеном `/sub/<token>/geoip.dat` и
+  `/sub/<token>/geosite.dat`, поэтому клиенту не нужен прямой доступ к GitHub;
 - `v2rayNG` и `v2rayN` получают классический base64-body без HAPP-метаданных;
 - профили без живого инбаунда не показываются в меню подписки, а их старые URL возвращают `410 Gone`.
+
+Для отключения задайте `HAPP_ROUTING_ENABLED=false` в `.happ_defaults.env`. Кастомный
+`.happ_routing.json` заменяет управляемый профиль только после строгой проверки схемы HAPP;
+невалидный JSON откатывается на управляемый профиль, а причина пишется в journal сервиса.
 
 ## Правки конфига
 
@@ -115,9 +122,9 @@ safe_restart_xray ► xray run -test -config → systemctl restart
 
 ## Десктоп-GUI
 
-Десктоп-приложение (`src/`) — парольный CLI-фронтенд поверх SSH. Оно никогда не правит
-`config.json` напрямую: каждая операция мапится на документированную CLI-команду, выполненную на
-сервере:
+Десктоп-приложение (`src/`) — CLI-фронтенд поверх SSH с входом по паролю/ключу и режимами
+прямого root/sudo. Root + пароль остаётся вариантом по умолчанию. Приложение никогда не правит
+`config.json` напрямую: каждая операция мапится на документированную CLI-команду на сервере:
 
 | Действие GUI | Команда на сервере |
 |---|---|
@@ -130,14 +137,15 @@ safe_restart_xray ► xray run -test -config → systemctl restart
 | Сменить SNI | `xrayebator sni-change --name N [--route R] --sni S` |
 | Загрузить SNI-кандидатов | `xrayebator sni-list` |
 | Сменить порт | `xrayebator port-change --name N [--route R] --port P` |
-| Обновить сервер | `xrayebator update <branch>` (self-update + ядро) |
+| Обновить сервер | прочитать `.current_branch` → `xrayebator update <branch>` (self-update + ядро) |
 | Удалить сервер | upload `uninstall.sh` → `yes | bash uninstall.sh` |
 
 Renderer общается с main process только через `window.api` (мост preload через `contextBridge`,
-`contextIsolation: true`). Main process владеет единственной копией SSH-библиотеки (`ssh2`);
-renderer не видит креды за пределами того единственного IPC-вызова, которому они нужны.
-Метаданные серверов хранятся через `electron-store` в каталоге данных приложения; SSH-пароль
-держится в памяти на время одной операции.
+`contextIsolation: true`, `sandbox: true`). Пароли и passphrase живут только в активной форме/
+сессии renderer и передаются на каждую операцию; на диск они не пишутся. Main process владеет
+`ssh2`, читает только ключи, выбранные через нативный dialog, и закрепляет SSH host key после первой
+успешной аутентификации. В `electron-store` лежат только несекретные метаданные и настройки доступа,
+включая путь к ключу и fingerprint host key.
 
 Границы процессов:
 

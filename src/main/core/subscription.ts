@@ -1,10 +1,5 @@
 import type { VlessLink } from '@shared/types'
 
-export interface SubscriptionFetchOptions {
-  url: string
-  timeoutMs?: number
-}
-
 function decodeBase64(input: string): string {
   return Buffer.from(input.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString(
     'utf8'

@@ -3,6 +3,14 @@ import { autoUpdater } from 'electron-updater'
 
 let initialized = false
 
+async function checkForUpdatesSafely(): Promise<void> {
+  try {
+    await autoUpdater.checkForUpdates()
+  } catch (error) {
+    console.error('[auto-updater] update check failed', error)
+  }
+}
+
 export function initAutoUpdater(): void {
   if (initialized || !app.isPackaged) return
   initialized = true
@@ -17,6 +25,10 @@ export function initAutoUpdater(): void {
     }
   })
 
-  autoUpdater.checkForUpdates()
-  setInterval(() => autoUpdater.checkForUpdates(), 4 * 60 * 60 * 1000).unref()
+  autoUpdater.on('error', (error) => {
+    console.error('[auto-updater] error', error)
+  })
+
+  void checkForUpdatesSafely()
+  setInterval(() => void checkForUpdatesSafely(), 4 * 60 * 60 * 1000).unref()
 }
