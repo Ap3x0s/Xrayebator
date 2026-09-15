@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { Button, TextField, Label, Input, Spinner } from '@heroui/react'
 import { CheckCircle2, Circle } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import type { DeployEvent, DeployStep, Server } from '@shared/types'
+import type { DeployEvent, DeployStep, Server, SshAccessInput } from '@shared/types'
+import { isSshAccessReady, SshAccessForm } from '../components/SshAccessForm'
 import styles from './AddServer.module.css'
 
 interface AddServerProps {
@@ -23,8 +24,6 @@ const STEP_ORDER: DeployStep[] = [
 interface FormState {
   host: string
   port: string
-  username: string
-  password: string
   email: string
 }
 
@@ -33,9 +32,13 @@ export function AddServer({ onDone, onBack }: AddServerProps): React.JSX.Element
   const [form, setForm] = useState<FormState>({
     host: '',
     port: '22',
-    username: 'root',
-    password: '',
     email: ''
+  })
+  const [access, setAccess] = useState<SshAccessInput>({
+    username: 'root',
+    authMethod: 'password',
+    password: '',
+    privilegeMode: 'root'
   })
   const [deploying, setDeploying] = useState(false)
   const [currentStep, setCurrentStep] = useState<DeployStep | null>(null)
@@ -91,9 +94,8 @@ export function AddServer({ onDone, onBack }: AddServerProps): React.JSX.Element
     window.api.deploy.start({
       host: form.host.trim(),
       port: Number(form.port) || 22,
-      username: form.username.trim(),
-      password: form.password,
-      email: form.email.trim()
+      email: form.email.trim(),
+      access
     })
   }
 
@@ -133,8 +135,7 @@ export function AddServer({ onDone, onBack }: AddServerProps): React.JSX.Element
         <div className={styles.form}>
           {input(t('deploy.host'), 'host', '185.23.xx.xx')}
           {input(t('deploy.port'), 'port', '22')}
-          {input(t('deploy.username'), 'username', 'root')}
-          {input(t('deploy.password'), 'password', '', 'password')}
+          <SshAccessForm value={access} onChange={setAccess} disabled={deploying} />
           {input(t('deploy.email'), 'email', 'user@example.com', 'email')}
 
           <Button
@@ -142,7 +143,12 @@ export function AddServer({ onDone, onBack }: AddServerProps): React.JSX.Element
             variant="primary"
             size="lg"
             fullWidth
-            isDisabled={deploying || !form.host.trim() || !form.password}
+            isDisabled={
+              deploying ||
+              !form.host.trim() ||
+              !form.email.trim() ||
+              !isSshAccessReady(access)
+            }
             onPress={startDeploy}
           >
             {deploying && <Spinner size="sm" />}

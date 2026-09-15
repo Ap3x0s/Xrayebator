@@ -121,15 +121,10 @@
   line-height: 1.5;
 }
 
-.passwordRow {
+.accessActions {
   display: flex;
-  align-items: flex-end;
-  gap: 12px;
-}
-
-.passwordField {
-  flex: 1;
-  max-width: 420px;
+  justify-content: flex-end;
+  margin-top: 14px;
 }
 
 .passwordNote {
@@ -562,12 +557,6 @@
   font-size: 11px;
   line-height: 1.4;
   color: var(--text-2);
-}
-
-.sectionTitleIcon {
-  vertical-align: -3px;
-  margin-right: 6px;
-  color: var(--accent);
 }
 
 .bypassLoadRow {

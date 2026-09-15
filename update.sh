@@ -3,7 +3,7 @@
 # ═══════════════════════════════════════════════════════════
 # XRAYEBATOR UPDATE SCRIPT v3.0
 # Обновление Xrayebator до последней версии
-# GitHub: howdeploy & Ap3x0s — https://github.com/Ap3x0s/Xrayebator
+# GitHub: howdeploy — https://github.com/howdeploy/Xrayebator
 # ═══════════════════════════════════════════════════════════
 
 # Цвета
@@ -16,7 +16,7 @@ MAGENTA='\033[0;35m'
 NC='\033[0m'
 
 # GitHub репозиторий
-GITHUB_USER="Ap3x0s"
+GITHUB_USER="howdeploy"
 GITHUB_REPO="Xrayebator"
 
 # ═══ Детекция IPv6-only VPS (shared helper) ═══
@@ -614,6 +614,8 @@ else
   rm -f "${XRAY_DAT_DIR}/geosite.dat.tmp"
   echo -e "${YELLOW}  ⚠ geosite.dat: недоступен (GitHub?)${NC}"
 fi
+
+chmod 644 "${XRAY_DAT_DIR}/geoip.dat" "${XRAY_DAT_DIR}/geosite.dat" 2>/dev/null || true
 
 if [[ "$GEO_UPDATED" == "true" ]]; then
   echo -e "${GREEN}✓ Geo-базы обновлены${NC}\n"

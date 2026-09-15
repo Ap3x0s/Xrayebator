@@ -97,11 +97,18 @@ TCPKeepAlive yes
 
 ## Desktop GUI credentials
 
-The desktop GUI never stores the SSH password. The renderer holds it only for the duration of one
-IPC call; the main process passes it straight to `ssh2` and drops it when the call finishes. Server
-metadata (host, port, username, subscription URL, route list) is persisted with `electron-store` in
-the application-data directory — the password field is not part of it.
+The desktop GUI supports SSH passwords and private keys, with direct-root or sudo execution. Root +
+password is the default. Passwords and key passphrases remain only in the active renderer form/
+session and are sent to the main process per operation; they are never persisted. The main process
+reads private-key files only after they were selected through its native file dialog. Server
+metadata and non-secret preferences (authentication method, key path and privilege mode) are stored
+with `electron-store`; secret fields and private-key contents are not.
+
+SSH host keys use trust on first successful authentication (TOFU). The SHA-256 fingerprint is then
+pinned in `electron-store`; any later mismatch fails closed before commands are executed. After an
+intentional VPS reinstall, the user can explicitly reset the pin in Server settings and confirm the
+new key on the next successful connection.
 
 `keytar` is listed as a dependency, but the GUI does not yet store SSH passwords in the OS
-keychain: a password is typed per operation. Storing passwords in the keychain may be added in a
+keychain: a password is typed into the active connection form. Storing passwords in the keychain may be added in a
 future release, but it is not planned at the moment.

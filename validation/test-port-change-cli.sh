@@ -233,4 +233,42 @@ jq -e 'all(.inbounds[]; (.settings.clients // []) | length > 0)' "$CONFIG_FILE" 
 [[ "$(jq -r '.port' "$PROFILES_DIR/tcp-only.json")" == "9303" ]] ||
   fail "free-port tcp move: profile port not synced"
 
+# --- Сценарий 4: firewall fail → полный rollback до рестарта Xray ---
+cat > "$CONFIG_FILE" <<'JSON'
+{
+  "inbounds": [
+    {
+      "port": 9401,
+      "protocol": "vless",
+      "tag": "inbound-9401",
+      "settings": {"clients": [{"id": "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee", "flow": "xtls-rprx-vision"}], "decryption": "none"},
+      "streamSettings": {"network": "tcp", "security": "reality", "realitySettings": {"privateKey": "key", "shortIds": ["ab06"], "serverNames": ["www.ozon.ru"], "dest": "www.ozon.ru:443"}}
+    }
+  ]
+}
+JSON
+jq -n '{
+  name: "firewall-rollback",
+  uuid: "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
+  transport: "tcp",
+  port: 9401,
+  sni: "www.ozon.ru",
+  fingerprint: "firefox"
+}' > "$PROFILES_DIR/firewall-rollback.json"
+
+open_firewall_port() { return 1; }
+safe_restart_xray() { touch "$WORKDIR/restart-called"; return 0; }
+
+if out=$(port_change_command --name firewall-rollback --port 9402 2>/dev/null); then
+  fail "firewall failure unexpectedly succeeded"
+fi
+jq -e '.ok == false and (.error | contains("файрвол"))' <<< "$out" >/dev/null ||
+  fail "firewall failure did not return actionable ok:false: $out"
+[[ ! -e "$WORKDIR/restart-called" ]] ||
+  fail "Xray restarted before the new firewall port was available"
+jq -e 'any(.inbounds[]; .port == 9401) and all(.inbounds[]; .port != 9402)' "$CONFIG_FILE" >/dev/null ||
+  fail "config was not rolled back after firewall failure"
+[[ "$(jq -r '.port' "$PROFILES_DIR/firewall-rollback.json")" == "9401" ]] ||
+  fail "profile was not rolled back after firewall failure"
+
 echo "PASS: port-change CLI renames/moves inbounds and syncs profiles atomically"

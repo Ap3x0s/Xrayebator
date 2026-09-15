@@ -79,19 +79,6 @@ if [[ -f "${UFW_OWNED_MANIFEST:-/usr/local/etc/xray/.ufw_owned}" ]]; then
     UFW_SNAPSHOT=$(mktemp /tmp/xrayebator-ufw-owned.XXXXXX)
     cat "${UFW_OWNED_MANIFEST:-/usr/local/etc/xray/.ufw_owned}" > "$UFW_SNAPSHOT"
 fi
-# Собираем динамические порты инбаундов и маршрутов ДО удаления конфига,
-# чтобы затем вычистить их из UFW (иначе пользовательские порты останутся открытыми).
-ALL_XRAY_PORTS=""
-if command -v jq > /dev/null 2>&1 && [[ -f /usr/local/etc/xray/config.json ]]; then
-    ALL_XRAY_PORTS=$(jq -r '[.inbounds[].port] | unique | .[]' /usr/local/etc/xray/config.json 2>/dev/null || true)
-fi
-if [[ -d /usr/local/etc/xray/profiles ]]; then
-    for pf in /usr/local/etc/xray/profiles/*.json; do
-        [[ -f "$pf" ]] || continue
-        ROUTE_PORTS=$(jq -r '(.routes // []) | .[].port' "$pf" 2>/dev/null || true)
-        ALL_XRAY_PORTS=$(printf '%s\n%s\n' "$ALL_XRAY_PORTS" "$ROUTE_PORTS")
-    done
-fi
 # A7-uninstall-fix: останавливаем и удаляем systemd-таймер автопродления IP-сертификата,
 # иначе он продолжает стрелять каждые 12ч и долбить systemctl reload nginx после удаления.
 if systemctl list-unit-files 'xrayebator-ip-renew.*' > /dev/null 2>&1; then
@@ -129,8 +116,23 @@ if command -v nginx > /dev/null 2>&1; then
     rm -f /etc/nginx/sites-enabled/xrayebator-selfsteal
     # Восстанавливаем default-сайт, если quickstart делал бэкап перед удалением.
     if [[ -e /etc/nginx/sites-enabled/default.xrayebator.bak && ! -e /etc/nginx/sites-enabled/default ]]; then
-        cp -a /etc/nginx/sites-enabled/default.xrayebator.bak /etc/nginx/sites-enabled/default 2>/dev/null || true
-        rm -f /etc/nginx/sites-enabled/default.xrayebator.bak 2>/dev/null || true
+        default_backup=/etc/nginx/sites-enabled/default.xrayebator.bak
+        default_site=/etc/nginx/sites-enabled/default
+        default_restored=false
+        if cp -a -- "$default_backup" "$default_site" 2>/dev/null; then
+            if [[ -L "$default_backup" ]]; then
+                [[ -L "$default_site" && "$(readlink -- "$default_backup")" == "$(readlink -- "$default_site")" ]] &&
+                    default_restored=true
+            elif [[ -f "$default_site" ]] && cmp -s -- "$default_backup" "$default_site"; then
+                default_restored=true
+            fi
+        fi
+        if [[ "$default_restored" == "true" ]]; then
+            rm -f -- "$default_backup"
+        else
+            rm -f -- "$default_site"
+            echo -e "${YELLOW}  ⚠ Не удалось восстановить nginx default; backup сохранён: $default_backup${NC}" >&2
+        fi
     fi
     if nginx -t > /dev/null 2>&1; then
         systemctl reload nginx > /dev/null 2>&1 || true
@@ -155,29 +157,19 @@ fi
 rm -f /tmp/xrayebator-certbot-owned.?????? 2>/dev/null || true
 rm -rf /var/www/xrayebator-ip-acme /var/www/xrayebator-selfsteal-acme 2>/dev/null
 # Убираем и webroot и защищаем: certbot delete уже удалил certs/keys/accounts.
-# P2-fix: удаляем UFW-правила ТОЛЬКО двух видов:
-#   1) порты из root-owned манифеста .ufw_owned (доказано — открывал Xrayebator);
-#   2) динамические порты, собранные из реального config.json/profiles ДО удаления
-#      (это фактические инбаунды Xray — они существуют только потому, что Xray их
-#      слушал, значит правила под них открывал тоже Xray).
-# Ранее тут бездоказательно удалялись общие 443/8443/8080/9443/9444 — чужие веб-сайты
-# на 443/8443 после uninstall оставались без доступа. Исправлено.
-if command -v ufw > /dev/null 2>&1; then
-    UFW_TO_DELETE=""
-    if [[ -n "$UFW_SNAPSHOT" && -f "$UFW_SNAPSHOT" ]]; then
-        UFW_TO_DELETE=$(cat "$UFW_SNAPSHOT")
-    fi
-    UFW_TO_DELETE=$(printf '%s\n%s\n' "$UFW_TO_DELETE" "$ALL_XRAY_PORTS")
-    while IFS= read -r p; do
-        [[ -n "$p" ]] || continue
-        port="${p%%/*}"
-        [[ "$port" =~ ^[0-9]+$ ]] || continue
-        # Порт в манифесте уже с протоколом (tcp/udp) — тянем и его, и TCP.
-        proto="${p#*/}"
-        [[ "$proto" == "udp" ]] || proto="tcp"
-        ufw delete allow "${port}/${proto}" > /dev/null 2>&1 || true
-        ufw delete allow "${port}/tcp" > /dev/null 2>&1 || true
-    done <<< "$UFW_TO_DELETE"
+# UFW ownership определяется только root-owned манифестом. Порт в Xray config
+# ничего не говорит о том, кто создал firewall rule. Формат новых записей:
+# port/proto/action; старые port/proto безопасно считаются allow.
+if command -v ufw > /dev/null 2>&1 &&
+   [[ -n "$UFW_SNAPSHOT" && -f "$UFW_SNAPSHOT" ]]; then
+    while IFS=/ read -r port proto action extra; do
+        [[ -z "$extra" && "$port" =~ ^[0-9]{1,5}$ ]] || continue
+        (( 10#$port >= 1 && 10#$port <= 65535 )) || continue
+        [[ "$proto" == "tcp" || "$proto" == "udp" ]] || continue
+        action="${action:-allow}"
+        [[ "$action" == "allow" || "$action" == "limit" ]] || continue
+        ufw delete "$action" "${port}/${proto}" > /dev/null 2>&1 || true
+    done < "$UFW_SNAPSHOT"
 fi
 rm -f /tmp/xrayebator-ufw-owned.?????? 2>/dev/null || true
 if id xray > /dev/null 2>&1; then

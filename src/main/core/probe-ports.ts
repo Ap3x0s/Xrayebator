@@ -1,10 +1,10 @@
 import type { Server } from '@shared/types'
+import { vlessPort } from '@shared/vless'
 
 export function probePortsFor(server: Server): number[] {
   const ports = new Set<number>()
   for (const key of server.keys ?? []) {
-    const match = /@[^:]+:(\d+)/.exec(key.url)
-    if (match) ports.add(Number(match[1]))
+    ports.add(vlessPort(key.url))
   }
   try {
     const url = new URL(server.subscriptionUrl)

@@ -18,7 +18,7 @@ extraResources:
 
 publish:
   - provider: github
-    owner: Ap3x0s
+    owner: howdeploy
     repo: Xrayebator
 
 win:

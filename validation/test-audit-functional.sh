@@ -95,13 +95,6 @@ fi
 echo "  ✓ register записал один раз"
 
 echo "── ФУНКЦ.3: privilege boundary (подмена root-скриптов xray невозможна) ──"
-if grep -E '^\s*chown -R xray:xray|;\s*chown -R xray:xray' \
-    <<< "$CRLF" <<< "$INSTALL_CRLF" <<< "$UPDATE_CRLF" 2>/dev/null \
-  ; then
-  # головной + несколько <<< перенаправлений некорректно для grep одного stdin;
-  # сделаем через файловые аргументы ниже вместо этого.
-  :
-fi
 if grep -E '^\s*chown -R xray:xray|;\s*chown -R xray:xray|\s+chown -R xray:xray\s' \
     <(printf '%s\n%s\n%s\n' "$CRLF" "$INSTALL_CRLF" "$UPDATE_CRLF"); then
   fail "подмена root-скриптов через chown -R xray:xray возможна"
@@ -160,6 +153,8 @@ rm -f "$NGINX_SITES_ENABLED/default"
 printf 'new-vhost\n' > "$NGINX_SITES_AVAILABLE/xrayebator-sub"
 ln -s "$NGINX_SITES_AVAILABLE/xrayebator-sub" "$NGINX_SITES_ENABLED/xrayebator-sub"
 QS_NGINX_MODIFIED=true
+QS_DEFAULT_REMOVED=true
+QS_DEFAULT_BACKUP_CREATED=true
 _qs_nginx_rollback
 [[ "$(<"$NGINX_SITES_ENABLED/default")" == "original-default" ]] ||
   fail "real rollback did not restore default"
@@ -177,6 +172,8 @@ mkdir -p "$NGINX_SITES_AVAILABLE" "$NGINX_SITES_ENABLED"
 printf 'new-vhost\n' > "$NGINX_SITES_AVAILABLE/xrayebator-sub"
 ln -s "$NGINX_SITES_AVAILABLE/xrayebator-sub" "$NGINX_SITES_ENABLED/xrayebator-sub"
 QS_NGINX_MODIFIED=true
+QS_DEFAULT_REMOVED=false
+QS_DEFAULT_BACKUP_CREATED=false
 _qs_nginx_rollback
 [[ ! -e "$NGINX_SITES_ENABLED/default" ]] ||
   fail "rollback fabricated a default site that did not exist"
@@ -194,6 +191,8 @@ ln -s "$NGINX_SITES_AVAILABLE/xrayebator-sub" "$NGINX_SITES_ENABLED/xrayebator-s
 cp -a "$NGINX_SITES_AVAILABLE/xrayebator-sub" "$QS_VHOST_BACKUP"
 printf 'new-vhost\n' > "$NGINX_SITES_AVAILABLE/xrayebator-sub"
 QS_NGINX_MODIFIED=true
+QS_DEFAULT_REMOVED=false
+QS_DEFAULT_BACKUP_CREATED=false
 _qs_nginx_rollback
 [[ "$(<"$NGINX_SITES_AVAILABLE/xrayebator-sub")" == "old-vhost" ]] ||
   fail "rollback did not restore the pre-existing vhost"
