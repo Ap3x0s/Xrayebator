@@ -30,7 +30,9 @@ separate CI requirement.
 
 The Bash tests use Linux-flavoured tools such as `jq`, `uuidgen` and `rg`. A bare Windows Git Bash
 checkout may therefore be unable to run the complete suite; use the Ubuntu CI environment or a Linux
-machine for authoritative results.
+machine for authoritative results. Lifecycle checks should also verify Xray, DNS and the subscription
+endpoint/service after an install or update; the runtime `safe_restart_xray` transaction is not a
+promise that installer and updater paths behave identically.
 
 ## Validation suite
 
@@ -67,6 +69,16 @@ Static tests do not replace a disposable VPS run: profile creation and deletion,
 service restarts, rollback, firewall behavior and a real client connection still need live-server
 verification.
 
+## Lifecycle and HAPP endpoint checks
+
+For a new deployment, exercise the broad `quickstart --email <address>` path and confirm that it
+completes endpoint provisioning/verification, migrations and HAPP profile creation. For an existing
+installation, exercise the reduced `happ-setup` path separately: remove one or both subscription
+markers in a disposable environment and confirm that it refuses to fabricate them unless the public
+TLS endpoint is actually verified. With both markers present, confirm that setup reuses them rather
+than treating their presence as proof that the endpoint is still healthy; operator verification or a
+rerun of the appropriate setup remains necessary.
+
 ## Manual checks on a live server
 
 Use Xray's `run` subcommand when validating the installed configuration:
@@ -82,9 +94,12 @@ jq -r '.routes[] | [.label,.transport,.port,(.pq_enabled // false)] | @tsv' \
 ```
 
 The local subscription self-test must return `404` without a token and `200` with a valid token and
-VLESS lines. Check that the HAPP profile has seven live routes while the published list intentionally
-contains six. If UFW is already active, compare the numbered rules before and after an operation: an
-install must not change its default policy, and uninstall should remove only rules recorded as owned.
+VLESS lines. Check that a newly provisioned standard HAPP profile has `schema_version: 3` and seven
+live routes while the published list intentionally contains six. An existing profile reused by HAPP
+setup may only satisfy the seven-live-route minimum, so inspect its actual labels and schema; a
+migration does not retrofit missing routes. If UFW is already active, compare the numbered rules
+before and after an operation: the installer adds the fixed project service TCP list and must not
+change the default policy, while uninstall should remove only rules recorded as owned.
 
 ## Electron GUI unit tests
 

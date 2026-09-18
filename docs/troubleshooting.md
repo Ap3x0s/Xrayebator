@@ -7,7 +7,8 @@
 ## HAPP does not refresh the subscription
 
 The JSON emitted by `quickstart` contains `subscription_url`. It is built from the saved subscription
-base, so the host and port in the URL are intentional:
+base, so the host and port in the URL are intentional. For a public TLS deployment, check the nginx
+endpoint; local-only mode does not require nginx to be present or running:
 
 ```text
 https://your-domain/sub/<token>        # public TLS on 443
@@ -23,10 +24,15 @@ curl -vk https://your-domain[:port]/sub/<token>
 ```
 
 `/sub/` without a token must return `404`. The full token URL must return `200` and a body with
-`vless://` links. Then check the services:
+`vless://` links. Then check the subscription service:
 
 ```bash
 systemctl status xrayebator-sub --no-pager -l
+```
+
+For public TLS only, also check nginx and the public listener:
+
+```bash
 systemctl status nginx --no-pager -l
 ```
 
@@ -53,17 +59,26 @@ domain and that it includes `:8443` when the public listener is not on 443.
 
 ## `happ-setup` refuses to return a public URL
 
-This is a safety check, not a missing URL formatting option. `happ-setup` will not fabricate a
-public endpoint from an IP or a marker file. It requires the subscription vhost, certificate and
-active HTTPS listener to be verified before it writes/returns a public URL.
+This is a safety check, not a missing URL formatting option. Verification runs when
+`.subscription_domain` or `.subscription_port` is missing: `happ-setup` will not fabricate markers
+or a public endpoint and instead requires the subscription vhost, certificate and active HTTPS
+listener to be verified. If both markers already exist, they are reused and are not necessarily
+reverified; stale saved markers still require operator verification or a rerun of the appropriate
+setup path.
 
-If this is a new server, run `quickstart --email <address>` or complete the HAPP IP/domain setup
-from the terminal menu first. For an existing setup, inspect:
+For a new server, use the broad path `quickstart --email <address>` or complete the HAPP IP/domain
+setup from the terminal menu first. `happ-setup` is the reduced existing-install recovery path and
+still needs that endpoint prerequisite. For an existing setup with missing markers, inspect:
+
+```bash
+sudo systemctl status xrayebator-sub --no-pager -l
+sudo journalctl -u xrayebator-sub -n 80 --no-pager
+```
+
+For public TLS only, also inspect nginx:
 
 ```bash
 sudo systemctl status nginx --no-pager -l
-sudo systemctl status xrayebator-sub --no-pager -l
-sudo journalctl -u xrayebator-sub -n 80 --no-pager
 ```
 
 Fix the certificate or listener, then run `sudo xrayebator happ-setup` again. Do not work around the
@@ -71,9 +86,15 @@ error by hand-writing a plausible public URL.
 
 ## HAPP shows six routes although the profile has seven
 
-That is expected for the managed HAPP profile. The profile JSON must contain seven live `routes[]`,
-including `xhttp-legacy` and `xhttp-pq`; the published VLESS list contains six entries because the
-PQ-XHTTP route is retained for the raw/profile path rather than the normal HAPP list.
+That is expected for a newly provisioned standard managed HAPP profile. Its JSON uses
+`schema_version: 3` and should contain seven live `routes[]`, including `xhttp-legacy` and
+`xhttp-pq`; the published VLESS list contains six entries because the PQ-XHTTP route is retained
+for the raw/profile path rather than the normal HAPP list.
+
+The setup helper can reuse an existing profile meeting the seven-live-route minimum, even if it lacks
+those standard labels or schema. Migrations do not retrofit missing routes into that existing
+profile. Inspect the actual JSON and re-provision/create a managed profile through the menu or
+`quickstart` when the required routes are absent.
 
 Verify the profile and live ports:
 
@@ -108,9 +129,10 @@ still needs a forced refresh or its next automatic one.
 
 ## Old profiles exist on the server but do not work
 
-If the profile JSON points at ports that no longer exist in `config.json`, the profile is stale. New
-subscriptions do not serve those routes and the old token returns `410 Gone`. Recreate the profile or
-repair the live inbound through the terminal menu; do not publish a link that points to a dead port.
+If the profile JSON points at ports that no longer exist in `config.json`, the profile is stale.
+A profile with no live routes returns `410 Gone`; a partially stale multi-route profile can still
+return its remaining live routes with `200`. Recreate the profile or repair the live inbound through
+the terminal menu; do not publish a link that points to a dead port.
 
 ## The client cannot connect
 
@@ -136,9 +158,11 @@ Keep 2–4 profiles ready so you can switch in an emergency.
 ## The GUI update did not perform the full project update
 
 Server Settings in the Electron GUI invokes `xrayebator update <branch>`: it self-updates the manager
-from that branch and updates Xray-core. It is not the same as `xrayebator-update [branch]`, which is
-the full project lifecycle updater. Run the latter from an SSH terminal when you need data,
-subscription integration and all lifecycle steps refreshed.
+from the canonical raw branch and then updates Xray-core. It is not the same as
+`xrayebator-update [branch]`, which is the full project lifecycle updater. With no branch,
+`xrayebator-update` displays `.current_branch` and opens the interactive selector; it does not
+silently use that marker. Run the latter from an SSH terminal when you need the broader lifecycle
+sequence, and verify Xray, DNS and the subscription endpoint/service afterwards.
 
 The GUI intentionally exposes only a subset of the Bash menu. Use the terminal for bypass, probing,
 subscription revocation, HAPP setup, cascade, self-steal and service logs/status.
