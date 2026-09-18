@@ -4,7 +4,7 @@
 
 Sections: [Repository](#repository) · [On-server state](#on-server-state) ·
 [Inbound versus profile](#inbound-versus-profile) · [How the subscription works](#how-the-subscription-works) ·
-[Desktop GUI](#desktop-gui)
+[Update paths](#update-paths) · [Desktop GUI](#desktop-gui)
 
 ---
 
@@ -12,148 +12,145 @@ Sections: [Repository](#repository) · [On-server state](#on-server-state) ·
 
 ```text
 Xrayebator/
-├── xrayebator            # main application: menu, profiles, inbounds, routing, migrations
-├── install.sh            # installs the core, service, permissions, geo databases, lifecycle commands
-├── update.sh             # updates Xrayebator itself from the selected branch
-├── uninstall.sh          # removes the service and configuration
-├── src/                  # desktop GUI (Electron + React)
-│   ├── main/             # main process: window, tray, auto-update, IPC handlers
-│   │   ├── core/         # SSH client, deployer, profile manager, server manager, subscription
-│   │   │                #   server store (electron-store)
-│   ├── preload/          # contextBridge between the renderer and the main process
-│   ├── renderer/         # React UI: Dashboard, AddServer, ServerKeys, ServerSettings
-│   │   └── src/i18n/     # ru.json, en.json, zh.json; localStorage language switch
-│   └── shared/           # TypeScript types shared between main and renderer
-├── tests/                # Vitest unit tests for the GUI helpers
-├── validation/           # static and local regression tests
-├── gui-legacy/           # legacy PySide6 desktop GUI (no longer the active app)
-├── docs/                 # documentation: en, ru, zh-CN
-├── sni_list.txt          # SNI candidates
-├── ascii_art.txt         # terminal interface header
-├── CLAUDE.md             # working rules and project policies
+├── xrayebator                  # Bash application: menu, profiles, inbounds, routing, migrations
+├── install.sh                  # first installation, service, dependencies and permissions
+├── update.sh                   # full project lifecycle update workflow
+├── uninstall.sh                # removes the service and installation state
+├── src/                        # active Electron + React + TypeScript desktop GUI
+│   ├── main/                   # SSH, deploy, profile, subscription and server managers
+│   ├── preload/                # contextBridge exposed to the renderer
+│   ├── renderer/               # Dashboard, AddServer, ServerKeys, ServerSettings
+│   └── shared/                 # shared TypeScript types and VLESS helpers
+├── tests/                      # Electron/Vitest unit tests
+├── resources/                  # Electron build assets
+│   └── icons/                  # application icons
+├── electron-builder.yml        # packaging and extraResources configuration
+├── electron.vite.config.ts     # main, preload and renderer build configuration
+├── package.json                # Electron scripts and dependencies
+├── gui-legacy/                 # archived PySide6 GUI and its tests
+├── validation/                 # Bash static and local regression tests
+├── docs/                       # English, Russian and Chinese technical reference
+├── sni_list.txt                # SNI candidates used by the Bash application
+├── ascii_art.txt               # terminal interface header
 └── LICENSE
 ```
 
-The management logic lives in the single `xrayebator` file. `install.sh`, `update.sh` and
-`uninstall.sh` cover the lifecycle. The generated `subhttp.sh`, the nginx config and the systemd unit
-form the HAPP subscription path.
+The server-side management logic lives in the single `xrayebator` file. `install.sh`, `update.sh` and
+`uninstall.sh` cover installation and lifecycle operations. The generated `subhttp.sh`, nginx
+configuration and systemd unit form the HAPP subscription path. The active desktop application in
+`src/` is an SSH front-end to this Bash authority; it is not a second server implementation.
 
 ## On-server state
 
 ```text
 /usr/local/bin/
-├── xray                          # the core
-├── xrayebator                    # the manager
-├── subhttp.sh                       # subscription backend
-├── xrayebator-update
-└── xrayebator-uninstall
+├── xray                          # Xray-core binary
+├── xrayebator                    # manager entry point
+├── subhttp.sh                    # generated subscription HTTP handler
+├── xrayebator-update             # full project updater
+└── xrayebator-uninstall          # removal entry point
 
 /usr/local/etc/xray/
-├── config.json                   # inbounds, outbounds, routing, DNS
-├── profiles/<name>.json          # profile metadata: routes, sub_token, SNI, fingerprint
+├── config.json                   # inbounds, outbounds, routing and DNS
+├── profiles/<name>.json          # profile metadata and subscription token
 ├── upstreams/cascade.json        # cascade upstream parameters
-├── backups/config_<timestamp>_<op>.json          # config backups taken before every change
-├── .private_key / .public_key    # Reality keys, generated once at install time
-├── .vless_decryption             # PQ keys for xhttp-pq
-├── .vless_encryption
-├── .subscription_mode            # subscription publishing mode
-├── .subscription_domain          # subscription domain; a DNS record alone does not change it
-├── .subscription_port            # 443 or 8443
-├── .happ_defaults.env            # HAPP settings, including the server name shown in the client
-├── .current_branch               # branch Xrayebator updates from
-└── .xhttp_migrated, ...          # marker files of completed migrations
+├── backups/                      # config backups made before runtime mutations
+├── .private_key / .public_key    # Reality keys
+├── .vless_decryption / .vless_encryption
+├── .subscription_*               # subscription mode, address, domain and port markers
+├── .happ_defaults.env            # HAPP display and routing defaults
+├── .current_branch               # manager branch used by lifecycle updates
+└── migration markers             # records of completed one-time migrations
 
-/usr/local/share/xray/            # geoip.dat and geosite.dat
+/usr/local/share/xray/             # geoip.dat and geosite.dat
+/var/log/xray/                     # runtime log directory written by the Xray service
 /etc/systemd/system/xray.service.d/security.conf
 /etc/systemd/system/xrayebator-sub.service
 /etc/nginx/sites-available/xrayebator-sub
-/etc/nginx/sites-available/xrayebator-selfsteal
 ```
+
+`/usr/local/etc/xray/` is root-owned manager state and configuration. Xray runs as the non-root
+`xray` service account and reads the files it needs; it does not own or write the manager state.
+`/var/log/xray/` is the separate runtime log directory. Root-owned scripts and markers therefore
+cannot be replaced by the service account.
 
 ## Inbound versus profile
 
-An inbound is a block in `config.json` bound to a port. A profile is a JSON file with user-facing
-metadata. Several profiles can live on one inbound, that is, on one port.
+An inbound is a port-level block in `config.json`. A profile is a user-facing JSON file containing
+one route or several routes. Several profiles can share the same inbound and port.
 
-The consequence matters: the SNI and fingerprint of an inbound are shared by every profile on that
-port. Changing the SNI on a port affects all profiles attached to it.
+The port and SNI are properties of that shared inbound. Changing the SNI or port can therefore
+change every profile that uses that inbound; use separate ports when independent SNI values are
+needed. The generated profile JSON is synchronised after an inbound-level SNI or port change.
+
+The Reality fingerprint is a client-side value stored per profile or route. Changing it changes the
+client link for the selected route, does not edit the inbound, and does not require an Xray restart.
+For XHTTP, the route SNI is also reflected in the transport host field so the two values stay in
+sync.
 
 ## How the subscription works
 
-`xrayebator-sub.service` listens on `127.0.0.1:8080` and nginx publishes it over HTTPS. The endpoint:
+`xrayebator-sub.service` listens on `127.0.0.1:8080`; nginx publishes the generated
+`/usr/local/bin/subhttp.sh` handler over HTTPS. The handler reads the root-owned state and profile
+metadata and returns the client-specific subscription body.
+
+The base is built dynamically from `.subscription_domain` and `.subscription_port`:
 
 ```text
-https://<domain-or-ip>/sub/<32-hex-token>
+https://<domain>/sub/<32-hex-token>       # public TLS on 443
+https://<domain>:8443/sub/<32-hex-token>  # public TLS on another port
+http://127.0.0.1:8080/sub/<token>         # local-only fallback
 ```
 
-The token lives in the profile JSON as `sub_token`. If it leaks, use `Revoke` in the subscription
-menu — the token changes and the old URL dies.
+`quickstart --email <address>` emits JSON containing `subscription_url` built from that current
+base. It does not assume that the public listener is always `8443`. The token is stored in the
+profile as `sub_token`; revoke rotates it and invalidates the previous URL.
 
-The subscription name shown in the client is set separately from the profile name:
-`Подписка HAPP` → `Настройки HAPP` → `HAPP_SERVER_NAME`. Several VPS instances can therefore be
-labelled differently in the client list even when the internal profile on each is called `happ`. An
-empty value falls back to the profile name.
+The HAPP profile is intentionally a seven-route profile, including `xhttp-legacy` and the
+post-quantum XHTTP route. The published HAPP connection list contains six VLESS routes because the
+PQ route remains available through the raw/profile path. A profile with no live inbound is hidden
+from the subscription and its old URL returns `410 Gone`.
 
-Per-client behaviour:
+The handler also serves the token-protected `geoip.dat` and `geosite.dat` resources required by the
+managed HAPP routing profile. HAPP receives its routing metadata, while v2rayNG and v2rayN receive
+the compatible VLESS body without HAPP-only metadata.
 
-- HAPP receives a plain-text `vless://` list, HAPP headers and the managed
-  `happ://routing/onadd/...` profile by default;
-- the profile downloads `geoip.dat` and `geosite.dat` from token-protected
-  `/sub/<token>/geoip.dat` and `/sub/<token>/geosite.dat`, so the client does not need direct GitHub access;
-- `v2rayNG` and `v2rayN` receive the classic base64 body without HAPP metadata;
-- profiles without a live inbound are hidden from the subscription menu and their old URLs return
-  `410 Gone`.
+## Update paths
 
-Set `HAPP_ROUTING_ENABLED=false` in `.happ_defaults.env` to opt out. A custom
-`.happ_routing.json` overrides the managed profile only after strict HAPP-schema validation;
-malformed JSON falls back to the managed profile and is reported in the service journal.
+The similarly named commands have different responsibilities:
+
+| Command | Responsibility |
+|---|---|
+| `sudo xrayebator update` | Update only the Xray-core binary from the XTLS release channel, then validate and restart the core through the core-update path |
+| `sudo xrayebator update <branch>` | Fetch the manager script from the canonical repository branch, continue with the fresh script, and update Xray-core |
+| `sudo xrayebator-update [branch]` | Run the full `update.sh` project lifecycle workflow: manager scripts, core, data, subscription integration and service refresh |
+
+The optional branch for the full updater defaults to the branch recorded in `.current_branch`. The
+Electron GUI uses the middle path (`xrayebator update <branch>`) for its Server Settings update;
+it does not expose the complete terminal update workflow.
 
 ## Config edits
 
-Every change follows the same path:
+For runtime mutations owned by `xrayebator`, the normal transaction is:
 
 ```text
 backup_config ────► /usr/local/etc/xray/backups/config_<timestamp>_<op>.json
 safe_jq_write ────► temp file in the destination directory → validation → atomic rename
 safe_restart_xray ► xray run -test -config → systemctl restart
-                    on failure — rollback from the backup, Xray keeps the old config
+                     on failure — rollback from the backup, Xray keeps the old config
 ```
 
-Migrations run once and are recorded by marker files in `/usr/local/etc/xray/`. The scheme is always
-the same: marker missing → backup → edit → restart → create the marker.
+Migrations run once and are recorded by marker files in `/usr/local/etc/xray/`. The usual sequence
+is marker missing → backup → edit → validated restart when the configuration changed → create the
+marker. The installer and lifecycle updater have their own validation and restart sequences; not
+every installation or update restart is a call to `safe_restart_xray`.
 
 ## Desktop GUI
 
-The desktop app (`src/`) is a CLI front-end over SSH with password/private-key authentication and
-direct-root/sudo privilege modes. Root + password is the default. It never edits `config.json`
-directly — every operation maps to a documented CLI command executed on the server:
+The active desktop app (`src/`) is a controlled CLI front-end over SSH. It can deploy with
+`quickstart`, refresh and display the saved subscription, manage profiles, and invoke selected SNI,
+fingerprint, port, update and uninstall operations. It intentionally exposes only a subset of the
+interactive Bash menu and never edits `config.json` directly.
 
-| GUI action | Server command |
-|---|---|
-| Add server / deploy | upload `install.sh` + `xrayebator` → `bash install.sh` → `xrayebator quickstart --email <email>` |
-| Refresh subscription | HTTP GET the saved subscription URL |
-| List profiles | `xrayebator profiles` |
-| Create profile | `xrayebator profile-create --name N [--transport T] [--port P] [--count N]` |
-| Delete profile | `xrayebator profile-delete --name N` |
-| Change fingerprint | `xrayebator fp-change --name N [--route R] --fp F` |
-| Change SNI | `xrayebator sni-change --name N [--route R] --sni S` |
-| Load SNI candidates | `xrayebator sni-list` |
-| Change port | `xrayebator port-change --name N [--route R] --port P` |
-| Update server | read `.current_branch` → `xrayebator update <branch>` (self-update + core) |
-| Uninstall | upload `uninstall.sh` → `yes | bash uninstall.sh` |
-
-The renderer talks to the main process only through `window.api` (exposed by the preload bridge via
-`contextBridge`, `contextIsolation: true`, `sandbox: true`). Passwords and passphrases stay in the
-active renderer form/session and are sent per operation; they are never persisted. The main process
-owns `ssh2`, reads only private-key paths selected through its native dialog, and pins the SSH host
-key after the first successful authentication. `electron-store` contains only non-secret server
-metadata and connection preferences, including the key path and host-key fingerprint.
-
-Process boundaries:
-
-```text
-renderer (React)
-    │  window.api (preload bridge, contextIsolated)
-    ▼
-main process  ──►  ssh2 (SSH)  ──►  xrayebator CLI on the VPS
-```
+See [Electron Desktop GUI](desktop-gui.md) for the complete feature boundary, SSH security model,
+command mapping, packaging and test details.
