@@ -76,11 +76,11 @@ The installer installs `ufw` when needed and handles the SSH lockout hazard befo
 4. if the SSH port cannot be determined or cannot be opened safely, an inactive UFW is left
    disabled instead of applying a deny policy that could lock out the VPS.
 
-If UFW was already active, it is not disabled and pre-existing rules remain unowned. Once the SSH
-safety check succeeds, the installer adds these project service ports when required:
-`22, 80, 443, 8443, 2053, 2083, 2087, 8080, 2096, 8880, 9443/tcp`. The list is not a promise that
-SSH uses port 22; always compare numbered rules before and after installation. Owned rules are
-removed on uninstall, while rules that existed beforehand stay untouched.
+If UFW was already active or becomes enabled after the SSH safety check, the installer adds this
+fixed project service TCP list: `22, 80, 443, 8443, 2053, 2083, 2087, 8080, 2096, 8880, 9443`.
+It records only rules it creates in the root-owned `.ufw_owned` manifest. The list is not a promise
+that SSH uses port 22; compare numbered rules before and after installation. Owned rules are removed
+on uninstall, while rules that existed beforehand stay untouched.
 
 ## Main menu
 
@@ -112,8 +112,8 @@ is a client-side profile/route setting; changing it does not restart Xray or alt
 | `sudo xrayebator update` | Update only the Xray-core binary |
 | `sudo xrayebator update <branch>` | Self-update the manager from the canonical raw repository branch, continue with the new script, then update Xray-core |
 | `sudo xrayebator probe-test` | Check SNI reachability from the VPS before switching |
-| `sudo xrayebator quickstart --email <address>` | One-shot deploy path used by the desktop GUI: runs the required setup/migrations, provisions the subscription endpoint and creates the 7-route HAPP profile; emits JSON with `subscription_url` |
-| `sudo xrayebator happ-setup` | Idempotent existing-install HAPP setup: ensures the 7-route profile and subscription service, but refuses to fabricate a public endpoint that has not been verified |
+| `sudo xrayebator quickstart --email <address>` | One-shot deploy path used by the desktop GUI: runs the broad setup/migration path, provisions and verifies the subscription endpoint, and creates a standard HAPP profile with `schema_version: 3` and 7 routes; emits JSON with `subscription_url` |
+| `sudo xrayebator happ-setup` | Reduced existing-install HAPP path: ensures the subscription service and a usable multi-route profile, but does not replace the endpoint prerequisite; when `.subscription_domain` or `.subscription_port` is missing, it verifies a real public TLS endpoint before writing markers and otherwise fails |
 | `sudo xrayebator profiles` | Print all server profiles as a JSON array for the desktop GUI Server Settings page |
 | `sudo xrayebator profile-create --name NAME [--transport tcp\|tcp-utls\|tcp-xudp\|tcp-mux\|grpc\|xhttp] [--port P] [--count N]` | Create one or more profiles non-interactively; prints `{"ok":true,"names":[...],"errors":[...]}` |
 | `sudo xrayebator profile-delete --name NAME` | Delete a profile non-interactively; prints `{"ok":true,"name":"..."}` |
@@ -126,7 +126,7 @@ is a client-side profile/route setting; changing it does not restart Xray or alt
 | `sudo xrayebator bypass remove --domain D` | Remove a domain from bypass rules |
 | `sudo xrayebator bypass reset` | Clear all custom bypass rules |
 | `sudo xrayebator bypass bundle [--group a,b,c]` | Apply the default bypass groups; without `--group`, apply all groups |
-| `sudo xrayebator-update [branch]` | Run the full `update.sh` project lifecycle update; without a branch, use `.current_branch` |
+| `sudo xrayebator-update [branch]` | Run the full `update.sh` project lifecycle update; without a branch, display `.current_branch` and open the interactive branch selector; with a branch, use that explicit branch |
 | `sudo xrayebator-uninstall` | Remove the service and installation |
 
 These update commands are intentionally different:
@@ -134,12 +134,34 @@ These update commands are intentionally different:
 | | `sudo xrayebator update <branch>` | `sudo xrayebator-update [branch]` |
 |---|---|---|
 | What it starts with | The installed manager script | The full lifecycle updater script |
-| Source | Canonical raw file for the requested branch | The selected branch's update workflow |
-| Main result | Manager self-update followed by Xray-core update | Manager scripts, Xray-core, data, subscription integration and service refresh |
-| Branch default | Explicit argument or the installed default path | `.current_branch` when omitted |
+| Source | Canonical raw file for the requested branch | The selected branch's `update.sh` workflow |
+| Main result | Manager self-update followed by Xray-core update | The manager's lifecycle sequence: scripts, data, subscription integration and service refresh as implemented |
+| Branch selection | Explicit branch is required for self-update | No argument shows `.current_branch` and then prompts; an explicit argument selects that branch |
 
-The desktop GUI currently invokes `xrayebator update <branch>` from Server Settings. It does not
-invoke the full `xrayebator-update` workflow.
+`xrayebator update <branch>` self-updates the manager from the canonical raw branch, then invokes
+the fresh manager for the Xray-core update. The full `update.sh` path has separate validation,
+restart and rollback behavior, so do not infer that every full run changes Xray-core. The desktop
+GUI currently invokes `xrayebator update <branch>` from Server Settings; it does not invoke the full
+`xrayebator-update` workflow.
+
+## HAPP provisioning paths
+
+`quickstart --email <address>` is the broad migration path: it performs the setup needed by a new
+deployment, provisions the public subscription endpoint and certificate, and then creates or reuses
+the managed HAPP profile. A newly created standard profile uses `schema_version: 3` with seven
+routes, including `xhttp-legacy` and `xhttp-pq`.
+
+`happ-setup` is the reduced path for an existing installation. It runs only the critical migrations,
+restores the subscription service and ensures a multi-route profile; it is not a replacement for
+initial endpoint provisioning. If `.subscription_domain` or `.subscription_port` is missing,
+it verifies the public TLS endpoint before writing markers and refuses to fabricate them. Existing
+markers are reused without necessarily being reverified, so stale saved markers still require
+operator verification or a rerun of the appropriate setup path.
+
+The helper may reuse an existing profile meeting the seven-live-route minimum, not necessarily one
+with all standard labels or the current schema. Inspect the actual JSON; migrations do not retrofit missing
+routes into an existing profile. Use the menu or `quickstart` to re-provision/create a managed
+profile when `xhttp-legacy`, `xhttp-pq` or the expected seven-route shape is missing.
 
 ## Desktop GUI
 

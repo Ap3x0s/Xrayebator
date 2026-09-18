@@ -14,7 +14,7 @@ Sections: [Repository](#repository) · [On-server state](#on-server-state) ·
 Xrayebator/
 ├── xrayebator                  # Bash application: menu, profiles, inbounds, routing, migrations
 ├── install.sh                  # first installation, service, dependencies and permissions
-├── update.sh                   # full project lifecycle update workflow
+├── update.sh                   # project lifecycle update workflow
 ├── uninstall.sh                # removes the service and installation state
 ├── src/                        # active Electron + React + TypeScript desktop GUI
 │   ├── main/                   # SSH, deploy, profile, subscription and server managers
@@ -69,10 +69,13 @@ configuration and systemd unit form the HAPP subscription path. The active deskt
 /etc/nginx/sites-available/xrayebator-sub
 ```
 
-`/usr/local/etc/xray/` is root-owned manager state and configuration. Xray runs as the non-root
-`xray` service account and reads the files it needs; it does not own or write the manager state.
-`/var/log/xray/` is the separate runtime log directory. Root-owned scripts and markers therefore
-cannot be replaced by the service account.
+`/usr/local/etc/xray/` is manager state and configuration protected from service-account writes. Most
+state and configuration is root-owned, while generated metadata such as `.server_country` may be
+owned by `xray`; rollback paths can temporarily restore the live config as `root:xray` with mode
+`0640`, whereas the normal installed config is typically `root:root` with mode `0644`. The
+executable manager scripts, marker files and private keys remain root-protected. Xray runs as the
+non-root `xray` service account and reads the files it needs; `/var/log/xray/` is the separate
+runtime log directory.
 
 ## Inbound versus profile
 
@@ -91,7 +94,7 @@ sync.
 ## How the subscription works
 
 `xrayebator-sub.service` listens on `127.0.0.1:8080`; nginx publishes the generated
-`/usr/local/bin/subhttp.sh` handler over HTTPS. The handler reads the root-owned state and profile
+`/usr/local/bin/subhttp.sh` handler over HTTPS. The handler reads protected manager state and profile
 metadata and returns the client-specific subscription body.
 
 The base is built dynamically from `.subscription_domain` and `.subscription_port`:
@@ -103,13 +106,18 @@ http://127.0.0.1:8080/sub/<token>         # local-only fallback
 ```
 
 `quickstart --email <address>` emits JSON containing `subscription_url` built from that current
-base. It does not assume that the public listener is always `8443`. The token is stored in the
+base. It does not hard-code `8443` as the public listener. The token is stored in the
 profile as `sub_token`; revoke rotates it and invalidates the previous URL.
 
-The HAPP profile is intentionally a seven-route profile, including `xhttp-legacy` and the
-post-quantum XHTTP route. The published HAPP connection list contains six VLESS routes because the
-PQ route remains available through the raw/profile path. A profile with no live inbound is hidden
-from the subscription and its old URL returns `410 Gone`.
+A newly provisioned standard HAPP managed profile has `schema_version: 3` and seven routes,
+including `xhttp-legacy` and `xhttp-pq`. The published HAPP connection list contains six VLESS
+routes because the PQ route remains available through the raw/profile path. The HAPP setup helper
+may reuse an existing profile meeting the seven-live-route minimum, so inspect
+the actual profile before assuming it has the standard labels or schema; migrations do not retrofit
+missing routes into an existing profile. Re-provision or create a managed profile through the menu
+or quickstart when the required routes are absent. A profile with no live inbound routes returns
+`410 Gone`; a partially stale multi-route profile can instead return its remaining live routes
+(and `200`).
 
 The handler also serves the token-protected `geoip.dat` and `geosite.dat` resources required by the
 managed HAPP routing profile. HAPP receives its routing metadata, while v2rayNG and v2rayN receive
@@ -122,12 +130,15 @@ The similarly named commands have different responsibilities:
 | Command | Responsibility |
 |---|---|
 | `sudo xrayebator update` | Update only the Xray-core binary from the XTLS release channel, then validate and restart the core through the core-update path |
-| `sudo xrayebator update <branch>` | Fetch the manager script from the canonical repository branch, continue with the fresh script, and update Xray-core |
-| `sudo xrayebator-update [branch]` | Run the full `update.sh` project lifecycle workflow: manager scripts, core, data, subscription integration and service refresh |
+| `sudo xrayebator update <branch>` | Fetch the manager script from the canonical raw repository branch, continue with the fresh script, and then update Xray-core |
+| `sudo xrayebator-update [branch]` | Run the `update.sh` project lifecycle workflow: manager scripts, data, subscription integration and service refresh as implemented by that script |
 
-The optional branch for the full updater defaults to the branch recorded in `.current_branch`. The
-Electron GUI uses the middle path (`xrayebator update <branch>`) for its Server Settings update;
-it does not expose the complete terminal update workflow.
+With no branch argument, `xrayebator-update` displays the branch recorded in `.current_branch` and
+then opens an interactive branch choice; it does not silently select `.current_branch`. With an
+explicit branch, it uses that branch. The Electron GUI uses the middle path (`xrayebator update
+<branch>`) for its Server Settings update; it does not expose the complete terminal update workflow.
+The full `update.sh` path has its own validation, restart and rollback steps, and this description
+does not guarantee that every run changes Xray-core.
 
 ## Config edits
 
