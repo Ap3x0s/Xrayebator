@@ -52,13 +52,13 @@ Server settings first authenticates over SSH and can then:
 - uninstall the server installation after confirmation;
 - reset the pinned SSH host key after explicit confirmation.
 
-SNI and fingerprint are represented by the server-side profile/inbound model. A port-level change can therefore affect other profiles sharing that inbound; the server command reports the result and whether reconnecting is required.
+SNI and port are inbound-level settings: changing them can affect every profile sharing that inbound. Fingerprint is different: it is a client-side value stored per profile/route and does not change the other routes. The server command reports the result and whether reconnecting is required.
 
 ## SSH and security
 
 The GUI supports SSH password authentication or a private key, with either direct `root` execution or elevated commands through `sudo`. A private key is selected through the native Electron file dialog; the main process rejects an arbitrary path that was not approved by that dialog.
 
-Passwords, sudo passwords, key passphrases, and private-key contents are not persisted. They exist only in the active form/operation and are passed to the main process when needed. `electron-store` is used for non-secret server metadata and preferences, such as the saved server card, username, authentication method, privilege mode, and selected key path. It also stores the SHA-256 SSH host-key fingerprint after the first successful connection (TOFU). A later fingerprint mismatch fails closed before commands are executed; an intentional server reinstall requires an explicit host-key reset in Server settings.
+SSH passwords, sudo passwords, key passphrases, and private-key bytes are not persisted. They exist only in the active form/operation and are passed to the main process when needed. `electron-store` persists the server card and connection preferences, the subscription URL, and the fetched VLESS links (bearer/client credentials), as well as the username, authentication method, privilege mode, selected key path, and the SHA-256 SSH host-key pin. Protect the local application data; if the subscription URL or VLESS links leak, revoke the subscription through the terminal workflow. A later fingerprint mismatch fails closed before commands are executed; an intentional server reinstall requires an explicit host-key reset in Server settings.
 
 `keytar` is present in `package.json`, but the active Electron GUI does not use it to store SSH passwords or passphrases in an operating-system keychain.
 
@@ -114,12 +114,13 @@ The deployment authority is the remote Bash installation, not React. The Electro
 ```text
 SSH connect + host-key verification
         │
-        ├─ elevated `id -u` and `/etc/os-release`
+        ├─ elevated `id -u`
+        ├─ ordinary `/etc/os-release` read
         ├─ SFTP upload: install.sh, xrayebator
         ├─ elevated `bash install.sh`
         ├─ elevated install → /usr/local/bin/xrayebator
         ├─ elevated `xrayebator quickstart --email EMAIL`
-        └─ parse `subscription_url` → fetch subscription → persist non-secret metadata
+        └─ parse `subscription_url` → fetch subscription → persist the server card, connection preferences, subscription URL, and fetched VLESS links
 ```
 
 Remote commands are assembled with shell-safe argument quoting. For sudo access, the secret is supplied via stdin while the command itself is kept separate. The GUI closes the SSH client after each operation and clears the in-memory private-key buffer when the client closes.

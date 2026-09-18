@@ -52,13 +52,13 @@ Server settings 先通过 SSH 认证，然后可以：
 - 确认后卸载服务器安装；
 - 在明确确认后重置固定的 SSH host key。
 
-SNI 和 fingerprint 遵循服务端的配置档/入站模型。因此，端口级修改可能影响共享同一入站的其他配置档；服务端命令会报告结果以及是否需要重新连接。
+SNI 和端口属于 inbound 级别的设置：修改它们可能影响共享该 inbound 的所有配置档。Fingerprint 则不同：它是按配置档/线路保存的客户端参数，不会修改其他线路。服务端命令会报告结果以及是否需要重新连接。
 
 ## SSH 与安全
 
 GUI 支持 SSH 密码认证或私钥认证，并支持直接以 `root` 执行或通过 `sudo` 提升权限。私钥通过 Electron 原生文件对话框选择；main process 会拒绝未经该对话框批准的任意路径。
 
-密码、sudo 密码、私钥口令和私钥内容都不会持久化。它们只存在于当前表单/操作中，并在需要时传给 main process。`electron-store` 用于保存非机密的服务器元数据与偏好，例如本地服务器卡片、用户名、认证方式、权限模式和已选择的密钥路径。首次成功连接后，它还会保存 SSH host key 的 SHA-256 fingerprint（TOFU）。之后 fingerprint 不匹配时，会在执行命令前失败；有意重装服务器时，必须在 Server settings 中明确重置 host-key pin。
+SSH 密码、sudo 密码、私钥口令和私钥字节都不会持久化。它们只存在于当前表单/操作中，并在需要时传给 main process。`electron-store` 会保存服务器卡片和连接偏好、订阅 URL、已获取的 VLESS 链接（bearer/client credentials）、用户名、认证方式、权限模式、所选密钥路径，以及首次成功连接后保存的 SSH host-key SHA-256 pin（TOFU）。请保护本地应用数据；如果订阅 URL 或 VLESS 链接泄露，请通过终端 workflow 吊销订阅。之后 fingerprint 不匹配时，会在执行命令前失败；有意重装服务器时，必须在 Server settings 中明确重置 host-key pin。
 
 `keytar` 存在于 `package.json` 依赖中，但当前 Electron GUI 尚未使用它把 SSH 密码或私钥口令存入操作系统钥匙串。
 
@@ -114,12 +114,13 @@ self-steal
 ```text
 SSH connect + host-key verification
         │
-        ├─ elevated `id -u` 与 `/etc/os-release`
+        ├─ 以提升权限执行 `id -u`
+        ├─ 以普通权限读取 `/etc/os-release`
         ├─ SFTP upload: install.sh, xrayebator
         ├─ elevated `bash install.sh`
         ├─ elevated install → /usr/local/bin/xrayebator
         ├─ elevated `xrayebator quickstart --email EMAIL`
-        └─ parse `subscription_url` → fetch subscription → 保存非机密元数据
+        └─ parse `subscription_url` → fetch subscription → 保存服务器卡片、连接偏好、订阅 URL 和已获取的 VLESS 链接
 ```
 
 远程命令使用安全的 shell 参数 quoting 构造。使用 sudo 时，机密通过 stdin 与命令分开传递。每次操作结束后 GUI 都会关闭 SSH 客户端，并在关闭时清理内存中的私钥缓冲区。
