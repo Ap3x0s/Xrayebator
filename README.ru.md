@@ -166,10 +166,10 @@ HAPP-флоу создаёт или переиспользует профиль 
 |---|---|---|
 | `xhttp-legacy` | xhttp | HAPP-совместимый XHTTP-фолбэк, `decryption=none`, без PQ |
 | `xhttp-pq` | xhttp | XHTTP с post-quantum шифрованием `mlkem768x25519plus` |
+| `tcp-mux` | tcp | TCP Reality без Vision-flow, отдельный совместимый фолбэк |
 
 Managed HAPP-профиль использует schema version 3 и семь маршрутов. В обычную HAPP-выдачу попадает
 шесть; PQ-маршрут остаётся доступен через raw/profile path.
-| `tcp-mux` | tcp | TCP Reality без Vision-flow, отдельный совместимый фолбэк |
 | `grpc` | grpc | gRPC Reality; чувствителен к HTTP/2 и SNI |
 | `tcp-vision` | tcp | TCP Reality с `xtls-rprx-vision` |
 | `tcp-utls-firefox` | tcp | TCP Vision с отпечатком Firefox |

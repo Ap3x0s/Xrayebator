@@ -160,9 +160,9 @@ HAPP 流程会创建或复用包含七条线路的配置档：
 |---|---|---|
 | `xhttp-legacy` | xhttp | HAPP 兼容的 XHTTP 回落，`decryption=none`，无 PQ |
 | `xhttp-pq` | xhttp | 带后量子加密 `mlkem768x25519plus` 的 XHTTP |
+| `tcp-mux` | tcp | 不带 Vision flow 的 TCP Reality，独立的兼容回落 |
 
 托管的 HAPP 配置档使用 schema version 3，包含七条线路。普通 HAPP 列表发布其中六条；PQ 线路仍可通过原始/配置档路径使用。
-| `tcp-mux` | tcp | 不带 Vision flow 的 TCP Reality，独立的兼容回落 |
 | `grpc` | grpc | gRPC Reality，对 HTTP/2 和 SNI 敏感 |
 | `tcp-vision` | tcp | 带 `xtls-rprx-vision` 的 TCP Reality |
 | `tcp-utls-firefox` | tcp | 使用 Firefox 指纹的 TCP Vision |
