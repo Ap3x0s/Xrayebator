@@ -97,7 +97,7 @@ sync.
 `/usr/local/bin/subhttp.sh` handler over HTTPS. The handler reads protected manager state and profile
 metadata and returns the client-specific subscription body.
 
-The base is built dynamically from `.subscription_domain` and `.subscription_port`:
+The base is built from the saved subscription markers:
 
 ```text
 https://<domain>/sub/<32-hex-token>       # public TLS on 443
@@ -105,9 +105,10 @@ https://<domain>:8443/sub/<32-hex-token>  # public TLS on another port
 http://127.0.0.1:8080/sub/<token>         # local-only fallback
 ```
 
-`quickstart --email <address>` emits JSON containing `subscription_url` built from that current
-base. It does not hard-code `8443` as the public listener. The token is stored in the
-profile as `sub_token`; revoke rotates it and invalidates the previous URL.
+The interactive HAPP setup can select the public port and `_subscription_base_url` preserves that
+choice. The non-interactive `quickstart --email <address>` IP-TLS path currently provisions nginx,
+certificate and markers on `8443`, then emits JSON containing `subscription_url` for that endpoint.
+The token is stored in the profile as `sub_token`; revoke rotates it and invalidates the previous URL.
 
 A newly provisioned standard HAPP managed profile has `schema_version: 3` and seven routes,
 including `xhttp-legacy` and `xhttp-pq`. The published HAPP connection list contains six VLESS

@@ -97,13 +97,14 @@ https://<domain>:8443/sub/<32-hex-token>  # 其他端口上的公共 TLS
 http://127.0.0.1:8080/sub/<token>         # 仅本地回退
 ```
 
-`quickstart --email <address>` 发出包含 `subscription_url` 的 JSON，该 URL 基于当前基础
-构建。它不假设公共监听器总是位于 `:8443`。令牌以 `sub_token` 形式存储在配置档中；执行
-revoke 会轮换令牌并使之前的 URL 失效。
+交互式 HAPP 设置可以选择公共端口，`_subscription_base_url` 会保留这一选择。非交互式的
+`quickstart --email <address>` IP-TLS 流程目前在 `8443` 配置 nginx、证书和标记，然后返回指向该
+endpoint 的 `subscription_url`。令牌以 `sub_token` 形式存储在配置档中；执行 revoke 会轮换令牌并使之前的 URL 失效。
 
-HAPP 配置档是一个七路由配置档，包括 `xhttp-legacy` 和后量子 XHTTP 路由。发布的 HAPP 连接列表
-包含六个 VLESS 路由，因为 PQ 路由仍可通过原始/配置档路径访问。所有七个路由都保留在配置档 JSON
-中。没有活跃入站的配置档将从订阅中隐藏，其旧 URL 返回 `410 Gone`。
+新创建的标准托管 HAPP 配置档是 schema-v3 七路由配置档，包括 `xhttp-legacy` 和后量子 XHTTP 路由。
+发布的 HAPP 连接列表包含六个 VLESS 路由，因为 PQ 路由仍可通过原始/配置档路径访问。助手也可能
+复用至少有七条存活线路的旧配置档，因此排查时请检查实际 label 和 schema；迁移不会向已有配置档
+补齐缺失线路。没有存活线路的配置档返回 `410 Gone`，部分过期的多线路配置档则可能以 `200` 返回剩余线路。
 
 处理器还提供由令牌保护的 `geoip.dat` 和 `geosite.dat` 资源，这些资源是托管的 HAPP 路由配置
 所必需的。HAPP 接收其路由元数据，而 v2rayNG 和 v2rayN 接收兼容的 VLESS 主体，不包含 HAPP 专属
@@ -117,7 +118,7 @@ HAPP 配置档是一个七路由配置档，包括 `xhttp-legacy` 和后量子 X
 |---|---|
 | `sudo xrayebator update` | 仅从 XTLS 发布渠道更新 Xray-core 二进制，然后通过 core-update 路径验证和重启核心 |
 | `sudo xrayebator update <branch>` | 从规范仓库分支获取管理器脚本，继续使用新脚本，然后更新 Xray-core |
-| `sudo xrayebator-update [branch]` | 运行完整的 `update.sh` 项目生命周期工作流：管理器脚本、核心、数据、订阅集成和服务刷新 |
+| `sudo xrayebator-update [branch]` | 运行 `update.sh` 项目生命周期工作流：管理器脚本、数据、订阅集成和服务刷新，具体以该脚本实现为准 |
 
 无参数时，`xrayebator-update` 显示交互式分支选择；`.current_branch` 中的当前分支会显示但不会
 自动选择。Electron GUI 在服务器设置中使用中间路径（`xrayebator update <branch>`）；它不暴露

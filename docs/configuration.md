@@ -112,7 +112,7 @@ is a client-side profile/route setting; changing it does not restart Xray or alt
 | `sudo xrayebator update` | Update only the Xray-core binary |
 | `sudo xrayebator update <branch>` | Self-update the manager from the canonical raw repository branch, continue with the new script, then update Xray-core |
 | `sudo xrayebator probe-test` | Check SNI reachability from the VPS before switching |
-| `sudo xrayebator quickstart --email <address>` | One-shot deploy path used by the desktop GUI: runs the broad setup/migration path, provisions and verifies the subscription endpoint, and creates a standard HAPP profile with `schema_version: 3` and 7 routes; emits JSON with `subscription_url` |
+| `sudo xrayebator quickstart --email <address>` | One-shot deploy path used by the desktop GUI: runs the broad setup/migration path, provisions the current IP-TLS endpoint on `8443`, and creates a standard HAPP profile with `schema_version: 3` and 7 routes; emits JSON with `subscription_url` |
 | `sudo xrayebator happ-setup` | Reduced existing-install HAPP path: ensures the subscription service and a usable multi-route profile, but does not replace the endpoint prerequisite; when `.subscription_domain` or `.subscription_port` is missing, it verifies a real public TLS endpoint before writing markers and otherwise fails |
 | `sudo xrayebator profiles` | Print all server profiles as a JSON array for the desktop GUI Server Settings page |
 | `sudo xrayebator profile-create --name NAME [--transport tcp\|tcp-utls\|tcp-xudp\|tcp-mux\|grpc\|xhttp] [--port P] [--count N]` | Create one or more profiles non-interactively; prints `{"ok":true,"names":[...],"errors":[...]}` |
@@ -147,9 +147,10 @@ GUI currently invokes `xrayebator update <branch>` from Server Settings; it does
 ## HAPP provisioning paths
 
 `quickstart --email <address>` is the broad migration path: it performs the setup needed by a new
-deployment, provisions the public subscription endpoint and certificate, and then creates or reuses
-the managed HAPP profile. A newly created standard profile uses `schema_version: 3` with seven
-routes, including `xhttp-legacy` and `xhttp-pq`.
+deployment, provisions the IP-TLS subscription endpoint on `8443` and its certificate, and then creates
+or reuses the managed HAPP profile. A newly created standard profile uses `schema_version: 3` with seven
+routes, including `xhttp-legacy` and `xhttp-pq`. Migration calls in this non-interactive path are
+best-effort; verify markers, the profile JSON and service status after deployment.
 
 `happ-setup` is the reduced path for an existing installation. It runs only the critical migrations,
 restores the subscription service and ensures a multi-route profile; it is not a replacement for

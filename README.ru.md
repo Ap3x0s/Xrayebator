@@ -25,8 +25,10 @@
 
 <p>
 <strong>Один bash-скрипт превращает чистый VPS в личный VLESS Reality сервер.</strong><br>
-Xrayebator ставит Xray-core, поднимает Reality-инбаунды на случайных портах, создаёт schema-v3 профиль
-из семи маршрутов и отдаёт их клиенту одной HTTPS-ссылкой подписки. Актуальная серверная линия — 3.0;
+Xrayebator ставит Xray-core, поднимает Reality-инбаунды на случайных портах и для новой установки
+создаёт стандартный schema-v3 HAPP-профиль из семи маршрутов. Существующий семимаршрутный профиль
+может быть переиспользован при наличии живых маршрутов, поэтому при отладке label/schema проверяйте
+profile JSON. Клиент получает маршруты одной HTTPS-ссылкой подписки. Актуальная серверная линия — 3.0;
 опциональное Electron-десктоп-приложение имеет отдельную версию.
 </p>
 
@@ -346,9 +348,10 @@ TypeScript, а `npm run build` собирает приложение. На на�
 - `xrayebator-uninstall` останавливает и отключает `xray`, удаляет бинарь `/usr/local/bin/xray` и
   geo-базы из `/usr/local/share/xray`, вычищает `/usr/local/etc/xray` и `/var/log/xray`, бинари
   `xrayebator`, `xrayebator-update`, `xrayebator-uninstall` и `subhttp.sh`, юниты `xray.service`,
-  `xray@.service`, `xray.service.d` и `xrayebator-sub.service`, созданные им nginx-vhost'ы, свои
-  сертификаты certbot и правила UFW, а также системного пользователя `xray`. Глобальное состояние
-  Certbot, пакет nginx, чужие сертификаты certbot и правила UFW не трогаются. Domain ACME webroot
+  `xray@.service`, `xray.service.d` и `xrayebator-sub.service`, nginx-vhost'ы с его именами, свои
+  сертификаты certbot и правила UFW, а также системного пользователя `xray`. Очистка nginx основана
+  на путях/именах, а не на отдельном ownership manifest. Глобальное состояние Certbot, пакет nginx,
+  чужие сертификаты certbot и правила UFW не трогаются. Domain ACME webroot
   `/var/www/xrayebator-domain-acme` может остаться и потребовать ручной очистки.
 - Маршрут `tcp-mux` сохраняется для совместимости, но это не mux-пресет.
 - H2, WebSocket, SplitHTTP и подписки Clash/mihomo не поддерживаются.

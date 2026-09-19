@@ -17,10 +17,10 @@ Xray 以系统用户 `xray` 运行。Drop-in
 
 | 路径或类别 | 属主与访问权限 |
 |---|---|
-| `/usr/local/etc/xray/` 及其状态目录 | `root:root`；服务可遍历目录，但不能写入管理器状态 |
-| `config.json`、配置档与迁移标记 | `root:root`，按 Xray 需要可读 |
+| `/usr/local/etc/xray/` 及其状态目录 | 大部分由 root 拥有且服务不可写；`.server_country` 等生成元数据可能由 `xray` 拥有 |
+| `config.json`、配置档与迁移标记 | 通常为 `root:root`，按 Xray 需要可读；rollback 可能使 live config 变为 `root:xray`、`0640` |
 | Reality 与 VLESS 私钥 | `root:root`，权限 `0600` |
-| 公钥文件与生成的元数据 | `root:root`，在服务或订阅处理器需要时可读 |
+| 公钥文件与生成的元数据 | 在服务或订阅处理器需要时可读；生成元数据的属主可能不同 |
 | `/usr/local/etc/xray/scripts/` 与 `/usr/local/bin/xrayebator*` | `root:root`，由 root 管理的可执行脚本 |
 | `/var/log/xray/` | 由 Xray 运行时账户写入服务日志 |
 

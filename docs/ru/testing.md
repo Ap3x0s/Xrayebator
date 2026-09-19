@@ -41,7 +41,7 @@ for test_file in validation/*.sh; do bash "$test_file" || exit; done
 | `test-port-change-cli.sh` | CLI `port-change`: сценарии unit/shared/move, неверный порт, multi-route `--route` |
 | `test-bypass-cli.sh` | CLI `bypass`: JSON stdout, routing-правила, add с проверкой SNI |
 | `test-quickstart-migration-parity.sh` | `quickstart` гоняет те же критичные миграции, что и `main_menu` |
-| `test-quickstart-subscription-port.sh` | `quickstart` сообщает реальный порт подписки вместо захардкоженного `:8443` |
+| `test-quickstart-subscription-port.sh` | `quickstart` использует canonical helper базы подписки и не возвращается к несвязанному hardcode URL |
 | `test-audit-functional.sh` | Функциональные regression-проверки аудита HowDeploy (P0/P1) |
 | `test-audit-privilege-regressions.sh` | Regression границ привилегий |
 
@@ -95,7 +95,7 @@ npm test              # Vitest unit-тесты
 Три независимых workflow:
 
 - **ci-linux.yml** — Bash validation: `bash -n` всех скриптов + все 24 `validation/test-*.sh` на
-  ubuntu-24.04. Запускается на push в любую ветку и PR.
+  ubuntu-24.04. Запускается на push в `main`, `dev`, `experimental` и на pull request.
 - **release.yml** — Electron сборка (Windows/macOS/Linux). Запускается только на теги `v*` и manual
   dispatch. Выполняет `npm run typecheck`, `npm test`, `npm run build` на ubuntu, затем
   `electron-builder --publish never` на всех трёх платформах.

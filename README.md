@@ -25,9 +25,11 @@
 
 <p>
 <strong>One bash script turns a clean VPS into a personal VLESS Reality server.</strong><br>
-Xrayebator installs Xray-core, brings up Reality inbounds on random ports, builds a schema-v3 profile
-of seven routes and hands them to the client as a single HTTPS subscription link. Current server line — 3.0;
-the optional Electron desktop app is versioned separately.
+Xrayebator installs Xray-core, brings up Reality inbounds on random ports, and provisions a standard
+schema-v3 HAPP profile of seven routes for a new setup. Existing seven-route profiles can be reused only
+when they have enough live routes, so inspect the profile JSON when debugging labels or schema. The client
+receives the routes as a single HTTPS subscription link. Current server line — 3.0; the optional Electron
+desktop app is versioned separately.
 </p>
 
 </div>
@@ -353,9 +355,9 @@ Russian and Chinese versions live in [`docs/ru/`](docs/ru/) and [`docs/zh-CN/`](
   databases in `/usr/local/share/xray`, deletes `/usr/local/etc/xray`, `/var/log/xray`, the
   `xrayebator`, `xrayebator-update`, `xrayebator-uninstall` and `subhttp.sh` binaries, the
   `xray.service`, `xray@.service`, `xray.service.d` and `xrayebator-sub.service` units, the nginx
-  vhosts it created, its own certbot certificates and UFW rules, and the `xray` system user. It
-  leaves global Certbot state, the nginx package, foreign certbot certificates and UFW rules
-  untouched. Domain-mode ACME webroot `/var/www/xrayebator-domain-acme` may remain for manual cleanup.
+  vhosts matching the product's names, its own certbot certificates and UFW rules, and the `xray`
+  system user. Cleanup is path/name based for nginx vhosts, not a general ownership manifest. It leaves
+  global Certbot state, the nginx package, foreign certbot certificates and UFW rules untouched. Domain-mode ACME webroot `/var/www/xrayebator-domain-acme` may remain for manual cleanup.
 - The `tcp-mux` route is kept for compatibility; it is not a mux preset.
 - H2, WebSocket, SplitHTTP and Clash/mihomo subscriptions are not supported.
 - The interface imposes no hard limit on users, but real capacity is bound by CPU, RAM, VPS
