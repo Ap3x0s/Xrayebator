@@ -167,10 +167,10 @@ The HAPP flow creates or reuses a profile of seven routes:
 |---|---|---|
 | `xhttp-legacy` | xhttp | HAPP-compatible XHTTP fallback, `decryption=none`, no PQ |
 | `xhttp-pq` | xhttp | XHTTP with post-quantum encryption `mlkem768x25519plus` |
+| `tcp-mux` | tcp | TCP Reality without Vision flow, a separate compatible fallback |
 
 The managed HAPP profile uses schema version 3 and seven routes. The normal HAPP list publishes six of
 those routes; the PQ route remains available through the raw/profile path.
-| `tcp-mux` | tcp | TCP Reality without Vision flow, a separate compatible fallback |
 | `grpc` | grpc | gRPC Reality; sensitive to HTTP/2 and SNI |
 | `tcp-vision` | tcp | TCP Reality with `xtls-rprx-vision` |
 | `tcp-utls-firefox` | tcp | TCP Vision with a Firefox fingerprint |
