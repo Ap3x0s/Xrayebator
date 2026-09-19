@@ -75,11 +75,12 @@ XHTTP transport stores SNI in TWO places: `realitySettings.serverNames` AND `xht
 Marker files in `/usr/local/etc/xray/` (e.g. `.xhttp_migrated`, `.config_optimized`). Migrations run once on first `main_menu()` launch after upgrade — and `quickstart` runs the same critical set (`test-quickstart-migration-parity.sh` keeps them in sync). Pattern for new migrations:
 ```bash
 if [[ ! -f "/usr/local/etc/xray/.my_migration_marker" ]]; then
-  backup_config "my_migration"
+  backup_path=""
+  backup_config "my_migration" backup_path
   # ... safe_jq_write calls ...
   fix_xray_permissions
   touch "/usr/local/etc/xray/.my_migration_marker"
-  safe_restart_xray
+  safe_restart_xray "$backup_path"
 fi
 ```
 
@@ -154,4 +155,4 @@ CLI JSON hygiene: `profile-create`/`profile-delete` **must** print only JSON on 
 
 ## Language
 
-All user-facing strings, comments, and commit messages are in **Russian**. Code identifiers and function names are in English.
+Bash/server-facing strings, comments, and commit messages are in **Russian**. The active Electron renderer is intentionally multilingual (`ru`, `en`, `zh`); code identifiers and function names are in English.
