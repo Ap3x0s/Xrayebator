@@ -57,7 +57,7 @@ promise that installer and updater paths behave identically.
 | `test-port-change-cli.sh` | Port-change CLI scenarios, firewall moves and route selection |
 | `test-project-update-rollback.sh` | Rollback of a failed project update |
 | `test-quickstart-migration-parity.sh` | Parity between quickstart and main-menu migrations |
-| `test-quickstart-subscription-port.sh` | Dynamic subscription port in quickstart output |
+| `test-quickstart-subscription-port.sh` | Ensures quickstart uses the canonical subscription base helper and does not regress to an unrelated hardcoded URL |
 | `test-sni-change-cli.sh` | SNI-change JSON output, transport fields, profile sync and rollback |
 | `test-subscription-server-name.sh` | HAPP subscription display name |
 | `test-transaction-safety.sh` | Transactional safety of configuration operations |
@@ -72,12 +72,13 @@ verification.
 ## Lifecycle and HAPP endpoint checks
 
 For a new deployment, exercise the broad `quickstart --email <address>` path and confirm that it
-completes endpoint provisioning/verification, migrations and HAPP profile creation. For an existing
-installation, exercise the reduced `happ-setup` path separately: remove one or both subscription
-markers in a disposable environment and confirm that it refuses to fabricate them unless the public
-TLS endpoint is actually verified. With both markers present, confirm that setup reuses them rather
-than treating their presence as proof that the endpoint is still healthy; operator verification or a
-rerun of the appropriate setup remains necessary.
+provisions the product IP-TLS endpoint on `8443`, creates the profile and leaves healthy services. Its
+non-interactive migration calls are best-effort, so also inspect migration markers and the resulting
+profile/config. For an existing installation, exercise the reduced `happ-setup` path separately: remove
+one or both subscription markers in a disposable environment and confirm that it refuses to fabricate
+them unless the product IP-TLS endpoint/certificate on `8443` is verified. With both markers present,
+confirm that setup reuses them rather than treating their presence as proof that the endpoint is still
+healthy; operator verification or a rerun of the appropriate setup remains necessary.
 
 ## Manual checks on a live server
 

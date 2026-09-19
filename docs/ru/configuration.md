@@ -115,8 +115,8 @@ legacy-файлы и блоки, ранее созданные Xrayebator, и с
 | `sudo xrayebator update` | Обновить только бинарник Xray-core |
 | `sudo xrayebator update <branch>` | Self-update менеджера из canonical raw-репозитория (ветка branch), продолжить новым скриптом, затем обновить Xray-core |
 | `sudo xrayebator probe-test` | Проверить SNI reachability с VPS |
-| `sudo xrayebator quickstart --email <адрес>` | Путь одноразового деплоя (используется GUI): прогоняет необходимые миграции, разворачивает subscription endpoint и создаёт 7-маршрутный HAPP-профиль; выводит JSON с `subscription_url` |
-| `sudo xrayebator happ-setup` | Идемпотентный re-entry на существующей установке: проверяет профиль и сервис, но не фабрикует непроверенный публичный endpoint |
+| `sudo xrayebator quickstart --email <адрес>` | Путь одноразового деплоя (используется GUI): broad setup/migration, IP-TLS endpoint на `8443` и стандартный schema-v3 HAPP-профиль из 7 маршрутов; выводит JSON с `subscription_url`. Migration calls best-effort, проверяйте итоговый профиль и сервисы |
+| `sudo xrayebator happ-setup` | Сокращённый re-entry на существующей установке: проверяет subscription service и usable multi-route profile; при отсутствии markers проверяет IP-TLS endpoint на `8443`, но не фабрикует markers |
 | `sudo xrayebator profiles` | Вывести все профили сервера JSON-массивом (для «Настроек сервера» GUI) |
 | `sudo xrayebator profile-create --name ИМЯ [--transport tcp\|tcp-utls\|tcp-xudp\|tcp-mux\|grpc\|xhttp] [--port P] [--count N]` | Создать профили без интерактива; `{"ok":true,"names":[...],"errors":[...]}` |
 | `sudo xrayebator profile-delete --name ИМЯ` | Удалить профиль без интерактива; `{"ok":true,"name":"..."}` |
@@ -138,7 +138,7 @@ legacy-файлы и блоки, ранее созданные Xrayebator, и с
 |---|---|---|
 | С чего начинается | Установленный менеджер | Полный lifecycle updater |
 | Откуда берёт | Canonical raw-файл для запрошенной ветки | Update workflow выбранной ветки |
-| Основной результат | Self-update менеджера + обновление Xray-core | Скрипты, ядро, данные, интеграция подписки, refresh сервиса |
+| Основной результат | Self-update менеджера + обновление Xray-core | Скрипты менеджера, данные, интеграция подписки и refresh сервиса, как реализовано workflow |
 | Ветка по умолчанию | Явный аргумент | Интерактивный выбор (текущая ветка отображается) |
 
 Десктопный GUI в Server Settings вызывает `xrayebator update <branch>`. Он не использует полный

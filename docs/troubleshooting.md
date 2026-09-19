@@ -68,7 +68,9 @@ setup path.
 
 For a new server, use the broad path `quickstart --email <address>` or complete the HAPP IP/domain
 setup from the terminal menu first. `happ-setup` is the reduced existing-install recovery path and
-still needs that endpoint prerequisite. For an existing setup with missing markers, inspect:
+still needs that endpoint prerequisite. For an existing setup with missing markers, the verifier is
+specifically oriented to the product's IP-TLS listener/certificate on `8443`; a domain/443 setup should
+be checked through its own saved endpoint and rerun through the appropriate setup path. Inspect:
 
 ```bash
 sudo systemctl status xrayebator-sub --no-pager -l
@@ -104,14 +106,16 @@ jq -r '.routes[] | [.label,.transport,.port,(.pq_enabled // false)] | @tsv' \
 ```
 
 The last column is `pq_enabled`, not a health status. `false` is expected for every non-PQ route;
-`true` should appear only for `xhttp-pq`. If `xhttp-legacy` is missing, run the pending migrations
-with `sudo xrayebator` and refresh the subscription.
+`true` should appear only for `xhttp-pq`. If `xhttp-legacy` is missing, re-provision/create the managed multi-route profile through the menu or
+`quickstart`; pending migrations do not add routes to an existing profile. Then refresh the subscription.
 
 ## XHTTP does not work in HAPP
 
-The HAPP-compatible XHTTP candidate is `xhttp-legacy`, not the PQ route. After an update, run
-`sudo xrayebator`, allow migrations to finish and force a subscription refresh in HAPP. Confirm that
-the route exists in the profile and that its port exists in the live configuration.
+The HAPP-compatible XHTTP candidate is `xhttp-legacy`, not the PQ route. After an update, inspect the
+profile first. The legacy-route migration does not retrofit routes into an existing profile; if the route
+is missing, re-provision/create the managed multi-route profile through the menu or `quickstart`, then
+force a subscription refresh in HAPP. Confirm that the route exists in the profile and that its port
+exists in the live configuration.
 
 ## v2rayNG connects intermittently
 

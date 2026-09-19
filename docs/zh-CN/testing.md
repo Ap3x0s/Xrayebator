@@ -40,7 +40,7 @@ for test_file in validation/*.sh; do bash "$test_file" || exit; done
 | `test-port-change-cli.sh` | `port-change` CLI：unit/shared/move 入站场景、无效端口、缺少配置档、多线路 `--route` |
 | `test-bypass-cli.sh` | `bypass` CLI：JSON 输出、路由规则更新、带 SNI 探测的 add |
 | `test-quickstart-migration-parity.sh` | `quickstart` 执行与 `main_menu` 相同的关键迁移 |
-| `test-quickstart-subscription-port.sh` | `quickstart` 报告实际订阅端口，而不是写死 `:8443` |
+| `test-quickstart-subscription-port.sh` | 确认 `quickstart` 使用规范的订阅基础地址 helper，不回退到无关的硬编码 URL |
 | `test-audit-functional.sh` | HowDeploy 审计（P0/P1）的功能回归检查 |
 | `test-audit-privilege-regressions.sh` | 权限边界回归 |
 
@@ -92,7 +92,7 @@ npm test              # Vitest 单元测试
 三个独立 workflow：
 
 - **ci-linux.yml** — Bash validation：在 ubuntu-24.04 上对所有脚本执行 `bash -n`，并运行全部 24 个
-  `validation/test-*.sh`；在 push 和 PR 上运行。
+  `validation/test-*.sh`；在 push 到 `main`、`dev`、`experimental` 以及 pull request 时运行。
 - **release.yml** — Electron 构建（Windows/macOS/Linux）。只在 `v*` tag 和手动触发时运行；先在
   Ubuntu 上执行 `npm run typecheck`、`npm test`、`npm run build`，再在三种平台执行
   `electron-builder --publish never`。

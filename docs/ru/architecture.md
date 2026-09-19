@@ -93,7 +93,7 @@ Fingerprint Reality — клиентское значение, хранящее�
 `/usr/local/bin/subhttp.sh` handler по HTTPS. Handler читает состояние менеджера и метаданные
 профиля и возвращает subscription body для конкретного клиента.
 
-Базовый URL строится динамически из `.subscription_domain` и `.subscription_port`:
+База URL строится из сохранённых маркеров подписки:
 
 ```text
 https://<domain>/sub/<32-hex-token>       # public TLS на 443
@@ -101,14 +101,17 @@ https://<domain>:8443/sub/<32-hex-token>  # public TLS на другом пор�
 http://127.0.0.1:8080/sub/<token>         # local-only запасной
 ```
 
-`quickstart --email <address>` возвращает JSON с полем `subscription_url`, построенным из текущей
-базы. Он не предполагает, что публичный listener всегда на `:8443`. Токен хранится в профиле как
-`sub_token`; revoke меняет токен и аннулирует предыдущий URL.
+Интерактивная настройка HAPP может выбрать публичный порт, а `_subscription_base_url` сохраняет этот
+выбор. Нон-интерактивный IP-TLS flow `quickstart --email <address>` сейчас создаёт nginx, сертификат и
+маркеры на `8443`, затем возвращает JSON с `subscription_url` для этого endpoint. Токен хранится в
+профиле как `sub_token`; revoke меняет токен и аннулирует предыдущий URL.
 
-Профиль HAPP — это профиль из семи маршрутов, включающий `xhttp-legacy` и post-quantum XHTTP route.
-Публикуемый список HAPP содержит шесть VLESS-маршрутов, потому что PQ-маршрут остаётся доступен
-через raw/profile path. Все семь маршрутов остаются в profile JSON. Профиль без живого инбаунда
-скрывается из подписки, и его старый URL возвращает `410 Gone`.
+Новый стандартный managed HAPP-профиль — schema-v3 профиль из семи маршрутов, включая `xhttp-legacy`
+и post-quantum XHTTP route. Публикуемый список HAPP содержит шесть VLESS-маршрутов, потому что
+PQ-маршрут остаётся доступен через raw/profile path. Helper может переиспользовать старый профиль с
+минимум семью живыми маршрутами, поэтому проверяйте фактические labels/schema; миграции не добавляют
+недостающие маршруты в существующий профиль. Профиль без живых маршрутов возвращает `410 Gone`, а
+частично устаревший multi-route может вернуть оставшиеся маршруты и `200`.
 
 Handler также отдаёт защищённые токеном `geoip.dat` и `geosite.dat`, необходимые для управляемого
 HAPP routing profile. HAPP получает routing metadata, а v2rayNG и v2rayN — совместимое VLESS-тело
@@ -122,7 +125,7 @@ HAPP routing profile. HAPP получает routing metadata, а v2rayNG и v2ra
 |---|---|
 | `sudo xrayebator update` | Обновляет только Xray-core из XTLS release channel, валидирует и перезапускает ядро через core-update path |
 | `sudo xrayebator update <branch>` | Загружает менеджер из canonical репозитория (ветка branch), продолжает свежим скриптом и обновляет Xray-core |
-| `sudo xrayebator-update [branch]` | Запускает полный `update.sh` workflow: скрипты менеджера, ядро, данные, интеграцию подписки и обновление сервиса |
+| `sudo xrayebator-update [branch]` | Запускает `update.sh` workflow: скрипты менеджера, данные, интеграцию подписки и refresh сервиса, как реализовано в этом скрипте |
 
 Без аргумента `xrayebator-update` показывает интерактивный выбор ветки; текущая ветка из
 `.current_branch` отображается, но не выбирается автоматически. Electron GUI использует средний путь

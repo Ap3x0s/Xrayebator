@@ -25,8 +25,10 @@
 
 <p>
 <strong>一个 bash 脚本，把干净的 VPS 变成私人 VLESS Reality 服务器。</strong><br>
-Xrayebator 安装 Xray-core，在随机端口上建立 Reality 入站，创建 schema-v3 的七线路配置档，
-并通过一条 HTTPS 订阅链接交付给客户端。当前服务器版本线为 3.0；可选 Electron 桌面应用单独版本化。
+Xrayebator 安装 Xray-core，在随机端口上建立 Reality 入站，并为新安装创建包含七条线路的标准
+schema-v3 HAPP 配置档。已有七线路配置档在满足存活线路数量时可能被复用，因此排查 label 或 schema
+时请检查配置档 JSON。客户端通过一条 HTTPS 订阅链接获取线路。当前服务器版本线为 3.0；可选
+Electron 桌面应用单独版本化。
 </p>
 
 </div>
@@ -331,8 +333,9 @@ Electron 检查：`npm test` 运行 `tests/` 中的 9 个单元测试文件；`n
   `/usr/local/share/xray` 中的 geo 数据库，清除 `/usr/local/etc/xray` 与 `/var/log/xray`、
   `xrayebator`、`xrayebator-update`、`xrayebator-uninstall`、`subhttp.sh` 二进制，以及
   `xray.service`、`xray@.service`、`xray.service.d`、`xrayebator-sub.service` 单元、由它创建的
-  nginx vhost、它自己的 certbot 证书和 UFW 规则，还有系统用户 `xray`。全局 Certbot 状态、
-  nginx 软件包、他人的 certbot 证书和 UFW 规则不会被动到。域名模式的 ACME webroot
+  使用其名称的 nginx vhost、它自己的 certbot 证书和 UFW 规则，还有系统用户 `xray`。nginx 清理按路径/名称执行，
+  不是通过独立的 ownership manifest。全局 Certbot 状态、nginx 软件包、他人的 certbot 证书和 UFW 规则不会被动到。
+  域名模式的 ACME webroot
   `/var/www/xrayebator-domain-acme` 可能保留，需要手工清理。
 - `tcp-mux` 线路仅为兼容保留，它并不是 mux 预设。
 - 不支持 H2、WebSocket、SplitHTTP 以及 Clash/mihomo 订阅。

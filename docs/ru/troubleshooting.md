@@ -85,7 +85,7 @@ jq -r '.routes[] | [.label,.transport,.port,(.pq_enabled // false)] | @tsv' \
 Последняя колонка — `pq_enabled`, а не health-статус. `false` ожидаем для всех не-PQ маршрутов;
 `true` должен быть только у `xhttp-pq`. Обратите внимание: этап `_migrate_happ_legacy_xhttp_route_2026`
 не добавляет маршруты в существующие профили. Если `xhttp-legacy` отсутствует в существующем профиле,
-заново создайте/восстановите managed multi-route профиль (пере-провижн через меню/quickstart или
+заново создайте/восстановите managed multi-route профиль (re-provision через меню/quickstart или
 создайте заново), а не просто прогоняйте миграции.
 
 ## XHTTP в HAPP не работает
