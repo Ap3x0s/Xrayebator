@@ -24,12 +24,29 @@ describe('describeExpire', () => {
     const future = Math.floor((NOW + 100 * DAY) / 1000)
     expect(describeExpire(future, true, NOW).status).toBe('expired')
   })
+
+  it('дата показывается в локальной зоне, без UTC-сдвига', () => {
+    // Сервер (Москва, UTC+3) записал expire как 2026-09-30 23:59:59 MSK.
+    // Раньше отображение через toISOString давало 29 сентября — на день меньше.
+    const msk = Math.floor(new Date('2026-09-30T23:59:59+03:00').getTime() / 1000)
+    const info = describeExpire(msk, false, new Date('2026-09-01T00:00:00Z').getTime())
+    expect(info.date).toBe('2026-09-30')
+  })
 })
 
 describe('isFutureDate', () => {
+  it('сегодняшняя дата ещё валидна: срок действует до конца суток', () => {
+    // Сервер трактует дату включительно, поэтому «до сегодня» — рабочий выбор.
+    expect(isFutureDate('2026-09-28', new Date('2026-09-28T09:00:00').getTime())).toBe(true)
+    expect(isFutureDate('2026-09-28', new Date('2026-09-28T23:59:00').getTime())).toBe(true)
+  })
+
+  it('вчерашняя дата уже невалидна', () => {
+    expect(isFutureDate('2026-09-27', new Date('2026-09-28T09:00:00').getTime())).toBe(false)
+  })
+
   it('принимает только корректные будущие ISO-даты', () => {
     expect(isFutureDate('2030-01-01', NOW)).toBe(true)
-    expect(isFutureDate('2026-09-28', NOW)).toBe(false)
     expect(isFutureDate('2020-05-05', NOW)).toBe(false)
     expect(isFutureDate('2026-13-01', NOW)).toBe(false)
     expect(isFutureDate('2026-02-30', NOW)).toBe(false)
