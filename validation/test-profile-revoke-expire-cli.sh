@@ -210,31 +210,7 @@ jq -e '.ok == false' <<< "$out" >/dev/null || fail "revoke bad name: $out"
 if out=$(profile_revoke_command --name nosuch); then fail "revoke missing profile accepted"; fi
 jq -e '.ok == false' <<< "$out" >/dev/null || fail "revoke missing profile: $out"
 
-# --- 12. bypass groups: JSON с id/title/domains[] ---
-out=$(_bypass_cli_groups) || fail "bypass groups failed: $out"
-jq -e '.ok == true and (.groups | length >= 7) and
-  all(.groups[]; (.id | type == "string") and (.title | type == "string") and
-      (.domains | type == "array" and length > 0 and all(.[]; type == "string"))) and
-  any(.groups[]; .id == "banks" and (.domains | index("sberbank.ru") != null))' <<< "$out" >/dev/null ||
-  fail "bypass groups bad payload: $out"
-
-# --- 12b. bypass unbundle: снимает только домены выбранных групп ---
-out=$(_bypass_cli_bundle --group steam) || fail "bundle steam for unbundle test failed: $out"
-out=$(_bypass_cli_bundle --group banks) || fail "bundle banks failed: $out"
-out=$(_bypass_cli_add --domain mycustom.example) || fail "add custom failed: $out"
-out=$(_bypass_cli_unbundle --group banks) || fail "unbundle banks failed: $out"
-jq -e '.ok == true and .removed > 0' <<< "$out" >/dev/null || fail "unbundle bad JSON: $out"
-jq -e '
-  all(.routing.rules[] | (.domain // [])[]; . != "domain:sberbank.ru") and
-  any(.routing.rules[] | (.domain // [])[]; . == "domain:steamcontent.com") and
-  any(.routing.rules[] | (.domain // [])[]; . == "domain:mycustom.example")
-' "$CONFIG_FILE" >/dev/null || fail "unbundle removed too much/too little"
-if out=$(_bypass_cli_unbundle); then fail "unbundle without --group accepted"; fi
-jq -e '.ok == false' <<< "$out" >/dev/null || fail "unbundle no-group: $out"
-if out=$(_bypass_cli_unbundle --group nosuch); then fail "unbundle unknown group accepted"; fi
-jq -e '.ok == false' <<< "$out" >/dev/null || fail "unbundle unknown group: $out"
-
-# --- 13. profile-create --expire: поле попадает в профиль (add_inbound застабан) ---
+# --- 12. profile-create --expire: поле попадает в профиль (add_inbound застабан) ---
 add_inbound() { return 0; }
 build_transport_defaults() { echo "34999|svc|/xp"; }
 reserve_port() { return 0; }
@@ -245,5 +221,27 @@ jq -e '.expire == '"$(_normalize_expire_value "2030-05-05")" "$PROFILES_DIR/kid.
   fail "created profile missing expire"
 out=$(profile_create_command --name late --transport tcp --expire "2000-01-01") && fail "create past expire accepted"
 jq -e '.ok == false' <<< "$out" >/dev/null || fail "create past expire: $out"
+
+# --- 13. Истёкший профиль не отдаёт маршруты: subhttp отвечает 410 ---
+# Логика продублирована из heredoc-обработчика проверкой условий:
+#   expire_disabled == true  ИЛИ  expire > 0 и expire <= now
+# Тест держит инвариант на исходнике (сам subhttp.sh генерируется на сервере).
+jq -e 'del(.expire) | del(.expire_disabled)' "$PROFILES_DIR/kid.json" > "$WORKDIR/k.tmp" \
+  && mv "$WORKDIR/k.tmp" "$PROFILES_DIR/kid.json"
+grep -q 'emit_410_expired' xrayebator || fail "нет emit_410_expired в subhttp"
+grep -q 'Profile expired or disabled' xrayebator || fail "нет тела 410-ответа"
+# Длина тела должна совпадать с content-length (иначе клиент зависнет на чтении).
+body_len=$(printf 'Profile expired or disabled\n' | wc -c | tr -d ' ')
+header_len=$(grep -A5 'emit_410_expired() {' xrayebator | grep -o 'content-length: [0-9]*' | head -1 | grep -o '[0-9]*')
+[[ "$body_len" == "$header_len" ]] \
+  || fail "content-length ($header_len) не совпадает с телом ($body_len)"
+# Проверка ветки отдачи: 410 должен стоять ПОСЛЕ поиска профиля и ДО генерации URL.
+grim_line=$(grep -n 'emit_410_expired$' xrayebator | head -1 | cut -d: -f1)
+gen_line=$(grep -n 'vless_urls=\$(_generate_vless_urls_for_profile' xrayebator | head -1 | cut -d: -f1)
+[[ -n "$grim_line" && -n "$gen_line" && "$grim_line" -lt "$gen_line" ]] \
+  || fail "410-проверка должна идти до генерации маршрутов"
+# Миграция регенерации subhttp на существующих установках зарегистрирована.
+grep -q 'run_migration "subhttp_expired_410_2026"' xrayebator \
+  || fail "нет миграции subhttp_expired_410_2026 (на старых серверах 410 не появится)"
 
 echo "PASS: revoke/expire CLI rotate secrets correctly, enforce expiry and stay JSON-clean"

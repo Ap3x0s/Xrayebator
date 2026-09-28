@@ -4,7 +4,6 @@
 
 Sections: [Prerequisites](#prerequisites-and-tested-systems) · [Environment variables](#installer-environment-variables) ·
 [Firewall and host networking](#firewall-and-host-networking) · [Main menu](#main-menu) ·
-[Commands](#commands) · [Desktop GUI](#desktop-gui) · [Bypass routing](#bypass-routing) ·
 [Cascade](#cascade-and-upstream-nodes) · [Self-steal](#custom-domain-and-self-steal-stub) · [Domain and DNS](#domain-and-dns)
 
 ---
@@ -94,7 +93,6 @@ The interactive menu uses these exact meanings:
 | `4` | Manage a profile: SNI, client fingerprint, port and advanced settings |
 | `5` | Upgrade a single profile to post-quantum XHTTP + Reality |
 | `6` | HAPP subscription: provision public/local publishing, URL/QR, revoke and HAPP settings; the managed profile has 7 routes and the published list has 6 |
-| `7` | Bypass routing: send selected domains directly instead of through the VPN |
 | `8` | Cascade and upstream nodes |
 | `9` | Custom domain and self-steal stub |
 | `10` | Set up an outbound server so another VPS can use this server as a foreign cascade node |
@@ -126,13 +124,6 @@ is a client-side profile/route setting; changing it does not restart Xray or alt
 | `sudo xrayebator sni-change --name NAME [--route R] --sni SNI` | Change the shared inbound SNI and synchronise profiles on that port; prints JSON |
 | `sudo xrayebator sni-list` | Print SNI candidates grouped by category for the GUI SNI dialog; prints JSON |
 | `sudo xrayebator port-change --name NAME [--route R] --port PORT\|random` | Change the inbound port, firewall and subscription metadata; reconnect the client; prints JSON |
-| `sudo xrayebator bypass list` | Print current bypass domain rules as JSON |
-| `sudo xrayebator bypass add --domain D` | Add a domain to bypass rules |
-| `sudo xrayebator bypass remove --domain D` | Remove a domain from bypass rules |
-| `sudo xrayebator bypass reset` | Clear all custom bypass rules |
-| `sudo xrayebator bypass bundle [--group a,b,c]` | Apply the default bypass groups; without `--group`, apply all groups |
-| `sudo xrayebator bypass unbundle --group a,b,c` | Remove the domains of the selected groups in a single mutation and a single Xray restart |
-| `sudo xrayebator bypass groups` | List the ready bypass groups with their domain sets (JSON) |
 | `sudo xrayebator-update [branch]` | Run the full `update.sh` project lifecycle update; without a branch, display `.current_branch` and open the interactive branch selector; with a branch, use that explicit branch |
 | `sudo xrayebator-uninstall` | Remove the service and installation |
 
@@ -179,7 +170,6 @@ profile when `xhttp-legacy`, `xhttp-pq` or the expected seven-route shape is mis
 
 The active Electron app is a CLI front-end over SSH, not a complete replacement for the terminal
 menu. It deploys with `quickstart`, refreshes the saved `subscription_url`, and exposes profile
-list/create/delete, subscription revoke, profile expiry, bypass domains and groups, plus selected
 SNI, fingerprint, port, update and uninstall operations. `probe-test`, HAPP setup, cascade,
 self-steal, the interactive menu and service diagnostics remain server-side operations.
 
@@ -196,9 +186,7 @@ npm test
 npm run typecheck
 ```
 
-## Bypass routing
 
-Bypass adds Xray routing rules so selected domains go straight out through `freedom` instead of the
 VPN. The `domain -> direct` rules sit above the catch-all, so they keep working with the cascade
 enabled.
 

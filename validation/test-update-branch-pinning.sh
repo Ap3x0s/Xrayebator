@@ -53,8 +53,6 @@ grep -q 'describeFailure' src/main/core/cli-failure.ts \
   || fail "нет разбора причины падения CLI"
 grep -q 'describeFailure' src/main/core/profiles.ts \
   || fail "ProfileManager не использует describeFailure"
-grep -q 'describeFailure' src/main/core/bypass.ts \
-  || fail "BypassManager не использует describeFailure"
 
 # ── 5. profiles отдаёт expire_supported (отличить старый сервер от бессрочного) ──
 grep -q 'expire_supported: true' <<< "$src" \

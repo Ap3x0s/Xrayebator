@@ -8,7 +8,8 @@ import {
   parseIso,
   shiftMonth,
   todayIso,
-  weekdayLabels
+  weekdayLabels,
+  weeksInMonth
 } from '../../src/shared/calendar'
 
 describe('isoOf / todayIso / parseIso', () => {
@@ -45,7 +46,7 @@ describe('monthCells', () => {
     // 1 июня 2026 — понедельник.
     const cells = monthCells(2026, 5)
     expect(cells[0]).toBe('2026-06-01')
-    expect(cells.filter((c) => c === null)).toHaveLength(42 - 30)
+    expect(cells.filter((c) => c === null)).toHaveLength(0)
   })
 
   it('февраль високосного года содержит 29 дней', () => {
@@ -54,14 +55,23 @@ describe('monthCells', () => {
     expect(cells).toContain('2028-02-29')
   })
 
-  it('всегда ровно 42 ячейки — высота календаря не зависит от месяца', () => {
-    // Иначе месяцы с 5 неделями «сжимали» плашку и кнопки под ней прыгали.
+  it('всегда укладывается в 6 недель и не добивается пустыми ячейками', () => {
     for (let m = 0; m < 12; m++) {
-      expect(monthCells(2026, m)).toHaveLength(42)
-      expect(monthCells(2027, m)).toHaveLength(42)
+      const cells = monthCells(2026, m)
+      expect(cells.length).toBeLessThanOrEqual(42)
+      // Пустые ячейки — только ведущие (до первого дня месяца).
+      const firstDay = cells.findIndex((c) => c !== null)
+      expect(cells.slice(firstDay).every((c) => c !== null)).toBe(true)
     }
-    // Самый «длинный» случай: 31 день и старт в воскресенье (6 ведущих).
-    expect(monthCells(2026, 10)).toHaveLength(42) // ноябрь 2026: 1-е — воскресенье
+  })
+
+  it('месяц с 5 неделями занимает меньше места, чем с 6 (нет пустого полотна)', () => {
+    // Ноябрь 2026: 1-е — воскресенье, 30 дней → 6 строк (6 ведущих + 30 = 36).
+    expect(monthCells(2026, 10).length).toBe(36)
+    // Июнь 2026: 1-е — понедельник, 30 дней → ровно 5 строк (30 ячеек).
+    expect(monthCells(2026, 5).length).toBe(30)
+    expect(weeksInMonth(2026, 5)).toBe(5)
+    expect(weeksInMonth(2026, 10)).toBeGreaterThanOrEqual(5)
   })
 
   it('даты в ячейках идут по возрастанию без пропусков', () => {

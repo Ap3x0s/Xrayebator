@@ -88,7 +88,6 @@ xrayebator fp-change --name NAME [--route R] --fp FINGERPRINT
 xrayebator sni-change --name NAME [--route R] --sni SNI
 xrayebator sni-list
 xrayebator port-change --name NAME [--route R] --port PORT|random
-xrayebator bypass list|groups|add --domain D|remove --domain D|reset|bundle --group a,b,c|unbundle --group a,b,c
 ```
 
 Deployment additionally invokes:
@@ -123,7 +122,6 @@ Server settings additionally provides:
 
 - **Subscription revocation** — a per-profile button opens a menu with two modes. "New link only" reissues the `sub_token` (the previous URL stops working; routes and keys stay the same). "Full revocation" also rotates the uuid in every inbound of the profile, so devices that already downloaded the config are cut off immediately — the only way to actually close access through a leaked link.
 - **Profile expiry** — the date travels to the client in the subscription header and is enforced server-side: the `xrayebator-expire.timer` systemd timer runs `xrayebator expire-check` every 10 minutes and removes the client from the inbounds once the date passes. Extending the date restores it. An expiry can also be set at profile-creation time.
-- **Bypass groups** — the list of domains routed directly around the tunnel (RU banks, government services, streaming): custom domains are added and removed individually, the server's ready-made groups toggle as checkboxes, and a full reset is available.
 
 ## Deployment protocol
 

@@ -89,7 +89,6 @@ xrayebator fp-change --name NAME [--route R] --fp FINGERPRINT
 xrayebator sni-change --name NAME [--route R] --sni SNI
 xrayebator sni-list
 xrayebator port-change --name NAME [--route R] --port PORT|random
-xrayebator bypass list|groups|add --domain D|remove --domain D|reset|bundle --group a,b,c|unbundle --group a,b,c
 ```
 
 部署流程会调用以下命令之一：
@@ -124,7 +123,6 @@ Server settings 还提供：
 
 - **订阅吊销** —— 每个配置档旁的按钮会打开一个菜单，包含两种模式。「仅更换链接」会重新签发 `sub_token`（旧 URL 立即失效，线路和密钥不变）。「完全吊销」还会更换该配置档所有 inbound 中的 uuid，已经下载过配置的设备会立刻断开——这是真正关闭泄露链接访问权限的唯一方式。
 - **配置档有效期** —— 日期通过订阅响应头下发给客户端，并由服务器强制执行：`xrayebator-expire.timer` 定时器每 10 分钟运行一次 `xrayebator expire-check`，到期后把客户端从 inbound 中移除。延长日期即可恢复。创建配置档时也可以直接设置有效期。
-- **分流分组** —— 绕过隧道直连的域名列表（俄罗斯银行、政务服务、流媒体）：自有域名可逐个添加和删除，服务器内置分组用开关切换，并提供完全重置。
 
 ## 部署协议
 
