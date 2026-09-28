@@ -129,6 +129,10 @@ export interface ServerProfile {
   routes: number
   pq_enabled: boolean
   subscription_url: string
+  /** epoch-секунды истечения; 0 = бессрочный. Принуждается серверным таймером. */
+  expire: number
+  /** true — профиль сейчас отключён по сроку (клиент снят с inbound'ов). */
+  expire_disabled: boolean
 }
 
 export interface ProfileCreateInput {
@@ -136,6 +140,8 @@ export interface ProfileCreateInput {
   transport: string
   port?: number
   count?: number
+  /** ISO-дата 'ГГГГ-ММ-ДД' или epoch-секунды; undefined = бессрочный. */
+  expire?: string
 }
 
 export interface ProfileCreateResult {
@@ -200,6 +206,67 @@ export interface ProfilePortResult {
   reconnect?: boolean
   warning?: string
   firewall_warning?: boolean
+  error?: string
+}
+
+export interface ProfileRevokeInput {
+  name: string
+  /** true — новый uuid тоже (старые клиенты отваливаются немедленно). */
+  full: boolean
+}
+
+export interface ProfileRevokeResult {
+  ok: boolean
+  name?: string
+  full?: boolean
+  sub_token?: string
+  uuid?: string
+  subscription_url?: string
+  error?: string
+}
+
+export interface ProfileExpireInput {
+  name: string
+  /** ISO 'ГГГГ-ММ-ДД' или epoch-секунды; null/undefined → 'none' (снять срок). */
+  expire: string | number | null
+}
+
+export interface ProfileExpireResult {
+  ok: boolean
+  name?: string
+  expire?: number
+  expired?: boolean
+  error?: string
+}
+
+export interface BypassStateResult {
+  ok: boolean
+  domains?: string[]
+  error?: string
+}
+
+export interface BypassGroupInfo {
+  id: string
+  title: string
+  /** Домены группы без префикса domain: — GUI рисует чекбоксы и считает покрытие. */
+  domains: string[]
+}
+
+export interface BypassGroupsResult {
+  ok: boolean
+  groups?: BypassGroupInfo[]
+  error?: string
+}
+
+export interface BypassActionResult {
+  ok: boolean
+  domain?: string
+  duplicate?: boolean
+  groups?: string[]
+  /** bundle: число добавленных доменов */
+  domains?: number
+  /** unbundle: число удалённых доменов */
+  removed?: number
   error?: string
 }
 
@@ -309,6 +376,37 @@ export interface ElectronAPI {
       access: SshAccessInput,
       input: ProfilePortInput
     ) => Promise<ProfilePortResult>
+    revoke: (
+      serverId: string,
+      access: SshAccessInput,
+      input: ProfileRevokeInput
+    ) => Promise<ProfileRevokeResult>
+    setExpire: (
+      serverId: string,
+      access: SshAccessInput,
+      input: ProfileExpireInput
+    ) => Promise<ProfileExpireResult>
+  }
+  bypass: {
+    list: (serverId: string, access: SshAccessInput) => Promise<BypassStateResult>
+    groups: (serverId: string, access: SshAccessInput) => Promise<BypassGroupsResult>
+    add: (serverId: string, access: SshAccessInput, domain: string) => Promise<BypassActionResult>
+    remove: (
+      serverId: string,
+      access: SshAccessInput,
+      domain: string
+    ) => Promise<BypassActionResult>
+    reset: (serverId: string, access: SshAccessInput) => Promise<BypassActionResult>
+    bundle: (
+      serverId: string,
+      access: SshAccessInput,
+      groups: string[]
+    ) => Promise<BypassActionResult>
+    unbundle: (
+      serverId: string,
+      access: SshAccessInput,
+      groups: string[]
+    ) => Promise<BypassActionResult>
   }
   server: {
     update: (
