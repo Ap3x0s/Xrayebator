@@ -89,6 +89,7 @@ xrayebator fp-change --name NAME [--route R] --fp FINGERPRINT
 xrayebator sni-change --name NAME [--route R] --sni SNI
 xrayebator sni-list
 xrayebator port-change --name NAME [--route R] --port PORT|random
+xrayebator bypass list|add --domain D|remove --domain D|reset|bundle [--group a,b,c]
 ```
 
 部署流程会调用以下命令之一：

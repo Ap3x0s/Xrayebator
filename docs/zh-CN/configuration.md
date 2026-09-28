@@ -112,6 +112,11 @@ Xrayebator 不会更改主机的 TCP 拥塞控制算法，也不会写入或应�
 | `sudo xrayebator sni-change --name 名称 [--route R] --sni SNI` | 修改配置档的 SNI，并同步更新同一端口上的所有配置档，打印 JSON 结果 |
 | `sudo xrayebator sni-list` | 按类别列出 `sni_list.txt` 中的候选 SNI，打印 JSON 结果（供桌面 GUI 的 SNI 对话框使用） |
 | `sudo xrayebator port-change --name 名称 [--route R] --port 端口\|random` | 修改配置档的端口；更新入站、防火墙与订阅。客户端需要重新连接，打印 JSON 结果 |
+| `sudo xrayebator bypass list` | 按分组列出当前分流规则（JSON） |
+| `sudo xrayebator bypass add --domain D` | 向分流规则添加一个域名（JSON） |
+| `sudo xrayebator bypass remove --domain D` | 从分流规则移除一个域名（JSON） |
+| `sudo xrayebator bypass reset` | 清空所有自定义分流规则（JSON） |
+| `sudo xrayebator bypass bundle [--group a,b,c]` | 应用默认分流分组；不带 `--group` 时重新应用全部分组（JSON） |
 | `sudo xrayebator-update [branch]` | 运行完整的 `update.sh` 生命周期更新；无参数时显示 `.current_branch` 并打开交互式分支选择，有参数时使用该分支 |
 | `sudo xrayebator-uninstall` | 移除服务与配置 |
 

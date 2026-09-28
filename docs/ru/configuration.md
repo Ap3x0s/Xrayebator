@@ -127,6 +127,11 @@ legacy-файлы и блоки, ранее созданные Xrayebator, и с
 | `sudo xrayebator sni-change --name ИМЯ [--route R] --sni SNI` | Сменить общий inbound SNI и синхронизировать профили на этом порту; JSON |
 | `sudo xrayebator sni-list` | Вывести SNI-кандидаты по категориям для GUI; JSON |
 | `sudo xrayebator port-change --name ИМЯ [--route R] --port ПОРТ\|random` | Сменить порт инбаунда, firewall и метаданные подписки; клиенту переподключиться; JSON |
+| `sudo xrayebator bypass list` | Показать текущие bypass-правила (JSON) |
+| `sudo xrayebator bypass add --domain D` | Добавить домен в bypass-правила |
+| `sudo xrayebator bypass remove --domain D` | Убрать домен из bypass-правил |
+| `sudo xrayebator bypass reset` | Сбросить все кастомные bypass-правила |
+| `sudo xrayebator bypass bundle [--group a,b,c]` | Применить дефолтные группы bypass; без `--group` — все группы |
 | `sudo xrayebator-update [branch]` | Запустить полный `update.sh` lifecycle update; без аргумента — интерактивный выбор ветки |
 | `sudo xrayebator-uninstall` | Снять сервис и конфигурацию |
 

@@ -170,7 +170,7 @@ sequence, and verify Xray, DNS and the subscription endpoint/service afterwards.
 
 The GUI intentionally exposes only a subset of the Bash menu. Use the terminal for `probe-test`,
 HAPP setup, cascade, self-steal and service logs/status; profile expiry dates and subscription
-revocation are handled in Server settings.
+revocation are handled in Server settings, while bypass stays a terminal/CLI operation.
 
 ## The Electron unit test fails on Windows
 

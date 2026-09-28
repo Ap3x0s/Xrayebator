@@ -37,6 +37,7 @@ for test_file in validation/*.sh; do bash "$test_file" || exit; done
 | `test-main-menu-numbering.sh` | 主菜单条目编号连续并与处理函数一致 |
 | `test-main-readiness-regressions.sh` | 审计后的 readiness 回归：certbot manifest、UFW manifest、nginx 回滚、权限与 SSH 端口 |
 | `test-sni-change-cli.sh` | `sni-change` CLI：JSON 输出、Reality、XHTTP host、配置档同步与回滚 |
+| `test-bypass-cli.sh` | `bypass` CLI：JSON 输出、路由规则更新、带 SNI 探测的 add |
 | `test-port-change-cli.sh` | `port-change` CLI：unit/shared/move 入站场景、无效端口、缺少配置档、多线路 `--route` |
 | `test-profile-revoke-expire-cli.sh` | `profile-revoke`（仅令牌 / 轮换 uuid 且保留共享端口上的其他客户端）与配置档有效期（停用、从快照恢复、无快照重建、幂等的 `expire-check`） |
 | `test-apt-lock-race.sh` | apt-lock 竞态：安装命令携带 `DPkg::Lock::Timeout`、检测 `unattended-upgrade` 工作进程、quickstart 12 分钟预算 |
