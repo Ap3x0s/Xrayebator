@@ -51,9 +51,13 @@ Already handled server-side:
 - `/sub/` without a valid token returns an identical `404`;
 - a profile with no live routes returns `410` and serves no routes; a partially stale multi-route
   profile can still return its remaining live routes with `200`;
+- an expired or disabled profile also returns `410 Gone` (`Profile expired or disabled`) and serves
+  no routes at all, even before the client refreshes its subscription;
 - nginx adds `Cache-Control: no-store` and rate-limits the subscription location;
 - the root path and paths outside `/sub/` return `404`;
-- `Revoke` rotates `sub_token`, so the old URL stops working.
+- `Revoke` rotates `sub_token`, so the old URL stops working; a full revocation
+  (`profile-revoke --full`) also rotates the uuid in every inbound of the profile, so
+  already-downloaded configurations stop connecting.
 
 Left to the operator:
 

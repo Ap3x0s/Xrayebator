@@ -81,6 +81,20 @@ HAPP 兼容的 XHTTP 候选必须是 `xhttp-legacy`，而不是 PQ 线路。更�
 
 请在客户端刷新订阅，或重新获取原始线路。SNI 和端口是共享入站的设置，因此修改它们可能影响该端口上的所有配置档，通常需要客户端重新连接。指纹是所选配置档/线路的客户端参数，不会重启 Xray，也不会修改其他线路。服务端订阅会在同一链接上立即更新，但 HAPP 仍需要强制刷新或等待下一次自动更新。
 
+## 订阅返回 410，但配置档看起来是正常的
+
+该配置档因有效期被停用：profile JSON 中带有 `.expire_disabled: true`，或者 `.expire`
+（epoch 秒）已经过期。强制执行由 systemd 定时器 `xrayebator-expire.timer` 完成（每 10 分钟运行
+`xrayebator expire-check`）：它会把客户端从 inbound 中移除，因此即使已经下载的链接也无法连接，
+订阅会返回 `410 Gone`，正文为 `Profile expired or disabled`。延长或取消有效期：
+
+```bash
+sudo xrayebator profile-expire --name 名称 --expire 2026-12-31   # 延长
+sudo xrayebator profile-expire --name 名称 --expire none         # 设为永久
+```
+
+延长后会恢复同一个客户端（同一 uuid），因此设备无需重新导入订阅。在 GUI 中同样的操作位于配置档卡片上的「有效期」按钮。
+
 ## 服务器上有旧配置档但无法使用
 
 如果配置档 JSON 指向的端口已经不在 `config.json` 中，说明配置档已过期。新订阅不会提供这些线路。只有当配置档已经没有任何存活线路时，旧令牌才会返回 `410 Gone`；部分过期的多线路配置档仍可能以 `200` 返回剩余的存活线路。请重新创建配置档，或通过终端菜单修复存活入站；不要发布指向失效端口的链接。

@@ -52,7 +52,7 @@ configuration and systemd unit form the HAPP subscription path. The active deskt
 
 /usr/local/etc/xray/
 ├── config.json                   # inbounds, outbounds, routing and DNS
-├── profiles/<name>.json          # profile metadata and subscription token
+├── profiles/<name>.json          # profile metadata, subscription token, expiry (.expire)
 ├── upstreams/cascade.json        # cascade upstream parameters
 ├── backups/                      # config backups made before runtime mutations
 ├── .private_key / .public_key    # Reality keys

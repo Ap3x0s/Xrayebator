@@ -131,6 +131,22 @@ reconnect. Fingerprint is different: it is client-side per selected profile/rout
 Xray and does not alter other routes. The server-side subscription changes immediately, but HAPP
 still needs a forced refresh or its next automatic one.
 
+## The subscription returns 410 even though the profile looks alive
+
+The profile is switched off by its expiry: the profile JSON carries `.expire_disabled: true`, or
+`.expire` (epoch seconds) is already in the past. Enforcement is done by the `xrayebator-expire.timer`
+systemd unit (every 10 minutes, `xrayebator expire-check`): it removes the client from the inbounds,
+so even an already-downloaded link cannot connect, and the subscription answers `410 Gone` with the
+body `Profile expired or disabled`. Extend or clear the date:
+
+```bash
+sudo xrayebator profile-expire --name NAME --expire 2026-12-31   # extend
+sudo xrayebator profile-expire --name NAME --expire none         # make unlimited
+```
+
+Renewal restores the very same client (same uuid), so devices do not need to re-import the
+subscription. In the GUI the same action lives behind the “Expiry” button on the profile card.
+
 ## Old profiles exist on the server but do not work
 
 If the profile JSON points at ports that no longer exist in `config.json`, the profile is stale.

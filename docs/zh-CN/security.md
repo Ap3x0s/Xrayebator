@@ -44,9 +44,10 @@ Xray 以系统用户 `xray` 运行。Drop-in
 - 32 位十六进制令牌，由 `openssl rand -hex 16` 生成；
 - 没有有效令牌访问 `/sub/` 一律返回相同的 `404`；
 - 没有活跃线路的配置档返回 `410`，不提供线路；
+- 已过期或被停用的配置档同样返回 `410 Gone`（`Profile expired or disabled`），完全不提供线路——即使用户端尚未刷新订阅；
 - nginx 添加 `Cache-Control: no-store`，并为订阅 location 限流；
 - 根路径与 `/sub/` 之外的路径返回 `404`；
-- `Revoke` 轮换 `sub_token`，旧 URL 失效。
+- `Revoke` 轮换 `sub_token`，旧 URL 失效；完全吊销（`profile-revoke --full`）还会更换该配置档所有 inbound 中的 uuid，因此已下载的配置无法再连接。
 
 运维人员需要注意：
 

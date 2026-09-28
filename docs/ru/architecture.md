@@ -52,7 +52,7 @@ Bash-управлению, а не вторая реализация серве�
 
 /usr/local/etc/xray/
 ├── config.json                   # инбаунды, outbounds, routing и DNS
-├── profiles/<name>.json          # метаданные профиля и токен подписки
+├── profiles/<name>.json          # метаданные профиля, токен подписки, срок действия (.expire)
 ├── upstreams/cascade.json        # параметры upstream каскада
 ├── backups/                      # бэкапы конфига перед runtime-мутациями
 ├── .private_key / .public_key    # ключи Reality
