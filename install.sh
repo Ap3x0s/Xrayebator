@@ -18,10 +18,7 @@ NC='\033[0m'
 # GitHub репозиторий
 GITHUB_USER="howdeploy"
 GITHUB_REPO="Xrayebator"
-# LOCAL-DEV-DEFAULT: в локальной сборке Ap3x0s дефолт — dev, чтобы свежая
-# установка сразу получала новые фичи (revoke/сроки/bypass) без ручного
-# `xrayebator update dev`. ПЕРЕД МЕРЖЕМ В MAIN ВЕРНУТЬ "main".
-GITHUB_BRANCH="dev"
+GITHUB_BRANCH="main"
 RAW_BASE_URL="https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/${GITHUB_BRANCH}"
 
 # Пути

@@ -34,10 +34,10 @@ export class ServerManager {
    */
   async update(): Promise<ServerMaintenanceResult> {
     const client = new SshClient(this.creds)
-    // LOCAL-DEV-DEFAULT: если сервер не закрепил ветку в .current_branch,
-    // локальная сборка обновляет его с dev (новые фичи: revoke/сроки/bypass).
-    // ПЕРЕД МЕРЖЕМ В MAIN ВЕРНУТЬ 'main' — иначе релизные серверы уедут на dev.
-    let branch = 'dev'
+    // Ветка берётся из .current_branch на сервере (её закрепляет
+    // `xrayebator update <branch>`); main — только дефолт для серверов,
+    // где ветка ещё не закреплена.
+    let branch = 'main'
     try {
       await client.connect()
       const result = await client.exec(
