@@ -105,7 +105,7 @@ Xrayebator 3.0 还会一次性删除旧版本安装的 UDP/443 阻断规则。�
 
 Electron GUI 的 Server Settings 调用 `xrayebator update <branch>`：从该分支 self-update 管理器并更新 Xray-core。它不同于完整的 `xrayebator-update [branch]` lifecycle updater。需要刷新数据、订阅集成和全部 lifecycle 步骤时，请从 SSH 终端运行后者。
 
-GUI 有意只暴露 Bash 菜单的一个子集。bypass、探测、订阅吊销、HAPP setup、级联、self-steal 以及服务日志/状态仍需从终端执行。
+GUI 有意只暴露 Bash 菜单的一个子集。`probe-test`、HAPP setup、级联、self-steal 以及服务日志/状态仍需从终端执行；配置档有效期、订阅吊销和分流分组可在服务器设置中完成。
 
 ## Electron 单元测试在 Windows 上失败
 
