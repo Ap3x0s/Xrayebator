@@ -7077,6 +7077,7 @@ main_menu() {
   fi
   run_migration "sni_list_2026" "SNI list 2026 (РФ-банки/логистика, удалить apple/icloud)" _migrate_sni_list_2026 || ((migration_failures++))
   run_migration "bypass_routing_2026" "Bypass routing first-run prompt (опционально)" _migrate_bypass_routing_2026 || ((migration_failures++))
+  run_migration "expire_timer_2026" "Таймер принуждения сроков профилей" _migrate_expire_timer_2026 || ((migration_failures++))
   run_migration "subhttp_multiroute_2026" "HAPP subhttp multi-route handler" _migrate_subhttp_multiroute_2026 || ((migration_failures++))
   run_migration "subhttp_client_compat_2026" "HAPP/v2rayNG subscription client compatibility" _migrate_subhttp_client_compat_2026 || ((migration_failures++))
   run_migration "subhttp_no_default_happ_routing_2026" "HAPP subscription: remove invalid legacy routing payload" _migrate_subhttp_no_default_happ_routing_2026 || ((migration_failures++))
@@ -8035,6 +8036,224 @@ _move_profile_client_between_inbounds() {
         )
       end
     ' "$CONFIG_FILE"
+}
+
+# Уникальные порты профиля (JSON-массив): routes[] multi-route или top-level .port.
+# Общий для profile-delete / revoke / expire — источник истины "где лежат клиенты".
+_profile_ports_json() {
+  local profile_file="$1"
+  local rcount
+  rcount=$(_profile_route_count "$profile_file")
+  if [[ "$rcount" =~ ^[0-9]+$ ]] && [[ "$rcount" -gt 0 ]]; then
+    jq -c '[.routes[]?.port | select(type == "number")] | unique' "$profile_file" 2>/dev/null
+  else
+    jq -c '[.port | select(type == "number")] | unique' "$profile_file" 2>/dev/null
+  fi
+}
+
+# Заменяет id клиента во всех inbounds на данных портах (revoke --full).
+_replace_uuid_in_config() {
+  local old_uuid=$1 new_uuid=$2 ports_json=$3
+  safe_jq_write --arg old "$old_uuid" --arg new "$new_uuid" --argjson ports "$ports_json" '
+    .inbounds |= map(
+      .port as $inbound_port |
+      if (($ports | index($inbound_port)) != null)
+         and any(.settings.clients[]?; .id == $old) then
+        .settings.clients = ((.settings.clients // [])
+          | map(if .id == $old then .id = $new else . end))
+      else
+        .
+      end
+    )
+  ' "$CONFIG_FILE"
+}
+
+# Нормализация значения срока: unix-секунды (10 цифр), unix-мс (13 цифр → /1000)
+# или ISO-локальное "ГГГГ-ММ-ДД[ TЧЧ:ММ[:СС]]" → epoch. stdout — только число.
+_normalize_expire_value() {
+  local raw="$1"
+  [[ -n "$raw" ]] || return 1
+  if [[ "$raw" =~ ^[0-9]+$ ]]; then
+    if [[ "${#raw}" -eq 13 ]]; then
+      printf '%s' "$((raw / 1000))"
+    elif [[ "${#raw}" -le 12 ]]; then
+      printf '%s' "$raw"
+    else
+      return 1
+    fi
+    return 0
+  fi
+  if [[ "$raw" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}([T\ ][0-9]{2}:[0-9]{2}(:[0-9]{2})?)?$ ]]; then
+    local norm="${raw/T/ }"
+    [[ "${#norm}" -eq 10 ]] && norm="$norm 00:00:00"
+    [[ "${#norm}" -eq 16 ]] && norm="$norm:00"
+    if [[ "$norm" =~ ^([0-9]{4})-([0-9]{2})-([0-9]{2})\ ([0-9]{2}):([0-9]{2}):([0-9]{2})$ ]] \
+       && [[ "${BASH_REMATCH[2]}" -ge 1 && "${BASH_REMATCH[2]}" -le 12 ]] \
+       && [[ "${BASH_REMATCH[3]}" -ge 1 && "${BASH_REMATCH[3]}" -le 31 ]] \
+       && [[ "${BASH_REMATCH[4]}" -le 23 && "${BASH_REMATCH[5]}" -le 59 && "${BASH_REMATCH[6]}" -le 60 ]]; then
+      # GNU date (Debian/Ubuntu обязательны по install.sh); время локальное —
+      # как и у date +%s в expire-check, расхождения с серверными часами нет.
+      local ts
+      ts=$(date -d "$norm" +%s 2>/dev/null) || return 1
+      printf '%s' "$ts"
+      return 0
+    fi
+  fi
+  return 1
+}
+
+# Нормализованный .expire профиля → epoch в stdout (0 = бессрочный).
+# 13-значные ms из старых записей приводятся к секундам — иначе expiry никогда
+# не наступит (ms-epoch ~ 1.7e12 всегда больше now).
+_profile_expire_epoch() {
+  local profile_file="$1" raw
+  raw=$(jq -r '.expire // empty' "$profile_file" 2>/dev/null) || return 1
+  [[ -n "$raw" && "$raw" != "null" ]] || { printf '0'; return 0; }
+  [[ "$raw" =~ ^[0-9]+$ ]] || { printf '0'; return 0; }
+  if [[ "${#raw}" -eq 13 ]]; then
+    printf '%s' "$((raw / 1000))"
+  else
+    printf '%s' "$raw"
+  fi
+}
+
+# Профиль "отключён по expire" = в JSON стоит флаг .expire_disabled.
+# Флаг (а не снимок) — маркер идемпотентности: expire-check без флага обязан
+# что-то изменить, иначе таймер будет рестартить xray на пустом месте каждый цикл.
+_profile_is_expire_disabled() {
+  local profile_file="$1"
+  jq -e '.expire_disabled == true' "$profile_file" >/dev/null 2>&1
+}
+
+# Есть ли клиент профиля (по текущему uuid) хоть в одном inbound конфига.
+# Отличает "флаг+клиент исчезли" (спокойно) от "флаг, но клиента вернули руками"
+# (надо переналожить бан) — и не даёт таймеру рестартить xray на пустом месте.
+_profile_client_in_config() {
+  local profile_file="$1" uuid
+  uuid=$(jq -r '.uuid // empty' "$profile_file")
+  [[ -n "$uuid" ]] || return 1
+  jq -e --arg uuid "$uuid" '
+    any(.inbounds[]?; any(.settings.clients[]?; .id == $uuid))
+  ' "$CONFIG_FILE" >/dev/null 2>&1
+}
+
+# Отключение истёкшего профиля: снимок клиентов (flow и доп. поля включительно)
+# в .expire_clients профиля + флаг → удаление клиента из inbound'ов портов профиля.
+# ВАЖНО: inbound'ы сохраняются даже с пустым списком клиентов — _remove_profile_uuid
+# выкидывал бы пустой inbound целиком, а на продлении новый inbound = новый shortId
+# = смерть всех выданных URL. Клиенты чужих профилей на общих портах не затрагиваются.
+# Клиента нет в конфиге — только флаг (бан уже наложен руками).
+_expire_disable_profile() {
+  local profile_file="$1"
+  local uuid ports_json saved
+  uuid=$(jq -r '.uuid // empty' "$profile_file")
+  [[ -n "$uuid" ]] || return 1
+  ports_json=$(_profile_ports_json "$profile_file")
+  jq -e 'type == "array" and length > 0' <<< "$ports_json" >/dev/null 2>&1 || return 1
+
+  saved=$(jq -c --arg uuid "$uuid" --argjson ports "$ports_json" '
+    [.inbounds[] as $in
+     | select(($ports | index($in.port)) != null)
+     | $in.settings.clients[]? | select(.id == $uuid)
+     | {port: $in.port, client: .}]' "$CONFIG_FILE" 2>/dev/null) || return 1
+
+  if [[ "$(jq 'length' <<< "$saved")" != "0" ]]; then
+    safe_jq_write --arg uuid "$uuid" --argjson ports "$ports_json" '
+      .inbounds |= map(
+        .port as $p |
+        if (($ports | index($p)) != null) then
+          .settings.clients = ((.settings.clients // []) | map(select(.id != $uuid)))
+        else . end
+      )
+    ' "$CONFIG_FILE" || return 1
+  fi
+  safe_jq_write --argjson saved "$saved" \
+    '.expire_clients = $saved | .expire_disabled = true' "$profile_file" || return 1
+  return 0
+}
+
+# Включение профиля до истечения нового срока: клиенты из снимка (с актуальным
+# uuid на случай revoke между циклами). Снимка нет — rebuild из routes-метаданных;
+# и он ничего не добавил (порты пересобраны вручную) — гасим флаг с предупреждением,
+# иначе expire-check зациклится на недостижимом профиле.
+_expire_enable_profile() {
+  local profile_file="$1"
+  local uuid ports_json saved
+  uuid=$(jq -r '.uuid // empty' "$profile_file")
+  [[ -n "$uuid" ]] || return 1
+  ports_json=$(_profile_ports_json "$profile_file")
+  jq -e 'type == "array" and length > 0' <<< "$ports_json" >/dev/null 2>&1 || return 1
+
+  saved=$(jq -c '.expire_clients // []' "$profile_file") || return 1
+
+  if [[ "$(jq 'length' <<< "$saved")" == "0" ]]; then
+    if ! _expire_rebuild_clients "$profile_file"; then
+      echo -e "${YELLOW}  ⚠ $(basename "$profile_file" .json): порты профиля не найдены — срок снят, клиент не восстановлен${NC}" >&2
+      safe_jq_write 'del(.expire_clients) | .expire_disabled = false' "$profile_file" || return 1
+      return 0
+    fi
+  else
+    safe_jq_write --arg uuid "$uuid" --argjson ports "$ports_json" --argjson saved "$saved" '
+      .inbounds |= map(
+        .port as $p |
+        if (($ports | index($p)) != null) then
+          .settings.clients = ((.settings.clients // []) | map(select(.id != $uuid)))
+        else . end
+      )
+      | .inbounds |= map(
+          .port as $p |
+          if (($ports | index($p)) != null) and any($saved[]; .port == $p) then
+            .settings.clients = ((.settings.clients // [])
+              + [$saved[] | select(.port == $p) | .client | .id = $uuid])
+          else . end
+        )' "$CONFIG_FILE" || return 1
+  fi
+  safe_jq_write 'del(.expire_clients) | .expire_disabled = false' "$profile_file" || return 1
+  return 0
+}
+
+# Fallback-восстановление без снимка: добавить {id, flow} в существующий inbound
+# порта (flow — как в add_inbound: vision для tcp/utls/xudp, пусто для mux/grpc/xhttp).
+_expire_rebuild_clients() {
+  local profile_file="$1"
+  local uuid rcount idx transport port flow added=false
+  uuid=$(jq -r '.uuid // empty' "$profile_file")
+  [[ -n "$uuid" ]] || return 1
+  rcount=$(_profile_route_count "$profile_file")
+  [[ "$rcount" =~ ^[0-9]+$ ]] || rcount=0
+
+  local -a specs=()
+  if [[ "$rcount" -gt 0 ]]; then
+    for ((idx=0; idx<rcount; idx++)); do
+      transport=$(jq -r --argjson i "$idx" '.routes[$i].transport // empty' "$profile_file")
+      port=$(jq -r --argjson i "$idx" '.routes[$i].port // empty' "$profile_file")
+      [[ -n "$transport" && "$port" =~ ^[0-9]+$ ]] && specs+=("$transport|$port")
+    done
+  else
+    transport=$(jq -r '.transport // empty' "$profile_file")
+    port=$(jq -r '.port // empty' "$profile_file")
+    [[ -n "$transport" && "$port" =~ ^[0-9]+$ ]] && specs+=("$transport|$port")
+  fi
+
+  local spec
+  for spec in "${specs[@]}"; do
+    IFS='|' read -r transport port <<< "$spec"
+    flow=""
+    case "$transport" in
+      tcp|tcp-utls|tcp-xudp) flow="xtls-rprx-vision" ;;
+    esac
+    # Инбаунд должен существовать (порт не должен быть пересобран вручную).
+    local exists
+    exists=$(jq -r --argjson p "$port" '[.inbounds[] | select(.port == $p)] | length' "$CONFIG_FILE" 2>/dev/null)
+    [[ "$exists" == "1" ]] || continue
+    if safe_jq_write --arg uuid "$uuid" --argjson port "$port" --arg flow "$flow" '
+      (.inbounds[] | select(.port == $port) | .settings.clients) |=
+        (map(select(.id != $uuid)) + [ {id: $uuid, flow: $flow} ])
+    ' "$CONFIG_FILE"; then
+      added=true
+    fi
+  done
+  [[ "$added" == "true" ]]
 }
 
 # Удаление профиля
@@ -10269,6 +10488,7 @@ quickstart_command() {
   run_migration "subhttp_multiroute_2026" "Subhttp multiroute handler" _migrate_subhttp_multiroute_2026 >/dev/null 2>&1 || true
   run_migration "subhttp_client_compat_2026" "Subhttp client compat" _migrate_subhttp_client_compat_2026 >/dev/null 2>&1 || true
   run_migration "bypass_routing_2026" "Bypass routing first-run" _migrate_bypass_routing_2026 >/dev/null 2>&1 || true
+  run_migration "expire_timer_2026" "Expire enforcement timer" _migrate_expire_timer_2026 >/dev/null 2>&1 || true
   run_migration "subhttp_happ_legacy_xhttp_2026" "Subhttp HAPP legacy XHTTP route" _migrate_subhttp_happ_legacy_xhttp_2026 >/dev/null 2>&1 || true
   run_migration "subhttp_happ_xhttp_compat_2026" "Subhttp HAPP XHTTP compat" _migrate_subhttp_happ_xhttp_compat_2026 >/dev/null 2>&1 || true
   run_migration "subhttp_no_default_happ_routing_2026" "Subhttp no default HAPP routing profile" _migrate_subhttp_no_default_happ_routing_2026 >/dev/null 2>&1 || true
@@ -10789,7 +11009,7 @@ profiles_command() {
     [[ "$first" -eq 0 ]] && printf ','
     first=0
 
-    local name uuid transport port fingerprint sni created sub_token multi_route rcount pq
+    local name uuid transport port fingerprint sni created sub_token multi_route rcount pq expire expire_disabled
     name=$(basename "$file" .json)
     uuid=$(jq -r '.uuid // ""' "$file" 2>/dev/null)
     transport=$(jq -r '.transport // ""' "$file" 2>/dev/null)
@@ -10801,6 +11021,13 @@ profiles_command() {
     multi_route=$(jq -r '(.multi_route // false)' "$file" 2>/dev/null)
     rcount=$(jq -r '((.routes // []) | length)' "$file" 2>/dev/null)
     pq=$(jq -r '(.pq_enabled // false)' "$file" 2>/dev/null)
+    expire=$(_profile_expire_epoch "$file" 2>/dev/null || printf '0')
+    [[ "$expire" =~ ^[0-9]+$ ]] || expire=0
+    if _profile_is_expire_disabled "$file" 2>/dev/null; then
+      expire_disabled=true
+    else
+      expire_disabled=false
+    fi
     [[ "$rcount" =~ ^[0-9]+$ ]] || rcount=0
 
     local sub_url=""
@@ -10814,10 +11041,12 @@ profiles_command() {
       --arg created "$created" --arg sub_token "$sub_token" \
       --argjson multi_route "$multi_route" --argjson routes "$rcount" \
       --argjson pq "$pq" --arg subscription_url "$sub_url" \
+      --argjson expire "$expire" --argjson expire_disabled "$expire_disabled" \
       '{name: $name, uuid: $uuid, transport: $transport, port: $port,
         fingerprint: $fingerprint, sni: $sni, created: $created,
         sub_token: $sub_token, multi_route: $multi_route, routes: $routes,
-        pq_enabled: $pq, subscription_url: $subscription_url}'
+        pq_enabled: $pq, subscription_url: $subscription_url,
+        expire: $expire, expire_disabled: $expire_disabled}'
   done
   printf ']\n'
   return 0
@@ -10832,13 +11061,14 @@ profile_create_command() {
   export DEBIAN_FRONTEND=noninteractive
   export XRAYEBATOR_NONINTERACTIVE=1
 
-  local name="" transport="xhttp" port="" count=1
+  local name="" transport="xhttp" port="" count=1 expire_raw=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --name) name="$2"; shift 2 ;;
       --transport) transport="$2"; shift 2 ;;
       --port) port="$2"; shift 2 ;;
       --count) count="$2"; shift 2 ;;
+      --expire) expire_raw="$2"; shift 2 ;;
       *) shift ;;
     esac
   done
@@ -10890,12 +11120,29 @@ profile_create_command() {
   exec 1>&2
 
   local created_names=() errors=()
+  local expire_value=0
+  if [[ -n "$expire_raw" ]]; then
+    if ! expire_value=$(_normalize_expire_value "$expire_raw"); then
+      exec 1>&3 3>&-
+      rm -f "$results_file"
+      echo '{"ok":false,"error":"Некорректный --expire: нужен epoch (сек/мс) или дата 2006-12-31[ 23:59]"}'
+      return 1
+    fi
+    local now_epoch
+    now_epoch=$(date +%s)
+    if [[ "$expire_value" -le "$now_epoch" ]]; then
+      exec 1>&3 3>&-
+      rm -f "$results_file"
+      echo '{"ok":false,"error":"Срок действия уже в прошлом"}'
+      return 1
+    fi
+  fi
   for pname in "${profile_names[@]}"; do
     if [[ -f "$PROFILES_DIR/$pname.json" ]]; then
       errors+=("$pname: уже существует")
       continue
     fi
-    if _profile_cli_create_one "$pname" "$transport" "$port" "$results_file"; then
+    if _profile_cli_create_one "$pname" "$transport" "$port" "$results_file" "$expire_value"; then
       created_names+=("$pname")
     else
       errors+=("$pname: не удалось создать")
@@ -10914,8 +11161,9 @@ profile_create_command() {
 }
 
 # Один профиль: файл JSON + inbound + safe_restart_xray. Возвращает 0/1.
+# $5 — expire (epoch-секунды, 0 = бессрочный).
 _profile_cli_create_one() {
-  local pname="$1" transport="$2" fixed_port="${3:-}" results_file="${4:-}"
+  local pname="$1" transport="$2" fixed_port="${3:-}" results_file="${4:-}" expire_value="${5:-0}"
   local uuid sub_token grpc_service_name xhttp_path port default_sni
   uuid=$(uuidgen)
   sub_token=$(openssl rand -hex 16)
@@ -10965,7 +11213,12 @@ _profile_cli_create_one() {
     jq_args+=(--argjson schema_v 2 --argjson pq_enabled true)
     jq_expr+=', schema_version: $schema_v, pq_enabled: $pq_enabled'
   fi
-  jq_expr+=', sub_token: $sub_token, created: $created}'
+  jq_expr+=', sub_token: $sub_token, created: $created'
+  if [[ "$expire_value" -gt 0 ]]; then
+    jq_args+=(--argjson expire "$expire_value")
+    jq_expr+=', expire: $expire'
+  fi
+  jq_expr+='}'
   if ! jq -n "${jq_args[@]}" "$jq_expr" > "$PROFILES_DIR/$pname.json"; then
     rm -f "$PROFILES_DIR/$pname.json"
     echo -e "${RED}✗ Не удалось создать JSON профиля${NC}" >&2
@@ -11000,9 +11253,11 @@ _profile_cli_create_one() {
     --arg name "$pname" --arg uuid "$uuid" --arg transport "$transport" \
     --argjson port "$port" --arg fingerprint "$fingerprint" --arg sni "$default_sni" \
     --arg sub_token "$sub_token" --arg subscription_url "$sub_url" \
+    --argjson expire "$expire_value" \
     '{name: $name, uuid: $uuid, transport: $transport, port: $port,
       fingerprint: $fingerprint, sni: $sni, sub_token: $sub_token,
-      subscription_url: $subscription_url}' >> "$results_file"
+      subscription_url: $subscription_url}
+     + (if $expire > 0 then {expire: $expire} else {} end)' >> "$results_file"
   return 0
 }
 
@@ -11083,6 +11338,363 @@ profile_delete_command() {
   fix_xray_permissions
   echo "{\"ok\":true,\"name\":\"$name\"}"
   return 0
+}
+
+# xrayebator profile-revoke --name NAME [--full]
+#   без --full: перевыпуск sub_token (старая URL подписки умирает, uuid жив);
+#   --full: + новый uuid во всех inbound'ах портов профиля — уже скачанные
+#   конфиги отваливаются немедленно (реальный ремонт утечки ссылки в чат).
+profile_revoke_command() {
+  export TERM=dumb
+  export XRAYEBATOR_NONINTERACTIVE=1
+
+  local name="" full=false
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --name) name="$2"; shift 2 ;;
+      --full) full=true; shift ;;
+      *) shift ;;
+    esac
+  done
+
+  if [[ -z "$name" ]] || ! [[ "$name" =~ ^[a-zA-Z0-9_-]{1,48}$ ]]; then
+    echo '{"ok":false,"error":"Некорректное имя профиля (1-48 симв.: a-z, 0-9, _ -)"}'
+    return 1
+  fi
+
+  local profile_file="$PROFILES_DIR/$name.json"
+  if [[ ! -f "$profile_file" ]]; then
+    echo "{\"ok\":false,\"error\":\"Профиль $name не найден\"}"
+    return 1
+  fi
+
+  local new_token
+  new_token=$(openssl rand -hex 16)
+  if [[ ! "$new_token" =~ ^[a-f0-9]{32}$ ]]; then
+    echo '{"ok":false,"error":"Не удалось сгенерировать sub_token"}'
+    return 1
+  fi
+
+  local old_uuid="" new_uuid="" ports_json=""
+  if [[ "$full" == "true" ]]; then
+    old_uuid=$(jq -r '.uuid // empty' "$profile_file")
+    if [[ -z "$old_uuid" ]]; then
+      echo '{"ok":false,"error":"Профиль повреждён: нет uuid"}'
+      return 1
+    fi
+    new_uuid=$(uuidgen)
+    if [[ ! "$new_uuid" =~ ^[0-9a-fA-F-]{36}$ ]]; then
+      echo '{"ok":false,"error":"Не удалось сгенерировать uuid"}'
+      return 1
+    fi
+    ports_json=$(_profile_ports_json "$profile_file")
+    if ! jq -e 'type == "array" and length > 0' <<< "$ports_json" >/dev/null 2>&1; then
+      echo '{"ok":false,"error":"Профиль повреждён: нет корректных портов"}'
+      return 1
+    fi
+    # Полный отзыв должен выключать и уже истёкший по сроку профиль.
+    if _profile_is_expire_disabled "$profile_file"; then
+      echo '{"ok":false,"error":"Профиль отключён по сроку — сначала продлите срок (profile-expire)"}'
+      return 1
+    fi
+  fi
+
+  # CLI-режим: статусы helpers (backup_config, safe_restart_xray, safe_jq_write)
+  # печатают цветной мусор в stdout — душим в stderr (контракт JSON-only).
+  # Бэкап тоже внутри redirect: его "-> Бэкап конфига" иначе ломает JSON.
+  exec 3>&1
+  exec 1>&2
+
+  local rollback_config=""
+  if ! backup_config "cli_revoke_$name" rollback_config; then
+    echo '{"ok":false,"error":"Не удалось создать бэкап config.json"}' >&3
+    exec 1>&3 3>&-
+    return 1
+  fi
+
+  # Профиль-JSON: новый токен всегда; при --full ещё и uuid (top-level + routes).
+  # Порядок при full: сначала конфиг+рестарт, потом профиль; сбой записи профиля
+  # при full откатывает конфиг — иначе uuid разедутся.
+  local jq_args=(--arg t "$new_token")
+  local jq_expr='.sub_token = $t'
+  if [[ "$full" == "true" ]]; then
+    jq_args+=(--arg old "$old_uuid" --arg new "$new_uuid")
+    jq_expr+=' | .uuid = $new | (.routes // []) |= map(if .uuid? == $old then .uuid = $new else . end)'
+    # routes не хранят uuid (общий на профиль), но выражение безопасно для будущих схем.
+
+    if ! _replace_uuid_in_config "$old_uuid" "$new_uuid" "$ports_json"; then
+      echo '{"ok":false,"error":"Не удалось обновить clients в config.json"}' >&3
+      exec 1>&3 3>&-
+      return 1
+    fi
+    if ! safe_restart_xray "$rollback_config"; then
+      echo '{"ok":false,"error":"Xray не принял конфиг — изменения откачены"}' >&3
+      exec 1>&3 3>&-
+      return 1
+    fi
+  fi
+
+  if ! safe_jq_write "${jq_args[@]}" "$jq_expr" "$profile_file"; then
+    if [[ "$full" == "true" ]]; then
+      # Полусостояние недопустимо: конфиг уже с новым uuid, профиль — со старым.
+      # Откатываем config.json из бэкапа транзакции.
+      if [[ -n "$rollback_config" && -f "$rollback_config" ]]; then
+        cp "$rollback_config" "$CONFIG_FILE"
+        safe_restart_xray ""
+      fi
+    fi
+    echo '{"ok":false,"error":"Не удалось записать profile JSON"}' >&3
+    exec 1>&3 3>&-
+    return 1
+  fi
+  chown root:root "$profile_file" 2>/dev/null || true
+
+  fix_xray_permissions
+  exec 1>&3 3>&-
+
+  local sub_url="" base
+  base=$(_subscription_base_url 2>/dev/null || true)
+  if [[ -n "$base" ]] && _profile_cli_subscription_url "$new_token" >/dev/null 2>&1; then
+    sub_url="${base}/sub/${new_token}"
+  fi
+  jq -n \
+    --arg name "$name" --arg token "$new_token" --arg url "$sub_url" \
+    --argjson full "$full" --arg uuid "$new_uuid" \
+    '{ok: true, name: $name, full: $full, sub_token: $token,
+      subscription_url: $url}
+     + (if $full then {uuid: $uuid} else {} end)'
+  return 0
+}
+
+# ═══════════════════════════════════════════════════════════
+# CLI сроков действия профилей (profile-expire / expire-check).
+# Принуждение серверное: systemd-таймер раз в 10 мин вызывает expire-check,
+# который удаляет клиента истёкшего профиля из inbound'ов (снимок в .expire_clients)
+# и возвращает обратно при продлении. subhttp отдаёт .expire как subscription-userinfo.
+# ═══════════════════════════════════════════════════════════
+
+# xrayebator profile-expire --name NAME --expire VALUE|none
+#   VALUE: unix-секунды | unix-мс (13 цифр) | "ГГГГ-ММ-ДД" | "ГГГГ-ММ-ДД HH:MM".
+#   none — снять срок (вечный профиль). Смена статуса перезапускает xray.
+profile_expire_command() {
+  export TERM=dumb
+  export XRAYEBATOR_NONINTERACTIVE=1
+
+  local name="" raw=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --name) name="$2"; shift 2 ;;
+      --expire) raw="$2"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+
+  if [[ -z "$name" ]] || ! [[ "$name" =~ ^[a-zA-Z0-9_-]{1,48}$ ]]; then
+    echo '{"ok":false,"error":"Некорректное имя профиля (1-48 симв.: a-z, 0-9, _ -)"}'
+    return 1
+  fi
+  if [[ -z "$raw" ]]; then
+    echo '{"ok":false,"error":"Укажите --expire ГГГГ-ММ-ДД|epoch|none"}'
+    return 1
+  fi
+
+  local expire=0
+  if [[ "$raw" != "none" ]]; then
+    if ! expire=$(_normalize_expire_value "$raw"); then
+      echo '{"ok":false,"error":"Некорректный срок: нужен epoch (сек/мс) или дата 2006-12-31[ 23:59]"}'
+      return 1
+    fi
+  fi
+
+  local profile_file="$PROFILES_DIR/$name.json"
+  if [[ ! -f "$profile_file" ]]; then
+    echo "{\"ok\":false,\"error\":\"Профиль $name не найден\"}"
+    return 1
+  fi
+
+  local now action=""
+  now=$(date +%s)
+  if [[ "$expire" -gt 0 && "$expire" -le "$now" ]]; then
+    # Профиль уже помечен отключённым, но клиента снова нашли в конфиге
+    # (вмешательство руками) — бан нужно наложить заново.
+    if ! _profile_is_expire_disabled "$profile_file" || _profile_client_in_config "$profile_file"; then
+      action="disable"
+    fi
+  else
+    if _profile_is_expire_disabled "$profile_file"; then action="enable"; fi
+  fi
+
+  # Тот же контракт JSON-only: backup_config печатает статус — только после switch.
+  exec 3>&1
+  exec 1>&2
+
+  local rollback_config=""
+  if [[ -n "$action" ]] && ! backup_config "cli_expire_$name" rollback_config; then
+    echo '{"ok":false,"error":"Не удалось создать бэкап config.json"}' >&3
+    exec 1>&3 3>&-
+    return 1
+  fi
+
+  if ! safe_jq_write --argjson e "$expire" \
+      'if $e == 0 then del(.expire) else .expire = $e end' "$profile_file"; then
+    echo "{\"ok\":false,\"error\":\"Не удалось записать expire в профиль\"}" >&3
+    exec 1>&3 3>&-
+    return 1
+  fi
+  chown root:root "$profile_file" 2>/dev/null || true
+
+  local apply_rc=0
+  if [[ "$action" == "disable" ]]; then
+    _expire_disable_profile "$profile_file" || apply_rc=1
+  elif [[ "$action" == "enable" ]]; then
+    _expire_enable_profile "$profile_file" || apply_rc=1
+  fi
+
+  if [[ "$apply_rc" -ne 0 ]]; then
+    echo "{\"ok\":false,\"error\":\"Не удалось применить отключение/включение профиля\"}" >&3
+    exec 1>&3 3>&-
+    return 1
+  fi
+
+  if [[ -n "$action" ]]; then
+    fix_xray_permissions
+    if ! safe_restart_xray "$rollback_config"; then
+      echo '{"ok":false,"error":"Xray не принял конфиг — изменения откачены"}' >&3
+      exec 1>&3 3>&-
+      return 1
+    fi
+  fi
+  exec 1>&3 3>&-
+
+  local expired=false
+  [[ "$expire" -gt 0 && "$expire" -le "$now" ]] && expired=true
+  jq -n --arg name "$name" --argjson e "$expire" --argjson expired "$expired" \
+    '{ok: true, name: $name, expire: $e, expired: $expired}'
+  return 0
+}
+
+# xrayebator expire-check — пакетное принуждение сроков (вызывается таймером
+# xrayebator-expire.timer и вручную). Идемпотентен: без изменений — без рестарта.
+expire_check_command() {
+  export TERM=dumb
+  export XRAYEBATOR_NONINTERACTIVE=1
+
+  local now
+  now=$(date +%s)
+
+  # Проход 1: только классификация (никаких мутаций конфига до общего бэкапа).
+  local -a disable_files=() enable_files=()
+  local profile_file expire
+  for profile_file in "$PROFILES_DIR"/*.json; do
+    [[ -f "$profile_file" ]] || continue
+    expire=$(_profile_expire_epoch "$profile_file" 2>/dev/null) || continue
+    [[ "$expire" =~ ^[0-9]+$ ]] || continue
+    if [[ "$expire" -gt 0 && "$expire" -le "$now" ]]; then
+      # Кандидат на бан: не помечен ИЛИ помечен, но клиент снова в конфиге.
+      if ! _profile_is_expire_disabled "$profile_file" || _profile_client_in_config "$profile_file"; then
+        disable_files+=("$profile_file")
+      fi
+    elif _profile_is_expire_disabled "$profile_file"; then
+      enable_files+=("$profile_file")
+    fi
+  done
+
+  if [[ ${#disable_files[@]} -eq 0 && ${#enable_files[@]} -eq 0 ]]; then
+    echo '{"ok":true,"disabled":[],"enabled":[]}'
+    return 0
+  fi
+
+  exec 3>&1
+  exec 1>&2
+
+  local rollback_config=""
+  if ! backup_config "expire_check" rollback_config; then
+    echo '{"ok":false,"error":"Не удалось создать бэкап config.json"}' >&3
+    exec 1>&3 3>&-
+    return 1
+  fi
+
+  local -a done_disable=() done_enable=()
+  for profile_file in "${disable_files[@]}"; do
+    if _expire_disable_profile "$profile_file"; then
+      done_disable+=("$(basename "$profile_file" .json)")
+    fi
+  done
+  for profile_file in "${enable_files[@]}"; do
+    if _expire_enable_profile "$profile_file"; then
+      done_enable+=("$(basename "$profile_file" .json)")
+    fi
+  done
+
+  fix_xray_permissions
+  if ! safe_restart_xray "$rollback_config"; then
+    echo '{"ok":false,"error":"Xray не принял конфиг — изменения откачены"}' >&3
+    exec 1>&3 3>&-
+    return 1
+  fi
+  exec 1>&3 3>&-
+
+  jq -n \
+    --argjson d "$(printf '%s\n' "${done_disable[@]}" | jq -R . | jq -s 'map(select(length > 0))')" \
+    --argjson e "$(printf '%s\n' "${done_enable[@]}" | jq -R . | jq -s 'map(select(length > 0))')" \
+    '{ok: true, disabled: $d, enabled: $e}'
+  return 0
+}
+
+# systemd-таймер принуждения expire (2 unit'а, root-контекст: мутит config.json).
+# Контракт no-op: таймер уже включён и ExecStart актуален → return 1 (no-op),
+# установка прошла → return 0. Совпадает с контрактом run_migration.
+_install_expire_timer() {
+  local unit=/etc/systemd/system/xrayebator-expire.service
+  local timer=/etc/systemd/system/xrayebator-expire.timer
+
+  if [[ -f "$unit" && -f "$timer" ]] \
+     && grep -q "ExecStart=/usr/local/bin/xrayebator expire-check" "$unit" \
+     && systemctl is-enabled --quiet xrayebator-expire.timer 2>/dev/null; then
+    return 1
+  fi
+
+  cat > "$unit" << 'SVCEOF'
+[Unit]
+Description=Xrayebator: enforce profile expiry dates
+After=network-online.target xray.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/xrayebator expire-check
+IOSchedulingClass=idle
+SVCEOF
+  chmod 644 "$unit"
+  chown root:root "$unit" || return 2
+
+  cat > "$timer" << 'TMREOF'
+[Unit]
+Description=Run Xrayebator profile-expiry enforcement every 10 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=10min
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target
+TMREOF
+  chmod 644 "$timer"
+  chown root:root "$timer" || return 2
+
+  systemctl daemon-reload || return 2
+  systemctl enable --now xrayebator-expire.timer >/dev/null 2>&1 || return 2
+  return 0
+}
+
+# Контракт run_migration: 1 = no-op (маркер ставится БЕЗ рестарта xray — таймер
+# не трогает config.json, ронять соединения из-за него нельзя); ≥2 = фалл (повтор).
+_migrate_expire_timer_2026() {
+  _install_expire_timer
+  local rc=$?
+  [[ $rc -le 1 ]] && return 1
+  return 2
 }
 
 # Смена fingerprint профиля (клиентский TLS ClientHello, Xray не перезапускается).
@@ -11341,6 +11953,22 @@ _bypass_cli_bundle() {
   return 1
 }
 
+# bypass groups — список готовых групп bundle (id, название, кол-во доменов) для GUI.
+_bypass_cli_groups() {
+  local json
+  json=$(awk -F'|' 'NF >= 3 {
+    n = split($3, d, ",")
+    printf "%s\t%s\t%d\n", $1, $2, n
+  }' < <(_bypass_bundle_groups) | jq -R -s '
+    split("\n") | map(select(length > 0)) |
+    map(split("\t") | {id: .[0], title: .[1], domains: (.[2] | tonumber)})') || {
+    echo '{"ok":false,"error":"Не удалось собрать список групп"}'
+    return 1
+  }
+  jq -n --argjson groups "$json" '{ok: true, groups: $groups}'
+  return 0
+}
+
 bypass_command() {
   export TERM=dumb
   export XRAYEBATOR_NONINTERACTIVE=1
@@ -11370,8 +11998,12 @@ bypass_command() {
       _bypass_cli_bundle "$@"
       return $?
       ;;
+    groups)
+      _bypass_cli_groups
+      return $?
+      ;;
     *)
-      echo '{"ok":false,"error":"Использование: bypass list | bypass add --domain D | bypass remove --domain D | bypass reset | bypass bundle [--group a,b,c]"}'
+      echo '{"ok":false,"error":"Использование: bypass list | groups | add --domain D | remove --domain D | reset | bundle [--group a,b,c]"}'
       return 1
       ;;
   esac
@@ -11924,6 +12556,18 @@ if [[ "$XRAYEBATOR_SOURCED" -eq 0 ]]; then
       shift
       profile_delete_command "$@"
       ;;
+    profile-revoke)
+      shift
+      profile_revoke_command "$@"
+      ;;
+    profile-expire)
+      shift
+      profile_expire_command "$@"
+      ;;
+    expire-check)
+      shift
+      expire_check_command "$@"
+      ;;
     fp-change)
       shift
       fp_change_command "$@"
@@ -11959,11 +12603,15 @@ if [[ "$XRAYEBATOR_SOURCED" -eq 0 ]]; then
       echo -e "  ${CYAN}sudo xrayebator happ-setup${NC}       — создать/переиспользовать HAPP multi-route профиль"
       echo -e "  ${CYAN}sudo xrayebator probe-test${NC}       — проверить доступность SNI с VPS"
       echo -e "  ${CYAN}sudo xrayebator profiles${NC}          — JSON-список профилей"
-      echo -e "  ${CYAN}sudo xrayebator profile-create --name N [--transport T] [--port P] [--count N]${NC}"
+      echo -e "  ${CYAN}sudo xrayebator profile-create --name N [--transport T] [--port P] [--count N] [--expire 2006-12-31]${NC}"
       echo -e "                               — создать профиль/семейство профилей (JSON)"
       echo -e "  ${CYAN}sudo xrayebator profile-delete --name N${NC} — удалить профиль (JSON)"
       echo -e "  ${CYAN}sudo xrayebator fp-change --name N [--route R] --fp FINGERPRINT${NC} — сменить fingerprint (JSON)"
+      echo -e "  ${CYAN}sudo xrayebator profile-revoke --name N [--full]${NC} — новый sub_token; --full: и новый uuid, старые клиенты отваливаются (JSON)"
+      echo -e "  ${CYAN}sudo xrayebator profile-expire --name N --expire 2006-12-31|epoch|none${NC} — срок действия профиля (JSON)"
+      echo -e "  ${CYAN}sudo xrayebator expire-check${NC} — применить наступившие сроки (для systemd-таймера) (JSON)"
       echo -e "  ${CYAN}sudo xrayebator bypass list${NC} — список доменов в обходе (JSON)"
+      echo -e "  ${CYAN}sudo xrayebator bypass groups${NC} — готовые группы обхода (JSON)"
       echo -e "  ${CYAN}sudo xrayebator bypass add --domain D${NC} — добавить домен в обход (JSON)"
       echo -e "  ${CYAN}sudo xrayebator bypass remove --domain D${NC} — убрать домен из обхода (JSON)"
       echo -e "  ${CYAN}sudo xrayebator bypass reset${NC} — сбросить все bypass-правила (JSON)"
