@@ -51,7 +51,7 @@ Xrayebator/
 
 /usr/local/etc/xray/
 ├── config.json                   # 入站、出站、路由和 DNS
-├── profiles/<name>.json          # 配置档元数据和订阅令牌
+├── profiles/<name>.json          # 配置档元数据、订阅令牌与有效期（.expire）
 ├── upstreams/cascade.json        # 级联上游参数
 ├── backups/                      # 运行时改动前的配置备份
 ├── .private_key / .public_key    # Reality 密钥
