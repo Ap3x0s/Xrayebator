@@ -5229,6 +5229,12 @@ update_command() {
   # xrayebator с этой ветки (self-update, как в update.sh). Иначе — только Xray binary.
   if [[ -n "${1:-}" ]]; then
     local branch="$1"
+    # Ветка уходит в URL, имя файла и .current_branch — валидируем строго.
+    if [[ ! "$branch" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$ ]] \
+       || [[ "$branch" == *".."* ]] || [[ "$branch" == *"//"* ]]; then
+      echo -e "${RED}✗ Некорректное имя ветки: $branch${NC}"
+      exit 2
+    fi
     echo -e "${CYAN}  → Self-update xrayebator с ветки: ${YELLOW}$branch${NC}"
     local up_script up_tmp
     up_script=$(command -v xrayebator 2>/dev/null || echo /usr/local/bin/xrayebator)
@@ -5239,6 +5245,17 @@ update_command() {
       chmod 755 "$up_tmp"
       if mv "$up_tmp" "$up_script"; then
         chown root:root "$up_script" 2>/dev/null || true
+        # Закрепляем ветку: GUI-кнопка «Обновить Xrayebator» читает .current_branch
+        # и без этой записи откатывала сервер обратно на main — новые команды
+        # (profile-revoke/profile-expire/bypass groups) молча исчезали.
+        if [[ -d /usr/local/etc/xray ]]; then
+          if printf '%s\n' "$branch" > /usr/local/etc/xray/.current_branch 2>/dev/null; then
+            chown root:root /usr/local/etc/xray/.current_branch 2>/dev/null || true
+            chmod 644 /usr/local/etc/xray/.current_branch 2>/dev/null || true
+          else
+            echo -e "${YELLOW}  ⚠ Не удалось закрепить ветку $branch в .current_branch — обновление из GUI может вернуть main${NC}"
+          fi
+        fi
         echo -e "${GREEN}  ✓ xrayebator обновлён с ветки $branch${NC}"
         echo -e "${YELLOW}  → Перезапуск...${NC}"
         exec bash "$up_script" update
@@ -11046,7 +11063,8 @@ profiles_command() {
         fingerprint: $fingerprint, sni: $sni, created: $created,
         sub_token: $sub_token, multi_route: $multi_route, routes: $routes,
         pq_enabled: $pq, subscription_url: $subscription_url,
-        expire: $expire, expire_disabled: $expire_disabled}'
+        expire: $expire, expire_disabled: $expire_disabled,
+        expire_supported: true}'
   done
   printf ']\n'
   return 0

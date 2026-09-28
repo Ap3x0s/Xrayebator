@@ -133,6 +133,12 @@ export interface ServerProfile {
   expire: number
   /** true — профиль сейчас отключён по сроку (клиент снят с inbound'ов). */
   expire_disabled: boolean
+  /**
+   * false — сервер старой версии и вообще не отдаёт expire (поля нет в JSON).
+   * Отличает «профиль бессрочный» от «сервер не умеет сроки»: иначе GUI
+   * показывал бы бессрочность там, где управление сроком недоступно.
+   */
+  expire_supported?: boolean
 }
 
 export interface ProfileCreateInput {

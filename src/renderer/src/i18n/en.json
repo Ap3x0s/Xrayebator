@@ -236,6 +236,7 @@
       "foreign": "Foreign (may not always pass)",
       "fallback": "Fallback (often probed)"
     },
+    "serverTooOld": "The server runs an older Xrayebator: expiry dates and bypass are unavailable. Update it with the «Update Xrayebator» button.",
     "revokeBtn": "Revoke",
     "revokeTitle": "Revoke subscription",
     "revokeHint": "The subscription URL is a password: whoever gets it downloads every route. Choose what to reissue.",
@@ -272,6 +273,9 @@
     "expireHintSoon": "Expires within days — extend it, otherwise the profile is switched off automatically",
     "expireHintExpired": "Expired — the server disabled this profile. Extend the date to restore access.",
     "createExpire": "Expiry date",
+    "createExpireSet": "Expiry: {{date}}",
+    "createExpireHint": "The profile is switched off automatically on the selected date. Leave it empty for unlimited.",
+    "expirePicked": "Selected: {{date}}",
     "bypassTitle": "Bypass routing",
     "bypassHint": "Listed domains go direct, skipping the tunnel: Russian banks, government services and streaming do not block foreign IPs. Ready groups are toggles; add your own domain manually.",
     "bypassLoad": "Load list",

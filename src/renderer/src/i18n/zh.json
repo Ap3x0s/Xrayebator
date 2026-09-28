@@ -235,6 +235,7 @@
       "foreign": "国外（不一定总是可用）",
       "fallback": "备用（常被探测）"
     },
+    "serverTooOld": "服务器运行的是较旧的 Xrayebator：有效期与分流功能不可用。请点击「更新 Xrayebator」升级。",
     "revokeBtn": "吊销",
     "revokeTitle": "吊销订阅",
     "revokeHint": "订阅链接就是密码：拿到它的人可以下载全部线路。请选择要重新签发的内容。",
@@ -271,6 +272,9 @@
     "expireHintSoon": "即将到期——请及时延长，否则配置会被服务器自动停用",
     "expireHintExpired": "已过期——服务器已停用该配置。延长有效期即可恢复访问。",
     "createExpire": "有效期",
+    "createExpireSet": "有效期：{{date}}",
+    "createExpireHint": "配置将在所选日期自动停用。留空表示永久有效。",
+    "expirePicked": "已选择：{{date}}",
     "bypassTitle": "绕过 VPN（分流）",
     "bypassHint": "列表中的域名直连、不走隧道：俄罗斯银行、政务服务和流媒体不会封锁境外 IP。内置分组用开关切换，自有域名手动添加。",
     "bypassLoad": "加载列表",

@@ -1,5 +1,6 @@
 import { SshClient, SshCredentials } from './ssh-client'
 import { shellCommand } from './shell-command'
+import { describeFailure, isUnknownCommandFailure, unknownCommandHint } from './cli-failure'
 import type {
   ProfileExpireResult,
   ProfileRevokeResult,
@@ -122,7 +123,13 @@ export class ProfileManager {
       const command = shellCommand('xrayebator', args)
       const res = await client.exec(command, { elevated: true })
       if (res.code !== 0) {
-        throw new Error(`xrayebator ${args[0] ?? ''} → код ${res.code}: ${res.stderr.trim()}`)
+        // Менеджер печатает причину в stdout (команда неизвестна, профиль не найден),
+        // stderr при этом часто пуст — без разбора ошибка выглядела как «код 1: ».
+        const reason = describeFailure(res)
+        const hint = isUnknownCommandFailure(res) ? ` ${unknownCommandHint()}` : ''
+        throw new Error(
+          `xrayebator ${args[0] ?? ''} → код ${res.code}${reason ? `: ${reason}` : ''}.${hint}`
+        )
       }
       return res.stdout
     } finally {
