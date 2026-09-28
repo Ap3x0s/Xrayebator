@@ -126,6 +126,25 @@ if _normalize_expire_value "2030-13-01" 2>/dev/null; then fail "month 13 accepte
 if _normalize_expire_value "abc" 2>/dev/null; then fail "garbage accepted"; fi
 FUTURE_EPOCH=$(date -d "2030-01-01 12:30" +%s 2>/dev/null || date -j -f "%Y-%m-%d %H:%M" "2030-01-01 12:30" +%s)
 [[ "$(_normalize_expire_value "2030-01-01 12:30")" == "$FUTURE_EPOCH" ]] || fail "datetime normalization mismatch"
+# Дата без времени — ВКЛЮЧИТЕЛЬНО: срок истекает в 23:59:59 выбранного дня.
+# Иначе «до 30 сентября» отключало профиль в 00:00 30-го, то есть на сутки раньше.
+END_OF_DAY=$(date -d "2030-01-01 23:59:59" +%s 2>/dev/null || date -j -f "%Y-%m-%d %H:%M:%S" "2030-01-01 23:59:59" +%s)
+got=$(_normalize_expire_value "2030-01-01")
+[[ "$got" == "$END_OF_DAY" ]] \
+  || fail "дата без времени должна быть концом суток (получено $got, ожидалось $END_OF_DAY)"
+# Проверка на сдвиг: дата в ISO должна соответствовать выбранной в той же зоне.
+[[ "$(date -d "@$got" +%Y-%m-%d)" == "2030-01-01" ]] \
+  || fail "нормализованная дата не совпадает с выбранной"
+# Регрессия: bash читает "09" как восьмеричное число, и валидация месяца/дня/часа
+# падала с "value too great for base" — любые даты с 08/09 не принимались
+# (включая сентябрь). Защита — префикс 10#. Проверяем все проблемные разряды.
+for probe in "2030-09-30" "2030-08-08" "2030-09-09 08:09" "2030-10-09 09:08"; do
+  _normalize_expire_value "$probe" >/dev/null 2>&1 \
+    || fail "дата '$probe' не принята (восьмеричная ловушка bash?)"
+done
+sep_epoch=$(_normalize_expire_value "2030-09-30")
+[[ "$(date -d "@$sep_epoch" +%m-%d)" == "09-30" ]] \
+  || fail "сентябрь нормализован неверно: $(date -d "@$sep_epoch" +%m-%d)"
 
 # --- 4. profile-expire: будущее → поле есть, профиль жив, рестарта нет ---
 restarts_before=$(restarts_now)

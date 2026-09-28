@@ -23,25 +23,37 @@ function isValidIsoDate(value: string): boolean {
 }
 
 /**
- * epoch-секунды из profile JSON → статус + дата (локальная).
- * disabled (флаг серверного принуждения) всегда важнее сравнения с now.
+ * epoch-секунды из profile JSON → статус + дата.
+ *
+ * Дата считается в ЛОКАЛЬНОЙ зоне клиента, а не через toISOString: сервер
+ * записывает expire как начало выбранного дня в СВОЕЙ зоне, и UTC-срез
+ * сдвигал отображение на день назад для зон восточнее UTC (Москва/Хельсинки
+ * показывали 29 сентября вместо выбранного 30-го).
  */
 export function describeExpire(expire: number, disabled: boolean, nowMs: number): ExpireInfo {
   if (!expire || expire <= 0) {
     return { status: 'none', date: '' }
   }
-  const date = new Date(expire * 1000).toISOString().slice(0, 10)
+  const d = new Date(expire * 1000)
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  const date = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
   if (disabled || expire * 1000 <= nowMs) {
     return { status: 'expired', date }
   }
   return { status: 'active', date }
 }
 
-/** ISO-дата валидна и строго в будущем (день считается от полуночи локального ТЗ). */
+/**
+ * ISO-дата валидна и день ещё не закончился.
+ *
+ * Сравнение по КОНЦУ дня, потому что сервер трактует дату включительно
+ * (срок истекает в 23:59:59 выбранного дня). Так сегодняшняя дата — валидный
+ * выбор: профиль работает до конца текущих суток.
+ */
 export function isFutureDate(value: string, nowMs: number): boolean {
   if (!isValidIsoDate(value)) return false
-  const dayStart = new Date(`${value}T00:00:00`).getTime()
-  return dayStart > nowMs
+  const dayEnd = new Date(`${value}T23:59:59`).getTime()
+  return dayEnd > nowMs
 }
 
 /** Пресеты «через N дней» для диалога срока (локальная дата, как в виджете). */
