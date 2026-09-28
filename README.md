@@ -6,7 +6,7 @@
 
 <p>
 <strong>inbounds</strong> · <strong>profiles</strong> · <strong>subscription</strong> ·
-<strong>bypass</strong> · <strong>cascade</strong>
+<strong>cascade</strong>
 </p>
 
 <p>
@@ -153,7 +153,6 @@ vless:// list — HAPP receives 6 of the profile's 7 routes
     ▼
 Reality inbound on a port in 30000-60000   (User=xray, CAP_NET_BIND_SERVICE)
     │
-    ├─ domain in an enabled bypass group ──► freedom  (direct, no VPN)
     │
     └─ all other tcp/udp ─────────────────► direct
                                             OR cascade-upstream ──► foreign VPS
@@ -294,13 +293,13 @@ What the GUI can do:
 | Add server | Deploy a new VPS with an explicit email choice: `quickstart --email` or `quickstart --without-email`; save the server and public subscription |
 | Connect existing | Import a recognized Xrayebator installation over SSH (password or key) using read-only `xrayebator inspect --json`; partial installs are saved with diagnostics, without automatic repair |
 | Server keys | Refresh the public subscription, copy the URL, show `vless://` links and QR codes |
-| Server settings | SSH access by password or private key, direct root or sudo; list/create/delete profiles, change fingerprint, SNI and port, revoke the subscription, set a profile expiry date, manage bypass domains and groups, plus update or uninstall Xrayebator on the server |
+| Server settings | SSH access by password or private key, direct root or sudo; list/create/delete profiles, change fingerprint, SNI and port, revoke the subscription, set a profile expiry date, plus update or uninstall Xrayebator on the server |
 
 Root + password is the one-click default; key authentication and sudo are optional. A selected private key and a successfully used SSH login password are stored in the operating-system keychain via `keytar` and reused across later SSH operations and app restarts; the server card keeps only their non-secret credential ids and display name. A distinct sudo password and an encrypted-key passphrase are never persisted and are requested again when needed. If the OS keychain is unavailable, there is no plaintext fallback: the secret remains in main-process memory for the current app session and the UI warns that it must be entered again after restart. The app also persists the `subscription_url`, fetched `vless://` links and pinned SSH host-key fingerprint. The subscription URL and VLESS links are bearer/client credentials: protect local app data and revoke the subscription from Server settings (full revocation rotates the key as well) after a leak.
 
 The GUI exposes only a subset of the terminal menu. `probe-test`, `happ-setup`, cascade, self-steal
-and service logs/status remain terminal-only; profile expiry dates, subscription revocation and
-bypass groups are available in Server settings. See
+and service logs/status remain terminal-only; profile expiry dates and subscription revocation are
+available in Server settings. See
 [Electron Desktop GUI](docs/desktop-gui.md) for the complete boundary, security model and packaging details.
 
 Build and run in the development mode:
@@ -323,7 +322,7 @@ See [Testing](docs/testing.md#desktop-gui) and [Electron Desktop GUI](docs/deskt
 
 | Document | Contents |
 |---|---|
-| [Configuration](docs/configuration.md) | Environment variables, firewall and host networking, main menu, commands, bypass, cascade, self-steal, domain and DNS |
+| [Configuration](docs/configuration.md) | Environment variables, firewall and host networking, main menu, commands, cascade, self-steal, domain and DNS |
 | [Architecture](docs/architecture.md) | Repository and on-server state trees, inbound versus profile, subscription internals |
 | [Security](docs/security.md) | Service account and permissions, subscription protection, SSH access to the VPS |
 | [Troubleshooting](docs/troubleshooting.md) | Subscription not refreshing, XHTTP not working, client not connecting and other cases |

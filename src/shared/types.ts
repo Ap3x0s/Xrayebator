@@ -245,37 +245,6 @@ export interface ProfileExpireResult {
   error?: string
 }
 
-export interface BypassStateResult {
-  ok: boolean
-  domains?: string[]
-  error?: string
-}
-
-export interface BypassGroupInfo {
-  id: string
-  title: string
-  /** Домены группы без префикса domain: — GUI рисует чекбоксы и считает покрытие. */
-  domains: string[]
-}
-
-export interface BypassGroupsResult {
-  ok: boolean
-  groups?: BypassGroupInfo[]
-  error?: string
-}
-
-export interface BypassActionResult {
-  ok: boolean
-  domain?: string
-  duplicate?: boolean
-  groups?: string[]
-  /** bundle: число добавленных доменов */
-  domains?: number
-  /** unbundle: число удалённых доменов */
-  removed?: number
-  error?: string
-}
-
 export interface SniEntry {
   sni: string
   category: string
@@ -392,27 +361,6 @@ export interface ElectronAPI {
       access: SshAccessInput,
       input: ProfileExpireInput
     ) => Promise<ProfileExpireResult>
-  }
-  bypass: {
-    list: (serverId: string, access: SshAccessInput) => Promise<BypassStateResult>
-    groups: (serverId: string, access: SshAccessInput) => Promise<BypassGroupsResult>
-    add: (serverId: string, access: SshAccessInput, domain: string) => Promise<BypassActionResult>
-    remove: (
-      serverId: string,
-      access: SshAccessInput,
-      domain: string
-    ) => Promise<BypassActionResult>
-    reset: (serverId: string, access: SshAccessInput) => Promise<BypassActionResult>
-    bundle: (
-      serverId: string,
-      access: SshAccessInput,
-      groups: string[]
-    ) => Promise<BypassActionResult>
-    unbundle: (
-      serverId: string,
-      access: SshAccessInput,
-      groups: string[]
-    ) => Promise<BypassActionResult>
   }
   server: {
     update: (

@@ -3,7 +3,6 @@
 [← 返回 README](../../README.zh-CN.md) · [English](../configuration.md) · [Русский](../ru/configuration.md)
 
 章节：[前置条件](#前置条件与已测试系统) · [环境变量](#安装脚本的环境变量) · [防火墙与主机网络设置](#防火墙与主机网络设置) ·
-[主菜单](#主菜单) · [命令](#命令) · [桌面图形界面](#桌面图形界面) · [分流路由](#分流路由) ·
 [级联](#级联与上游节点) ·
 [Self-steal](#自有域名与-self-steal-挡板) · [域名与 DNS](#域名与-dns)
 
@@ -82,7 +81,6 @@ Xrayebator 不会更改主机的 TCP 拥塞控制算法，也不会写入或应�
 | `4` | 管理配置档：SNI、指纹、端口、advanced |
 | `5` | 将单个配置档升级到 PQ XHTTP |
 | `6` | HAPP 订阅：7 条线路的配置档、public TLS、链接、二维码、吊销 |
-| `7` | 分流路由：域名直连，绕过 VPN |
 | `8` | 级联与上游节点 |
 | `9` | 自有域名与 self-steal 挡板 |
 | `10` | 部署出站服务器，使本 VPS 成为级联的境外节点 |
@@ -114,13 +112,6 @@ Xrayebator 不会更改主机的 TCP 拥塞控制算法，也不会写入或应�
 | `sudo xrayebator sni-change --name 名称 [--route R] --sni SNI` | 修改配置档的 SNI，并同步更新同一端口上的所有配置档，打印 JSON 结果 |
 | `sudo xrayebator sni-list` | 按类别列出 `sni_list.txt` 中的候选 SNI，打印 JSON 结果（供桌面 GUI 的 SNI 对话框使用） |
 | `sudo xrayebator port-change --name 名称 [--route R] --port 端口\|random` | 修改配置档的端口；更新入站、防火墙与订阅。客户端需要重新连接，打印 JSON 结果 |
-| `sudo xrayebator bypass list` | 按分组列出当前分流规则（JSON） |
-| `sudo xrayebator bypass add --domain D` | 向分流规则添加一个域名（JSON） |
-| `sudo xrayebator bypass remove --domain D` | 从分流规则移除一个域名（JSON） |
-| `sudo xrayebator bypass reset` | 清空所有自定义分流规则（JSON） |
-| `sudo xrayebator bypass bundle [--group a,b,c]` | 应用默认分流分组；不带 `--group` 时重新应用全部分组（JSON） |
-| `sudo xrayebator bypass unbundle --group a,b,c` | 以单次变更和单次 Xray 重启移除所选分组的域名（JSON） |
-| `sudo xrayebator bypass groups` | 列出内置分流分组及其域名集合（JSON） |
 | `sudo xrayebator-update [branch]` | 运行完整的 `update.sh` 生命周期更新；无参数时显示 `.current_branch` 并打开交互式分支选择，有参数时使用该分支 |
 | `sudo xrayebator-uninstall` | 移除服务与配置 |
 
@@ -159,9 +150,7 @@ npm test             # Vitest 单元测试
 npm run typecheck    # TypeScript 检查
 ```
 
-## 分流路由
 
-分流会在 Xray routing 中加入规则，让选定域名经 `freedom` 直连而不走 VPN。
 `domain -> direct` 规则位于兜底规则之上，因此在启用级联时仍然生效。
 
 默认组合包中的分组：

@@ -9,7 +9,7 @@ Xrayebator — automated Xray Reality VPN manager for bypassing DPI censorship i
 ## Validation
 
 There IS automated test coverage (despite what older notes said):
-- **`validation/`** — 27 Bash test scripts, including `test-main-readiness-regressions.sh`, covering migrations, VLESS URL generation, transaction safety, dedup, firewall, menu numbering, the bypass/sni-change/port-change/profile-revoke/profile-expire CLIs, quickstart, email/inspect regressions, apt-lock race regressions and audit regressions. They run on the host (`bash validation/test-*.sh`); CI installs `jq`, `uuidgen` and `ripgrep` on Ubuntu. A bare Windows Git Bash checkout is not equivalent to the Linux environment.
+- **`validation/`** — 26 Bash test scripts, including `test-main-readiness-regressions.sh`, covering migrations, VLESS URL generation, transaction safety, dedup, firewall, menu numbering, the sni-change/port-change/profile-revoke/profile-expire CLIs, quickstart, email/inspect regressions, apt-lock race regressions and audit regressions. They run on the host (`bash validation/test-*.sh`); CI installs `jq`, `uuidgen` and `ripgrep` on Ubuntu. A bare Windows Git Bash checkout is not equivalent to the Linux environment.
 - **`gui-legacy/tests/`** — 16 pytest modules covering SSH, deploy, connection, subscription and TUN runtime (legacy PySide6 GUI). Run with the GUI venv: `gui-legacy/.venv/Scripts/python -m pytest gui-legacy/tests`.
 - **GUI (Electron)** — Vitest unit tests in `tests/`: `npm test`, plus `npm run typecheck`.
 - **CI** — `.github/workflows/ci-linux.yml` runs the full `validation/` suite; `.github/workflows/gui-release.yml` runs `ruff` + `pytest gui-legacy/tests` and builds Windows/macOS bundles; `.github/workflows/release.yml` ships the Electron app.
@@ -149,7 +149,6 @@ Apart from the interactive menu (`sudo xrayebator`), the script exposes subcomma
 - `xrayebator sni-change --name NAME [--route R] --sni SNI` — change the SNI for a profile; updates all profiles on the same port (`update_all_profiles_on_port()`), emits JSON.
 - `xrayebator sni-list` — print the SNI candidates from `sni_list.txt` grouped by category, emits JSON (used by the GUI SNI dialog).
 - `xrayebator port-change --name NAME [--route R] --port PORT|random` — change the port for a profile; updates the inbound, firewall, subscription and all profiles on the port, emits JSON (reconnect is required).
-- `xrayebator bypass list|groups|add --domain D|remove --domain D|reset|bundle [--group a,b,c]|unbundle --group a,b,c` — manage bypass routing groups (JSON). `groups` returns each group's domain list so the GUI can compute coverage; `unbundle` removes a group in one mutation and one restart.
 
 CLI JSON hygiene: `profile-create`/`profile-delete` **must** print only JSON on stdout. The shared helpers (`backup_config`, `add_inbound`, `open_firewall_port`, `safe_restart_xray`, `close_firewall_port`) print colored status lines that would corrupt the parse, so the CLI paths redirect stdout→stderr around those calls (`exec 3>&1; exec 1>&2 ... exec 1>&3`). Keep it that way when editing.
 

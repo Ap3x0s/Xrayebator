@@ -89,7 +89,6 @@ xrayebator fp-change --name NAME [--route R] --fp FINGERPRINT
 xrayebator sni-change --name NAME [--route R] --sni SNI
 xrayebator sni-list
 xrayebator port-change --name NAME [--route R] --port PORT|random
-xrayebator bypass list|groups|add --domain D|remove --domain D|reset|bundle --group a,b,c|unbundle --group a,b,c
 ```
 
 При развёртывании дополнительно вызывается один из вариантов:
@@ -124,7 +123,6 @@ self-steal
 
 - **Revoke подписки** — кнопка у профиля открывает меню с двумя режимами. «Только новая ссылка» перевыпускает `sub_token` (прежняя URL перестаёт работать, маршруты и ключи те же). «Полный отзыв» дополнительно меняет uuid во всех inbound'ах профиля: устройства, уже скачавшие конфиг, отключаются немедленно — это единственный способ реально закрыть доступ по утёкшей ссылке.
 - **Срок действия профиля** — дата передаётся клиенту в заголовке подписки и принудительно применяется сервером: systemd-таймер `xrayebator-expire.timer` раз в 10 минут вызывает `xrayebator expire-check` и снимает клиента с inbound'ов по истечении срока. Продление возвращает клиента обратно. Срок также можно задать сразу при создании профиля.
-- **Bypass-группы** — список доменов, идущих напрямую мимо туннеля (RU-банки, госуслуги, стриминг): свои домены добавляются и удаляются поштучно, готовые группы сервера включаются и выключаются чекбоксами, есть полный сброс.
 
 ## Протокол развёртывания
 
@@ -186,4 +184,3 @@ Electron packaging использует GitHub provider, настроенный 
 - Нет React/Electron runtime integration tests. Для Electron есть unit-тесты, TypeScript-проверки, build-проверки и ручная проверка на живом сервере, но нет теста, который одновременно запускает полный packaged renderer и main process.
 - Один Vitest-тест использует POSIX `/bin/sh` (`tests/unit/shell-command.test.ts`). В Windows это известное ограничение; источником истины для shell-специфичного теста является Linux.
 - Auto-updater работает только в packaged build, использует GitHub provider, настроенный для `howdeploy`, и работает в режиме auto-download/install-on-quit; `npm run dev` не симулирует обновление релиза.
-- GUI намеренно предоставляет только описанную выше поверхность команд. Для bypass, probe-test, отзыва подписки, HAPP setup, cascade, self-steal, terminal menu и логов/статуса сервисов используйте Bash-интерфейс `xrayebator` или серверные команды.

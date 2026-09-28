@@ -3389,49 +3389,6 @@ _migrate_sni_list_2026() {
   return 0
 }
 
-_migrate_bypass_routing_2026() {
-  echo ""
-  echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
-  echo -e "${BLUE}  BYPASS ROUTING                              ${NC}"
-  echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
-  echo ""
-  echo -e "${CYAN}Можно настроить чтобы определенные домены шли в обход VPN:${NC}"
-  echo -e "  ${YELLOW}-${NC} Steam (CDN, чат, community) — быстрее без VPN"
-  echo -e "  ${YELLOW}-${NC} РФ-сервисы (gosuslugi, nalog, mos) — обязательно с РФ-IP"
-  echo -e "  ${YELLOW}-${NC} РФ-банки (sber, vtb, tinkoff, alfa) — требуют РФ-IP"
-  echo -e "  ${YELLOW}-${NC} Маркетплейсы (ozon, wb, avito)"
-  echo -e "  ${YELLOW}-${NC} Yandex сервисы"
-  echo ""
-  echo -e "${CYAN}Эти домены пойдут через freedom outbound (direct), не через VPN.${NC}"
-  echo ""
-
-  # BASH-4-fix: в noninteractive режиме (quickstart/happ-setup exportирует
-  # XRAYEBATOR_NONINTERACTIVE=1) read зависнет молча — детерминированный default.
-  # Default = N (не добавлять bypass): безопасный вариант, пользователь всегда
-  # может включить правила позже через меню (пункт 11). Не пытаемся читать
-  # из закрытого stdin — hang в systemd/GUI-контексте был реальным багом.
-  if [[ "${XRAYEBATOR_NONINTERACTIVE:-}" == "1" ]]; then
-    echo -e "${CYAN}  → noninteractive: bypass-правила пропущены (default). Настройка: меню → пункт 11.${NC}"
-    return 1
-  fi
-
-  echo -n -e "${YELLOW}Добавить дефолтные bypass-правила? [y/N]: ${NC}"
-
-  local ans
-  read -r ans
-  ans="${ans:-N}"
-
-  if [[ "$ans" =~ ^[yYдД]$ ]]; then
-    _bypass_apply_bundle
-  else
-    echo -e "${CYAN}Пропущено. Можно настроить позже через главное меню → пункт 11.${NC}"
-    sleep 1
-  fi
-
-  # Marker ставится через run_migration независимо от ответа — больше не спрашивать.
-  return 1
-}
-
 _migrate_subhttp_multiroute_2026() {
   if [[ ! -f /usr/local/etc/xray/.subscription_installed ]]; then
     echo -e "${CYAN}  → HAPP subscription не установлена — subhttp migration skip${NC}"
@@ -3550,6 +3507,31 @@ _migrate_subhttp_stale_profiles_410_2026() {
   return 1
 }
 
+# Профиль с истёкшим сроком должен отдавать 410, а не рабочий на вид конфиг:
+# subhttp — heredoc, поэтому на существующих установках нужна регенерация.
+_migrate_subhttp_expired_410_2026() {
+  if [[ ! -f /usr/local/etc/xray/.subscription_installed ]]; then
+    echo -e "${CYAN}  → HAPP subscription не установлена — expired-410 migration skip${NC}"
+    return 1
+  fi
+
+  echo -e "${CYAN}  → Регенерация subhttp.sh с отдачей 410 для истёкших профилей...${NC}"
+  if ! install_subscription_server >/dev/null 2>&1; then
+    echo -e "${RED}  ✗ Не удалось регенерировать subhttp.sh${NC}"
+    return 2
+  fi
+
+  if systemctl is-active --quiet xrayebator-sub.service; then
+    systemctl restart xrayebator-sub.service || {
+      echo -e "${RED}  ✗ Не удалось перезапустить xrayebator-sub.service${NC}"
+      return 2
+    }
+    echo -e "${GREEN}  ✓ xrayebator-sub.service перезапущен${NC}"
+  fi
+
+  return 1
+}
+
 _migrate_subhttp_happ_xhttp_compat_2026() {
   if [[ ! -f /usr/local/etc/xray/.subscription_installed ]]; then
     echo -e "${CYAN}  → HAPP subscription не установлена — HAPP XHTTP compatibility migration skip${NC}"
@@ -3632,107 +3614,6 @@ _sni_in_use() {
   fi
 
   return 1
-}
-
-_bypass_list_current() {
-  jq -r '
-    [.routing.rules[]?
-     | select(.outboundTag == "direct" and (((.domain // []) | length) > 0))
-     | .domain[]
-    ] | unique | .[]
-  ' "$CONFIG_FILE" 2>/dev/null
-}
-
-_apply_bypass_rule() {
-  local domain_list_json="$1"
-  local normalized_json
-  if ! normalized_json=$(printf '%s' "$domain_list_json" | jq -c '
-      if type == "array" and all(.[]; type == "string" and startswith("domain:")) then
-        unique
-      else
-        error("invalid domain list")
-      end
-    ' 2>/dev/null); then
-    echo -e "${RED}✗ Некорректный JSON domain-list для bypass${NC}"
-    return 2
-  fi
-
-  local domain_count
-  domain_count=$(printf '%s' "$normalized_json" | jq 'length' 2>/dev/null)
-  if [[ "$domain_count" == "0" ]]; then
-    echo -e "${YELLOW}Нет доменов для применения${NC}"
-    return 1
-  fi
-
-  local domains_raw
-  domains_raw=$(printf '%s' "$normalized_json" | jq -r '.[] | ltrimstr("domain:")')
-  local dom
-  while IFS= read -r dom; do
-    [[ -z "$dom" ]] && continue
-    if _sni_in_use "$dom"; then
-      echo -e "${RED}Конфликт: $dom используется как Reality SNI — добавление сломает handshake${NC}"
-      echo -e "${YELLOW}  Bypass правила не применены. Удалите $dom из списка и попробуйте снова.${NC}"
-      return 1
-    fi
-  done <<< "$domains_raw"
-
-  local rollback_config=""
-  backup_config "bypass_routing_add" rollback_config || return 2
-  # safe_jq_write routing.rules: PREPEND нового bypass-правила.
-  if safe_jq_write \
-      --argjson domains "$normalized_json" \
-      '.routing.rules = [{"type":"field","domain":$domains,"outboundTag":"direct"}] + .routing.rules' \
-      "$CONFIG_FILE"; then
-    fix_xray_permissions
-    if safe_restart_xray "$rollback_config"; then
-      return 0
-    fi
-    return 2
-  fi
-  return 2
-}
-
-_bypass_remove_rule() {
-  local d="domain:$1"
-  local rollback_config=""
-  backup_config "bypass_routing_remove" rollback_config || return 2
-  # safe_jq_write routing.rules: удалить domain из bypass-правил.
-  if safe_jq_write \
-      --arg d "$d" \
-      '.routing.rules = [
-        .routing.rules[] |
-        if (.outboundTag == "direct" and ((.domain // []) | length) > 0) then
-          .domain = ((.domain // []) - [$d])
-          | (if (.domain | length == 0) then empty else . end)
-        else
-          .
-        end
-      ]' "$CONFIG_FILE"; then
-    fix_xray_permissions
-    if safe_restart_xray "$rollback_config"; then
-      return 0
-    fi
-    return 2
-  fi
-  return 2
-}
-
-_bypass_reset_all() {
-  local rollback_config=""
-  backup_config "bypass_routing_reset" rollback_config || return 2
-  # safe_jq_write routing.rules: удалить только domain bypass-правила.
-  if safe_jq_write '
-      .routing.rules = [
-        .routing.rules[] |
-        select(.outboundTag != "direct" or (.network // null) != null or (.port // null) != null or (((.domain // []) | length) == 0))
-      ]' "$CONFIG_FILE"; then
-    fix_xray_permissions
-    if safe_restart_xray "$rollback_config"; then
-      return 0
-    fi
-    return 2
-  fi
-  return 2
 }
 
 _cascade_ensure_dir() {
@@ -4823,23 +4704,6 @@ NGINX_SELFSTEAL_TLS
   read -r _
 }
 
-_bypass_bundle_groups() {
-  # Апекс-домены — Xray domain:<apex> делает subdomain-match, поддомены не нужны.
-  # Аудит 2026-05: расширение покрытия antifraud/auth-эндпоинтов (Яндекс Лавка/Такси,
-  # VK ID, Сбер ID, СБП/Mir, ESIA gu-st.ru), переход Тинькофф→T-Bank, Tele2→t2.ru,
-  # появление национального мессенджера max.ru (OTP Госуслуг), Самокат под Сбером.
-  cat <<'EOG'
-yandex|Yandex (экосистема)|yandex.ru,yandex.net,yandex.com,ya.ru,ya.cc,yandex.by,yandex.kz,yastatic.net,yastat.net,yandexcloud.net,yandex.cloud,yandexadexchange.net,yandexwebcache.net,yandex-bank.net,yandexgo.com,yango.com,yango.taxi,yango-tech.com,naydex.net,clck.ru,turbopages.org,kinopoisk.ru,kp.ru,dzen.ru,mc.yandex.com,appmetrica.yandex.net,adfox.ru,meteum.ai,shedevrum.ai,berizaryad.ru,elama.ru
-vk|VKontakte|vk.com,vk.ru,vk.me,vk.cc,vk.link,vk.design,vkontakte.ru,mvk.com,vkpay.ru,vkpay.com,userapi.com,userapi.ru,vk-cdn.net,vk-cdn.me,cdn-vk.net,cdn-vk.ru,vk-portal.net,vkcache.com,vkcdnservice.com,vkcloud-static.ru,vktech-static.ru,vkuser.net,vkuseraudio.net,vkuservideo.net,vkuservideo.ru,vkuserlive.net,vkuserphoto.ru,vkusercdn.ru,vkmessenger.com,vkvideo.ru,vkclips.app,vklive.app
-mailru|VK Group / Mail.ru|mail.ru,my.com,my.games,list.ru,bk.ru,inbox.ru,internet.ru,ok.ru,odnoklassniki.ru,boom.ru,boosty.to,youla.ru,youla.io,rustore.ru,mcs.st,max.ru,oneme.ru,sferum.ru,tamtam.chat,mycdn.me,imgsmail.ru,smailru.net,mradx.net,mrgcdn.ru,datacloudmy.com,attachmail.ru,attachmy.com,appsmail.ru,staticmy.com,vmailru.net,bizmrg.com,target.my.com,vk.team,vk.company,vkfest.ru,vkplay.ru,yclients.com,skillbox.ru,skillfactory.ru,uchi.ru,gb.ru
-banks|RU-банки и платежи|sberbank.ru,sber.ru,sberbank.com,sbrf.ru,sberid.ru,sbermarket.ru,sbermegamarket.ru,megamarket.ru,sberauto.com,sbercloud.ru,sberdevices.ru,sberdisk.ru,sberhealth.ru,sberleasing.ru,sberlogistics.ru,sbermobile.ru,sber.pro,sberspasibo.ru,spasibosberbank.ru,sbertech.ru,domclick.ru,tbank.ru,tinkoff.ru,tcsbank.ru,cdn-tinkoff.ru,t-static.ru,tinkoff-group.com,t-tech.ru,t-finance.ru,dolyame.ru,rosbank.ru,vtb.ru,pochtabank.ru,alfabank.ru,alfabank.st,alfadirect.ru,raiffeisen.ru,gazprombank.ru,gpb.ru,rshb.ru,psbank.ru,psb.ru,sovcombank.ru,mkb.ru,mtsbank.ru,otpbank.ru,uralsib.ru,bspb.ru,akbars.ru,tochka.com,domrfbank.ru,zenit.ru,yoomoney.ru,qiwi.com,qiwi.ru,nspk.ru,mironline.ru,mir-pay.ru,sbp.ru,cbr.ru
-marketplaces|RU-маркетплейсы и retail|ozon.ru,ozon.travel,ozonbank.ru,ozonru.net,wildberries.ru,wb.ru,wbbasket.ru,wbstatic.net,avito.ru,avito.st,avito.tech,lamoda.ru,kuper.ru,samokat.ru,vkusvill.ru,magnit.ru,lenta.com,perekrestok.ru,pyaterochka.ru,auchan.ru,detmir.ru,mvideo.ru,citilink.ru,dns-shop.ru,eldorado.ru,fix-price.com,dodopizza.ru,dodois.com
-ru_services|Госуслуги и телеком|gosuslugi.ru,gu-st.ru,nalog.ru,nalog.gov.ru,mos.ru,mosreg.ru,spb.ru,sevastopol.ru,gov.ru,government.ru,kremlin.ru,cikrf.ru,rkn.gov.ru,mvd.ru,mil.ru,sudrf.ru,rosreestr.ru,rosreestr.gov.ru,pfr.gov.ru,fss.ru,gibdd.ru,emias.info,edu.ru,goskey.ru,ebs.ru,pochta.ru,mts.ru,megafon.ru,beeline.ru,tele2.ru,t2.ru,yota.ru,rt.ru,rostelecom.ru
-streaming|RU-стриминг и медиа|ivi.ru,ivi.tv,okko.tv,more.tv,premier.one,start.ru,kion.ru,wink.ru,megogo.net,megogo.ru,rutube.ru,smotrim.ru,1tv.ru,vgtrk.com,ren.tv,ntv.ru,tnt-online.ru,ctc.ru,2x2tv.ru,viju.ru,amediateka.ru,smotreshka.tv,zvuk.com,cdnvideo.ru,trbcdn.net,kinescopecdn.net,ngenix.net
-steam|Steam|steamcontent.com,steamcdn-a.akamaihd.net,steam-chat.com,steamcommunity.com,cm.steampowered.com
-EOG
-}
-
 probe_sni() {
   local sni="$1"
   local timeout=8
@@ -4912,7 +4776,6 @@ if [[ "$XRAYEBATOR_SOURCED" -eq 0 ]]; then
 else
   SERVER_IP=""
 fi
-
 
 # Показать ASCII арт
 show_ascii() {
@@ -5538,6 +5401,20 @@ emit_410_stale() {
   exit 0
 }
 
+# Профиль отключён по сроку: маршруты не отдаём вовсе. HAPP показывает «срок
+# истёк» вместо конфига, который молча не подключится (uuid снят с inbound'ов).
+emit_410_expired() {
+  sleep 0.1
+  printf 'HTTP/1.1 410 Gone\r\n'
+  printf 'content-type: text/plain; charset=utf-8\r\n'
+  printf 'content-length: 28\r\n'
+  printf 'connection: close\r\n'
+  printf 'cache-control: no-store\r\n'
+  printf '\r\n'
+  printf 'Profile expired or disabled\n'
+  exit 0
+}
+
 # Method check: только GET. Любой другой — 404 (НЕ 405: не раскрываем существование endpoint).
 [[ "$method" == "GET" ]] || emit_404
 
@@ -5567,6 +5444,16 @@ done
 
 profile_name=$(basename "$profile_file" .json)
 short_token="${token:0:8}"
+
+# Профиль с истёкшим/отключённым сроком не отдаёт маршруты: клиент сразу видит
+# «срок вышел» вместо рабочего на вид конфига, который всё равно не подключится
+# (клиента нет в inbound — принуждение делает xrayebator expire-check).
+# Проверяем и флаг, и сам срок: таймер мог ещё не отработать (окно до 10 минут).
+if jq -e '(.expire_disabled == true)
+          or ((.expire // 0) > 0 and (.expire // 0) <= now)' \
+     --argjson now "$(date +%s)" "$profile_file" >/dev/null 2>&1; then
+  emit_410_expired
+fi
 
 # Geo databases use the already authenticated subscription endpoint. This keeps
 # downloads working when GitHub is blocked and avoids changing nginx on existing
@@ -7093,8 +6980,8 @@ main_menu() {
     fi
   fi
   run_migration "sni_list_2026" "SNI list 2026 (РФ-банки/логистика, удалить apple/icloud)" _migrate_sni_list_2026 || ((migration_failures++))
-  run_migration "bypass_routing_2026" "Bypass routing first-run prompt (опционально)" _migrate_bypass_routing_2026 || ((migration_failures++))
   run_migration "expire_timer_2026" "Таймер принуждения сроков профилей" _migrate_expire_timer_2026 || ((migration_failures++))
+  run_migration "subhttp_expired_410_2026" "Subhttp: 410 для истёкших профилей" _migrate_subhttp_expired_410_2026 || ((migration_failures++))
   run_migration "subhttp_multiroute_2026" "HAPP subhttp multi-route handler" _migrate_subhttp_multiroute_2026 || ((migration_failures++))
   run_migration "subhttp_client_compat_2026" "HAPP/v2rayNG subscription client compatibility" _migrate_subhttp_client_compat_2026 || ((migration_failures++))
   run_migration "subhttp_no_default_happ_routing_2026" "HAPP subscription: remove invalid legacy routing payload" _migrate_subhttp_no_default_happ_routing_2026 || ((migration_failures++))
@@ -7161,13 +7048,11 @@ main_menu() {
     echo -e "${MAGENTA} HAPP SUBSCRIPTION:${NC}"
     echo -e "${CYAN} 6)${NC} Подписка HAPP (профиль 7 / HAPP 6 routes + URL/QR)"
     echo ""
-    echo -e "${MAGENTA} BYPASS ROUTING:${NC}"
-    echo -e "${CYAN} 7)${NC} Управление обходом VPN"
     echo ""
     echo -e "${MAGENTA} ADVANCED ROUTING:${NC}"
-    echo -e "${CYAN} 8)${NC} Каскад / upstream-ноды"
-    echo -e "${CYAN} 9)${NC} Собственный домен / self-steal заглушка"
-    echo -e "${CYAN}10)${NC} Поднять outbound-сервер (зарубежная нода)"
+    echo -e "${CYAN} 7)${NC} Каскад / upstream-ноды"
+    echo -e "${CYAN} 8)${NC} Собственный домен / self-steal заглушка"
+    echo -e "${CYAN} 9)${NC} Поднять outbound-сервер (зарубежная нода)"
     echo ""
     echo -e "${RED} 0)${NC} Выход"
     echo ""
@@ -7181,10 +7066,9 @@ main_menu() {
       4) manage_profile_menu ;;
       5) upgrade_profile_to_pq_menu ;;
       6) happ_subscription_menu ;;
-      7) bypass_routing_menu ;;
-      8) cascade_mode_menu ;;
-      9) install_selfsteal_stub_menu ;;
-      10) setup_outbound_server_menu ;;
+      7) cascade_mode_menu ;;
+      8) install_selfsteal_stub_menu ;;
+      9) setup_outbound_server_menu ;;
       0) exit 0 ;;
       *) echo -e "${RED}Неверный выбор${NC}"; sleep 1 ;;
     esac
@@ -9663,252 +9547,6 @@ manage_profile_advanced_menu() {
   read -r _
 }
 
-_bypass_add_single_domain() {
-  echo -n -e "${YELLOW}Введите домен (без domain:, например steamcontent.com): ${NC}"
-  local user_dom
-  read -r user_dom
-  user_dom="${user_dom#domain:}"
-
-  if [[ ! "$user_dom" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}$ ]]; then
-    echo -e "${RED}✗ Некорректный домен${NC}"
-    sleep 2
-    return
-  fi
-
-  echo -n -e "${YELLOW}Добавить domain:${user_dom} в обход VPN? [y/N]: ${NC}"
-  local confirm
-  read -r confirm
-  [[ "$confirm" =~ ^[yYдД]$ ]] || { echo -e "${CYAN}✓ Отменено${NC}"; sleep 1; return; }
-
-  if _apply_bypass_rule "[\"domain:${user_dom}\"]"; then
-    echo -e "${GREEN}✓ domain:${user_dom} добавлен в обход VPN${NC}"
-  else
-    echo -e "${RED}✗ Правило не применено${NC}"
-  fi
-  echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
-  read -r _
-}
-
-_bypass_apply_bundle() {
-  local -a group_ids=()
-  local -a group_names=()
-  local -a group_domains=()
-  local -a state=()
-  local cursor=0
-  local gid gname doms_csv
-
-  while IFS='|' read -r gid gname doms_csv; do
-    [[ -z "$gid" ]] && continue
-    group_ids+=("$gid")
-    group_names+=("$gname")
-    group_domains+=("$doms_csv")
-    state+=("on")
-  done < <(_bypass_bundle_groups)
-
-  while true; do
-    show_ascii
-    echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
-    echo -e "${BLUE}    ДЕФОЛТНЫЙ BYPASS BUNDLE                   ${NC}"
-    echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
-    echo ""
-    echo -e "${YELLOW}Выберите группы для применения:${NC}"
-    echo -e "${CYAN}↑/↓ — выбор, Space — вкл/выкл, Enter — применить, q/Esc — отмена${NC}"
-    echo ""
-
-    local i
-    for i in "${!group_ids[@]}"; do
-      local mark="[ ]"
-      [[ "${state[$i]}" == "on" ]] && mark="[x]"
-      local count
-      count=$(awk -F',' '{print NF}' <<< "${group_domains[$i]}")
-      local pointer=" "
-      [[ $i -eq $cursor ]] && pointer=">"
-      echo -e "${CYAN}${pointer} $((i+1)))${NC} $mark ${group_names[$i]} (${count} доменов)"
-    done
-
-    echo ""
-    echo -n -e "${YELLOW}Клавиша: ${NC}"
-    local key rest
-    IFS= read -rsn1 key
-    case "$key" in
-      "")
-        local all_doms_csv=""
-        for i in "${!group_ids[@]}"; do
-          if [[ "${state[$i]}" == "on" ]]; then
-            all_doms_csv="${all_doms_csv}${all_doms_csv:+,}${group_domains[$i]}"
-          fi
-        done
-
-        if [[ -z "$all_doms_csv" ]]; then
-          echo -e "${YELLOW}Нет выбранных групп. Отменено.${NC}"
-          sleep 1
-          return
-        fi
-
-        local doms_json
-        doms_json=$(printf '%s' "$all_doms_csv" | tr ',' '\n' | sed '/^$/d' | jq -R '"domain:" + .' | jq -s '.')
-        local domain_count
-        domain_count=$(printf '%s' "$doms_json" | jq 'length')
-        echo -e "${CYAN}Применяю ${domain_count} доменов...${NC}"
-
-        if _apply_bypass_rule "$doms_json"; then
-          echo -e "${GREEN}✓ Дефолтный bundle применен${NC}"
-        else
-          echo -e "${RED}✗ Bundle не применен. Если был создан бэкап, config.json откатан safe_restart_xray.${NC}"
-        fi
-        echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
-        read -r _
-        return
-        ;;
-      " ")
-        if [[ "${state[$cursor]}" == "on" ]]; then
-          state[$cursor]="off"
-        else
-          state[$cursor]="on"
-        fi
-        ;;
-      q|Q)
-        return
-        ;;
-      $'\e')
-        rest=""
-        IFS= read -rsn2 -t 0.1 rest || true
-        case "$rest" in
-          "[A")
-            ((cursor--))
-            [[ $cursor -lt 0 ]] && cursor=$((${#group_ids[@]} - 1))
-            ;;
-          "[B")
-            ((cursor++))
-            [[ $cursor -ge ${#group_ids[@]} ]] && cursor=0
-            ;;
-          *)
-            return
-            ;;
-        esac
-        ;;
-      *)
-        # Fallback для терминалов без нормальных escape-последовательностей.
-        if [[ "$key" =~ ^[0-9]$ ]] && [[ "$key" -ge 1 ]] && [[ "$key" -le ${#group_ids[@]} ]]; then
-          local idx=$((key-1))
-          cursor=$idx
-          if [[ "${state[$idx]}" == "on" ]]; then
-            state[$idx]="off"
-          else
-            state[$idx]="on"
-          fi
-        fi
-        ;;
-    esac
-  done
-}
-
-_bypass_remove_domain_interactive() {
-  local -a current_domains=()
-  mapfile -t current_domains < <(_bypass_list_current)
-
-  if [[ ${#current_domains[@]} -eq 0 ]]; then
-    echo -e "${YELLOW}Нет правил для удаления${NC}"
-    sleep 1
-    return
-  fi
-
-  echo -e "${CYAN}Текущие bypass-домены:${NC}"
-  local i
-  for i in "${!current_domains[@]}"; do
-    echo -e "${CYAN} $((i+1)))${NC} ${current_domains[$i]}"
-  done
-  echo -e "${CYAN} 0)${NC} Отмена"
-  echo ""
-  echo -n -e "${YELLOW}Выберите правило для удаления: ${NC}"
-  local choice
-  read -r choice
-  [[ "$choice" == "0" ]] && return
-  if [[ ! "$choice" =~ ^[0-9]+$ ]] || [[ "$choice" -lt 1 ]] || [[ "$choice" -gt ${#current_domains[@]} ]]; then
-    echo -e "${RED}Неверный выбор${NC}"
-    sleep 1
-    return
-  fi
-
-  local selected="${current_domains[$((choice-1))]}"
-  local dom="${selected#domain:}"
-  echo -n -e "${YELLOW}Удалить ${selected}? [y/N]: ${NC}"
-  local confirm
-  read -r confirm
-  [[ "$confirm" =~ ^[yYдД]$ ]] || { echo -e "${CYAN}✓ Отменено${NC}"; sleep 1; return; }
-
-  if _bypass_remove_rule "$dom"; then
-    echo -e "${GREEN}✓ ${selected} удален из обхода${NC}"
-  else
-    echo -e "${RED}✗ Не удалось удалить ${selected}${NC}"
-  fi
-  echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
-  read -r _
-}
-
-_bypass_reset_all_interactive() {
-  echo -e "${RED}╔═══════════════════════════════════════════════════════════╗${NC}"
-  echo -e "${RED}║  СБРОС ВСЕХ BYPASS-ПРАВИЛ                                ║${NC}"
-  echo -e "${RED}╚═══════════════════════════════════════════════════════════╝${NC}"
-  echo ""
-  echo -e "${YELLOW}Будут удалены только domain bypass-правила.${NC}"
-  echo -e "${CYAN}Дефолтные правила install.sh (private/ads/BitTorrent block и direct catch-all) останутся.${NC}"
-  echo ""
-  echo -n -e "${RED}Действительно сбросить? [y/N]: ${NC}"
-  local confirm
-  read -r confirm
-  [[ "$confirm" =~ ^[yYдД]$ ]] || { echo -e "${CYAN}✓ Отменено${NC}"; sleep 1; return; }
-
-  if _bypass_reset_all; then
-    echo -e "${GREEN}✓ Все bypass-правила удалены${NC}"
-  else
-    echo -e "${RED}✗ Сброс не выполнен${NC}"
-  fi
-  echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
-  read -r _
-}
-
-bypass_routing_menu() {
-  while true; do
-    show_ascii
-    echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
-    echo -e "${BLUE}    УПРАВЛЕНИЕ ОБХОДОМ VPN                    ${NC}"
-    echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
-    echo ""
-
-    local current
-    current=$(_bypass_list_current)
-    if [[ -z "$current" ]]; then
-      echo -e "${YELLOW}  Нет правил обхода (весь трафик через VPN)${NC}"
-    else
-      echo -e "${CYAN}Текущие домены в обходе:${NC}"
-      while IFS= read -r dom; do
-        [[ -n "$dom" ]] && echo -e "  ${GREEN}->${NC} $dom"
-      done <<< "$current"
-    fi
-    echo ""
-
-    echo -e "${CYAN} 1)${NC} Добавить домен в обход"
-    echo -e "${CYAN} 2)${NC} Применить дефолтный bundle (5 групп)"
-    echo -e "${CYAN} 3)${NC} Удалить домен из обхода"
-    echo -e "${CYAN} 4)${NC} Сбросить ВСЕ правила обхода"
-    echo -e "${CYAN} 0)${NC} Назад в главное меню"
-    echo ""
-    echo -n -e "${YELLOW}Выбор: ${NC}"
-
-    local c
-    read -r c
-    case "$c" in
-      1) _bypass_add_single_domain ;;
-      2) _bypass_apply_bundle ;;
-      3) _bypass_remove_domain_interactive ;;
-      4) _bypass_reset_all_interactive ;;
-      0) return ;;
-      *) echo -e "${RED}Неверный выбор${NC}"; sleep 1 ;;
-    esac
-  done
-}
-
 # ═══════════════════════════════════════════════════════════
 # POST-QUANTUM UPGRADE (REQ-A09 REVISED — IN-PLACE replace)
 # ═══════════════════════════════════════════════════════════
@@ -10504,8 +10142,8 @@ quickstart_command() {
   run_migration "sni_list_2026" "SNI list 2026" _migrate_sni_list_2026 >/dev/null 2>&1 || true
   run_migration "subhttp_multiroute_2026" "Subhttp multiroute handler" _migrate_subhttp_multiroute_2026 >/dev/null 2>&1 || true
   run_migration "subhttp_client_compat_2026" "Subhttp client compat" _migrate_subhttp_client_compat_2026 >/dev/null 2>&1 || true
-  run_migration "bypass_routing_2026" "Bypass routing first-run" _migrate_bypass_routing_2026 >/dev/null 2>&1 || true
   run_migration "expire_timer_2026" "Expire enforcement timer" _migrate_expire_timer_2026 >/dev/null 2>&1 || true
+  run_migration "subhttp_expired_410_2026" "Subhttp expired 410" _migrate_subhttp_expired_410_2026 >/dev/null 2>&1 || true
   run_migration "subhttp_happ_legacy_xhttp_2026" "Subhttp HAPP legacy XHTTP route" _migrate_subhttp_happ_legacy_xhttp_2026 >/dev/null 2>&1 || true
   run_migration "subhttp_happ_xhttp_compat_2026" "Subhttp HAPP XHTTP compat" _migrate_subhttp_happ_xhttp_compat_2026 >/dev/null 2>&1 || true
   run_migration "subhttp_no_default_happ_routing_2026" "Subhttp no default HAPP routing profile" _migrate_subhttp_no_default_happ_routing_2026 >/dev/null 2>&1 || true
@@ -11790,344 +11428,6 @@ fp_change_command() {
 }
 
 # ═══════════════════════════════════════════════════════════
-# CLI для обхода VPN (bypass routing) — GUI вызывает эти команды по SSH.
-# Все команды печатают только JSON на stdout; статусы helpers
-# (_apply_bypass_rule, backup_config, safe_restart_xray) уходят в stderr.
-# ═══════════════════════════════════════════════════════════
-
-# bypass list — JSON-массив текущих bypass-доменов (с префиксом domain:).
-_bypass_cli_list() {
-  local current json
-  current=$(_bypass_list_current)
-  if [[ -z "$current" ]]; then
-    echo '{"ok":true,"domains":[]}'
-    return 0
-  fi
-  if json=$(printf '%s\n' "$current" | jq -R . | jq -s . 2>/dev/null); then
-    echo "{\"ok\":true,\"domains\":$json}"
-  else
-    echo '{"ok":false,"error":"Не удалось распарсить текущие bypass-правила"}'
-    return 1
-  fi
-}
-
-# bypass add --domain D — добавить домен в обход (проверка SNI-конфликта).
-_bypass_cli_add() {
-  local domain=""
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --domain) domain="$2"; shift 2 ;;
-      *) shift ;;
-    esac
-  done
-
-  if [[ -z "$domain" ]]; then
-    echo '{"ok":false,"error":"Укажите --domain DOMAIN"}'
-    return 1
-  fi
-  domain="${domain#domain:}"
-  if [[ ! "$domain" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}$ ]]; then
-    echo '{"ok":false,"error":"Некорректный домен"}'
-    return 1
-  fi
-
-  if _bypass_list_current | grep -Fqx "domain:$domain" >/dev/null 2>&1; then
-    echo "{\"ok\":true,\"domain\":\"$domain\",\"duplicate\":true}"
-    return 0
-  fi
-
-  local out rc
-  out=$(_apply_bypass_rule "[\"domain:${domain}\"]" 2>&1)
-  rc=$?
-  if [[ $rc -eq 0 ]]; then
-    echo "{\"ok\":true,\"domain\":\"$domain\"}"
-    return 0
-  fi
-  if grep -q "Конфликт" <<< "$out"; then
-    local conflict_dom
-    conflict_dom=$(grep -oP 'Конфликт: \K[^ ]+' <<< "$out" 2>/dev/null | head -1)
-    echo "{\"ok\":false,\"error\":\"$conflict_dom используется как Reality SNI — добавление сломает handshake\"}"
-    return 1
-  fi
-  echo '{"ok":false,"error":"Не удалось добавить домен в обход"}'
-  return 1
-}
-
-# bypass remove --domain D — удалить домен из обхода.
-_bypass_cli_remove() {
-  local domain=""
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --domain) domain="$2"; shift 2 ;;
-      *) shift ;;
-    esac
-  done
-
-  if [[ -z "$domain" ]]; then
-    echo '{"ok":false,"error":"Укажите --domain DOMAIN"}'
-    return 1
-  fi
-  domain="${domain#domain:}"
-
-  local out rc
-  out=$(_bypass_remove_rule "$domain" 2>&1)
-  rc=$?
-  if [[ $rc -eq 0 ]]; then
-    echo "{\"ok\":true,\"domain\":\"$domain\"}"
-    return 0
-  fi
-  echo '{"ok":false,"error":"Не удалось удалить домен из обхода"}'
-  return 1
-}
-
-# bypass reset — удалить ВСЕ domain bypass-правила (дефолтные rules install.sh остаются).
-_bypass_cli_reset() {
-  local out rc
-  out=$(_bypass_reset_all 2>&1)
-  rc=$?
-  if [[ $rc -eq 0 ]]; then
-    echo '{"ok":true}'
-    return 0
-  fi
-  echo '{"ok":false,"error":"Не удалось сбросить bypass-правила"}'
-  return 1
-}
-
-# bypass bundle [--group a,b,c] — применить группы доменов из _bypass_bundle_groups.
-# Без --group применяются ВСЕ группы. Возвращает количество добавленных доменов.
-_bypass_cli_bundle() {
-  local groups_csv=""
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --group) groups_csv="$2"; shift 2 ;;
-      *) shift ;;
-    esac
-  done
-
-  local -a all_ids=()
-  local -a all_names=()
-  local -a all_doms=()
-  local gid gname doms_csv
-  while IFS='|' read -r gid gname doms_csv; do
-    [[ -z "$gid" ]] && continue
-    all_ids+=("$gid")
-    all_names+=("$gname")
-    all_doms+=("$doms_csv")
-  done < <(_bypass_bundle_groups)
-
-  local -a wanted=()
-  local g
-  if [[ -n "$groups_csv" ]]; then
-    IFS=',' read -r -a wanted <<< "$groups_csv"
-    local gid_l
-    for gid_l in "${wanted[@]}"; do
-      gid_l="${gid_l// /}"
-      [[ -z "$gid_l" ]] && continue
-      local found=false i
-      for i in "${!all_ids[@]}"; do
-        [[ "${all_ids[$i]}" == "$gid_l" ]] && found=true
-      done
-      if [[ "$found" == "false" ]]; then
-        echo "{\"ok\":false,\"error\":\"Неизвестная группа: $gid_l. Доступны: ${all_ids[*]}\"}"
-        return 1
-      fi
-    done
-  else
-    wanted=("${all_ids[@]}")
-  fi
-
-  local all_doms_csv=""
-  local i idx
-  for gid_l in "${wanted[@]}"; do
-    for i in "${!all_ids[@]}"; do
-      [[ "${all_ids[$i]}" == "$gid_l" ]] && break
-    done
-    all_doms_csv="${all_doms_csv}${all_doms_csv:+,}${all_doms[$i]}"
-  done
-
-  if [[ -z "$all_doms_csv" ]]; then
-    echo '{"ok":false,"error":"Нет доменов для применения"}'
-    return 1
-  fi
-
-  local doms_json domain_count
-  doms_json=$(printf '%s' "$all_doms_csv" | tr ',' '\n' | sed '/^$/d' | jq -R '"domain:" + .' | jq -s '.')
-  domain_count=$(printf '%s' "$doms_json" | jq 'length' 2>/dev/null)
-
-  local out rc
-  out=$(_apply_bypass_rule "$doms_json" 2>&1)
-  rc=$?
-  if [[ $rc -eq 0 ]]; then
-    echo "{\"ok\":true,\"groups\":$(jq -cn --argjson a "$(printf '%s\n' "${wanted[@]}" | jq -R . | jq -s .)" '$a'),\"domains\":$domain_count}"
-    return 0
-  fi
-  if grep -q "Конфликт" <<< "$out"; then
-    local conflict_dom
-    conflict_dom=$(grep -oP 'Конфликт: \K[^ ]+' <<< "$out" 2>/dev/null | head -1)
-    echo "{\"ok\":false,\"error\":\"$conflict_dom используется как Reality SNI — правило не применено. Удалите этот домен из группы и попробуйте снова.\"}"
-    return 1
-  fi
-  echo '{"ok":false,"error":"Не удалось применить bundle"}'
-  return 1
-}
-
-# bypass groups — список готовых групп bundle (id, название, кол-во доменов) для GUI.
-_bypass_cli_groups() {
-  local json
-  json=$(awk -F'|' 'NF >= 3 {
-    n = split($3, d, ",")
-    printf "%s\t%s\t%d\n", $1, $2, n
-  }' < <(_bypass_bundle_groups) | jq -R -s '
-    split("\n") | map(select(length > 0)) |
-    map(split("\t") | {id: .[0], title: .[1], domains: (.[2] | tonumber)})') || {
-    echo '{"ok":false,"error":"Не удалось собрать список групп"}'
-    return 1
-  }
-  jq -n --argjson groups "$json" '{ok: true, groups: $groups}'
-  return 0
-}
-
-# bypass groups — список готовых групп bundle (id, название, домены) для GUI.
-_bypass_cli_groups() {
-  local json
-  json=$(awk -F'|' 'NF >= 3 {
-    printf "%s\t%s\t%s\n", $1, $2, $3
-  }' < <(_bypass_bundle_groups) | jq -R -s '
-    split("\n") | map(select(length > 0)) |
-    map(split("\t") | {id: .[0], title: .[1],
-                       domains: (.[2] | split(",") | map(select(length > 0)))})') || {
-    echo '{"ok":false,"error":"Не удалось собрать список групп"}'
-    return 1
-  }
-  jq -n --argjson groups "$json" '{ok: true, groups: $groups}'
-  return 0
-}
-
-# bypass unbundle --group a,b — удалить домены выбранных групп из обхода.
-# Одна мутация/рестарт на команду (штучный remove = N рестартов — неприемлемо).
-_bypass_cli_unbundle() {
-  local groups_csv=""
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --group) groups_csv="$2"; shift 2 ;;
-      *) shift ;;
-    esac
-  done
-  if [[ -z "$groups_csv" ]]; then
-    echo '{"ok":false,"error":"Укажите --group a,b,c — unbundle без списка опасен, используйте reset"}'
-    return 1
-  fi
-
-  local doms_all="" gid gname d g
-  local -a wanted=()
-  IFS=',' read -r -a wanted <<< "$groups_csv"
-  for g in "${wanted[@]}"; do
-    g="${g// /}"
-    [[ -z "$g" ]] && continue
-    local found=false
-    while IFS='|' read -r gid gname d; do
-      [[ -z "$gid" ]] && continue
-      if [[ "$gid" == "$g" ]]; then
-        found=true
-        doms_all="${doms_all}${doms_all:+,}${d}"
-      fi
-    done < <(_bypass_bundle_groups)
-    if [[ "$found" == "false" ]]; then
-      echo "{\"ok\":false,\"error\":\"Неизвестная группа: $g\"}"
-      return 1
-    fi
-  done
-  [[ -n "$doms_all" ]] || { echo '{"ok":false,"error":"Нет доменов"}'; return 1; }
-
-  local remove_list
-  remove_list=$(printf '%s' "$doms_all" | tr ',' '\n' | sed '/^$/d' | jq -R '"domain:" + .' | jq -sc 'unique') || {
-    echo '{"ok":false,"error":"Не удалось собрать список удаления"}'
-    return 1
-  }
-
-  local rollback_config=""
-  # Контракт JSON-only: backup_config печатает статус — только после switch.
-  exec 3>&1
-  exec 1>&2
-  if ! backup_config "bypass_unbundle" rollback_config; then
-    echo '{"ok":false,"error":"Не удалось создать бэкап config.json"}' >&3
-    exec 1>&3 3>&-
-    return 1
-  fi
-  if ! safe_jq_write --argjson remove "$remove_list" '
-      .routing.rules = [
-        .routing.rules[] |
-        if (.outboundTag == "direct" and ((.domain // []) | length) > 0) then
-          .domain = ((.domain // []) - $remove)
-          | (if (.domain | length == 0) then empty else . end)
-        else
-          .
-        end
-      ]' "$CONFIG_FILE"; then
-    echo '{"ok":false,"error":"Не удалось удалить домены групп"}' >&3
-    exec 1>&3 3>&-
-    return 1
-  fi
-  fix_xray_permissions
-  if ! safe_restart_xray "$rollback_config"; then
-    echo '{"ok":false,"error":"Xray не принял конфиг — изменения откачены"}' >&3
-    exec 1>&3 3>&-
-    return 1
-  fi
-  exec 1>&3 3>&-
-
-  local count
-  count=$(printf '%s' "$remove_list" | jq 'length')
-  jq -n --argjson c "$count" '{ok: true, removed: $c}'
-  return 0
-}
-
-bypass_command() {
-  export TERM=dumb
-  export XRAYEBATOR_NONINTERACTIVE=1
-
-  local sub="${1:-}"
-  case "$sub" in
-    list)
-      _bypass_cli_list
-      return $?
-      ;;
-    add)
-      shift
-      _bypass_cli_add "$@"
-      return $?
-      ;;
-    remove)
-      shift
-      _bypass_cli_remove "$@"
-      return $?
-      ;;
-    reset)
-      _bypass_cli_reset
-      return $?
-      ;;
-    bundle)
-      shift
-      _bypass_cli_bundle "$@"
-      return $?
-      ;;
-    unbundle)
-      shift
-      _bypass_cli_unbundle "$@"
-      return $?
-      ;;
-    groups)
-      _bypass_cli_groups
-      return $?
-      ;;
-    *)
-      echo '{"ok":false,"error":"Использование: bypass list | groups | add --domain D | remove --domain D | reset | bundle [--group a,b,c] | unbundle --group a,b,c"}'
-      return 1
-      ;;
-  esac
-}
-
-# ═══════════════════════════════════════════════════════════
 # CLI для смены SNI профиля/маршрута — GUI вызывает по SSH.
 # SNI привязан к ПОРТУ (Reality serverNames), поэтому операция обновляет
 # конфиг инбаунда и, через update_all_profiles_on_port, ВСЕ профили на порту.
@@ -12690,10 +11990,6 @@ if [[ "$XRAYEBATOR_SOURCED" -eq 0 ]]; then
       shift
       fp_change_command "$@"
       ;;
-    bypass)
-      shift
-      bypass_command "$@"
-      ;;
     sni-change)
       shift
       sni_change_command "$@"
@@ -12728,12 +12024,6 @@ if [[ "$XRAYEBATOR_SOURCED" -eq 0 ]]; then
       echo -e "  ${CYAN}sudo xrayebator profile-revoke --name N [--full]${NC} — новый sub_token; --full: и новый uuid, старые клиенты отваливаются (JSON)"
       echo -e "  ${CYAN}sudo xrayebator profile-expire --name N --expire 2006-12-31|epoch|none${NC} — срок действия профиля (JSON)"
       echo -e "  ${CYAN}sudo xrayebator expire-check${NC} — применить наступившие сроки (для systemd-таймера) (JSON)"
-      echo -e "  ${CYAN}sudo xrayebator bypass list${NC} — список доменов в обходе (JSON)"
-      echo -e "  ${CYAN}sudo xrayebator bypass groups${NC} — готовые группы обхода (JSON)"
-      echo -e "  ${CYAN}sudo xrayebator bypass add --domain D${NC} — добавить домен в обход (JSON)"
-      echo -e "  ${CYAN}sudo xrayebator bypass remove --domain D${NC} — убрать домен из обхода (JSON)"
-      echo -e "  ${CYAN}sudo xrayebator bypass reset${NC} — сбросить все bypass-правила (JSON)"
-      echo -e "  ${CYAN}sudo xrayebator bypass bundle [--group a,b,c]${NC} — применить группы доменов (JSON)"
       echo -e "  ${CYAN}sudo xrayebator sni-list${NC} — список допустимых SNI (JSON)"
       echo -e "  ${CYAN}sudo xrayebator sni-change --name N [--route R] --sni S${NC} — сменить SNI (JSON; обновит все профили на порту)"
       echo -e "  ${CYAN}sudo xrayebator port-change --name N [--route R] --port P|random${NC} — сменить порт (JSON; reconnect клиентов)"

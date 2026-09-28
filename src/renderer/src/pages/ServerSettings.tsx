@@ -22,7 +22,6 @@ import type { Server, ServerProfile, SniEntry, SshAccessInput } from '@shared/ty
 import { describeExpire, isFutureDate, presetDate } from '@shared/expire'
 import { todayIso } from '@shared/calendar'
 import { isSshAccessReady, SshAccessForm } from '../components/SshAccessForm'
-import { BypassSection } from '../components/BypassSection'
 import { CalendarPicker } from '../components/CalendarPicker'
 import { shouldAutoConnectServer } from './server-access'
 import styles from './ServerSettings.module.css'
@@ -841,14 +840,6 @@ export function ServerSettings({
                 </div>
               ))}
             </section>
-
-            <BypassSection
-              serverId={server.id}
-              access={access}
-              disabled={busy}
-              onError={setError}
-              onToast={toastText}
-            />
           </>
         )}
       </div>
@@ -1039,7 +1030,7 @@ export function ServerSettings({
                 )}
                 <div className={styles.fpField}>
                   <span className={styles.fieldLabel}>{t('settings.expireSelect')}</span>
-                  <div className={styles.bypassRow}>
+                  <div className={styles.inlineRow}>
                     {[7, 30, 90, 365].map((d) => (
                       <Button
                         key={d}
@@ -1297,7 +1288,7 @@ export function ServerSettings({
                         ))}
                       </div>
                     ) : (
-                      <div className={styles.bypassLoadRow}>
+                      <div className={styles.loadRow}>
                         <Button
                           variant="secondary"
                           size="sm"
@@ -1356,7 +1347,7 @@ export function ServerSettings({
                   )}
                 </div>
                 <div className={styles.fpField}>
-                  <TextField variant="secondary" className={styles.bypassDomainField}>
+                  <TextField variant="secondary" className={styles.fieldWide}>
                     <Input
                       value={sniValue}
                       disabled={sniBusy}
@@ -1469,7 +1460,7 @@ export function ServerSettings({
                   </div>
                 </div>
                 <div className={styles.fpField}>
-                  <TextField variant="secondary" className={styles.bypassDomainField}>
+                  <TextField variant="secondary" className={styles.fieldWide}>
                     <Input
                       type="number"
                       min={1}

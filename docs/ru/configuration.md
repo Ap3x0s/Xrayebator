@@ -5,7 +5,6 @@
 Разделы: [Требования и проверенные системы](#требования-и-проверенные-системы) ·
 [Переменные окружения установщика](#переменные-окружения-установщика) ·
 [Firewall и параметры хоста](#firewall-и-параметры-хоста) · [Главное меню](#главное-меню) ·
-[Команды](#команды) · [Десктоп-GUI](#десктоп-gui) · [Bypass routing](#bypass-routing) ·
 [Каскад](#каскад-и-upstream-ноды) ·
 [Self-steal](#собственный-домен-и-self-steal-заглушка) · [Домен и DNS](#домен-и-dns)
 
@@ -96,7 +95,6 @@ legacy-файлы и блоки, ранее созданные Xrayebator, и с
 | `4` | Управление профилем: SNI, клиентский fingerprint, порт и продвинутые настройки |
 | `5` | Обновить отдельный профиль до post-quantum XHTTP + Reality |
 | `6` | Подписка HAPP: настройка публичного/локального publishing, URL/QR, revoke и HAPP-настройки; managed профиль имеет 7 маршрутов, публикуемый список — 6 |
-| `7` | Bypass routing: выбранные домены напрямую, не через VPN |
 | `8` | Каскад и upstream-ноды |
 | `9` | Собственный домен и self-steal заглушка |
 | `10` | Поднять outbound-сервер, чтобы другой VPS мог использовать этот как зарубежную ноду каскада |
@@ -129,13 +127,6 @@ legacy-файлы и блоки, ранее созданные Xrayebator, и с
 | `sudo xrayebator sni-change --name ИМЯ [--route R] --sni SNI` | Сменить общий inbound SNI и синхронизировать профили на этом порту; JSON |
 | `sudo xrayebator sni-list` | Вывести SNI-кандидаты по категориям для GUI; JSON |
 | `sudo xrayebator port-change --name ИМЯ [--route R] --port ПОРТ\|random` | Сменить порт инбаунда, firewall и метаданные подписки; клиенту переподключиться; JSON |
-| `sudo xrayebator bypass list` | Показать текущие bypass-правила (JSON) |
-| `sudo xrayebator bypass add --domain D` | Добавить домен в bypass-правила |
-| `sudo xrayebator bypass remove --domain D` | Убрать домен из bypass-правил |
-| `sudo xrayebator bypass reset` | Сбросить все кастомные bypass-правила |
-| `sudo xrayebator bypass bundle [--group a,b,c]` | Применить дефолтные группы bypass; без `--group` — все группы |
-| `sudo xrayebator bypass unbundle --group a,b,c` | Снять домены выбранных групп с обхода одной мутацией и одним рестартом Xray |
-| `sudo xrayebator bypass groups` | Вывести готовые группы bypass с составом доменов (JSON) |
 | `sudo xrayebator-update [branch]` | Запустить полный `update.sh` lifecycle update; без аргумента — интерактивный выбор ветки |
 | `sudo xrayebator-uninstall` | Снять сервис и конфигурацию |
 
@@ -155,7 +146,6 @@ legacy-файлы и блоки, ранее созданные Xrayebator, и с
 
 Активное Electron-приложение — это CLI-фронтенд поверх SSH, а не полная замена терминальному меню.
 Оно выполняет деплой через `quickstart`, обновляет сохранённый `subscription_url` и предоставляет
-операции списка/создания/удаления профилей, отзыв подписки, срок действия профиля, bypass-домены
 и группы, а также выбранные SNI, fingerprint, port, update и uninstall.
 `probe-test`, HAPP setup, cascade, self-steal, интерактивное меню и диагностика сервиса
 остаются серверными операциями.
@@ -173,9 +163,7 @@ npm test
 npm run typecheck
 ```
 
-## Bypass routing
 
-Bypass добавляет правила в Xray routing, чтобы выбранные домены шли через `freedom` напрямую, не
 через VPN. Правила `domain -> direct` стоят выше catch-all, поэтому продолжают работать и при
 включённом каскаде.
 
