@@ -122,7 +122,7 @@ In particular, the Dashboard reachability dot must not be read as access to `pro
 Server settings additionally provides:
 
 - **Subscription revocation** — a per-profile button opens a menu with two modes. "New link only" reissues the `sub_token` (the previous URL stops working; routes and keys stay the same). "Full revocation" also rotates the uuid in every inbound of the profile, so devices that already downloaded the config are cut off immediately — the only way to actually close access through a leaked link.
-- **Profile expiry** — the date travels to the client in the subscription header and is enforced server-side: the `xrayebator-expire.timer` systemd timer runs `xrayebator expire-check` every 10 minutes and removes the client from the inbounds once the date passes. Extending the date restores it. An expiry can also be set at profile-creation time.
+- **Profile expiry** — the date travels to the client in the subscription header and is enforced server-side: the `xrayebator-expire.timer` systemd timer runs `xrayebator expire-check` every 10 minutes and removes the client from the inbounds once the expiry timestamp passes. A date selected without a time is inclusive through `23:59:59` in the server's local timezone. Extending the date restores the same client. An expiry can also be set at profile-creation time.
 
 ## Deployment protocol
 

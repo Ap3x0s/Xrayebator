@@ -137,7 +137,9 @@ The profile is switched off by its expiry: the profile JSON carries `.expire_dis
 `.expire` (epoch seconds) is already in the past. Enforcement is done by the `xrayebator-expire.timer`
 systemd unit (every 10 minutes, `xrayebator expire-check`): it removes the client from the inbounds,
 so even an already-downloaded link cannot connect, and the subscription answers `410 Gone` with the
-body `Profile expired or disabled`. Extend or clear the date:
+body `Profile expired or disabled`. A date-only expiry (for example, September 30) includes the
+whole selected day and ends at `23:59:59` in the server's local timezone; explicit CLI times use
+that same timezone. Extend or clear the date:
 
 ```bash
 sudo xrayebator profile-expire --name NAME --expire 2026-12-31   # extend
