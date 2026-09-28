@@ -2,6 +2,15 @@
 
 User-facing Xrayebator changes. The server manager and Electron application are published from the canonical `howdeploy/Xrayebator` repository.
 
+## [Unreleased]
+
+### Added
+
+- Subscription revocation in Server settings: a per-profile button opens a menu with two modes. "New link only" reissues the `sub_token`; "full revocation" also rotates the uuid in every inbound of the profile, so devices that already downloaded the configuration are cut off immediately — the only way to actually close access through a leaked link.
+- Profile expiry dates: `profile-create --expire`, `profile-expire`, the `expire` field in the profile JSON, a date chip and editor in the GUI, plus server-side enforcement — a `xrayebator-expire.timer` systemd unit runs `xrayebator expire-check` every 10 minutes and switches an expired profile off (the client is removed from the inbounds and restored on renewal).
+- Bypass groups in Server settings: the list of directly routed domains with add/remove, a full reset, and the server's ready-made RU groups (banks, streaming, government services and others) as checkboxes; `bypass groups` and `bypass unbundle` were added to the CLI.
+- The subscription-userinfo `expire` header now has a UI path: HAPP and other clients display the date handed out by the subscription.
+
 ## [0.5.5] - 2026-09-25
 
 Connecting to servers that already run Xrayebator, plus fixes found while testing on a live VPS.

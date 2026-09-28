@@ -168,8 +168,9 @@ from the canonical raw branch and then updates Xray-core. It is not the same as
 silently use that marker. Run the latter from an SSH terminal when you need the broader lifecycle
 sequence, and verify Xray, DNS and the subscription endpoint/service afterwards.
 
-The GUI intentionally exposes only a subset of the Bash menu. Use the terminal for bypass, probing,
-subscription revocation, HAPP setup, cascade, self-steal and service logs/status.
+The GUI intentionally exposes only a subset of the Bash menu. Use the terminal for `probe-test`,
+HAPP setup, cascade, self-steal and service logs/status; profile expiry dates, subscription
+revocation and bypass groups are handled in Server settings.
 
 ## The Electron unit test fails on Windows
 

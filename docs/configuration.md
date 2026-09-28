@@ -179,9 +179,9 @@ profile when `xhttp-legacy`, `xhttp-pq` or the expected seven-route shape is mis
 
 The active Electron app is a CLI front-end over SSH, not a complete replacement for the terminal
 menu. It deploys with `quickstart`, refreshes the saved `subscription_url`, and exposes profile
-list/create/delete plus selected SNI, fingerprint, port, update and uninstall operations. Bypass,
-probe, revoke, HAPP setup, cascade, self-steal, the interactive menu and service diagnostics remain
-server-side operations.
+list/create/delete, subscription revoke, profile expiry, bypass domains and groups, plus selected
+SNI, fingerprint, port, update and uninstall operations. `probe-test`, HAPP setup, cascade,
+self-steal, the interactive menu and service diagnostics remain server-side operations.
 
 See [Electron Desktop GUI](desktop-gui.md) for the complete command mapping, security boundary,
 packaging and test details.

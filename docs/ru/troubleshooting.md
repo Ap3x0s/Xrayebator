@@ -143,8 +143,9 @@ Server Settings в Electron-GUI вызывает `xrayebator update <branch>`: �
 ветки и обновляет Xray-core. Это не `xrayebator-update [branch]`, полный lifecycle-updater. Запустите
 последний из SSH-терминала, когда нужно обновить данные, интеграцию подписки и все lifecycle-шаги.
 
-GUI намеренно предоставляет только подмножество Bash-меню. Используйте терминал для bypass, probing,
-revoke, HAPP setup, cascade, self-steal и журналов/статуса сервиса.
+GUI намеренно предоставляет только подмножество Bash-меню. Используйте терминал для `probe-test`,
+HAPP setup, каскада, self-steal и журналов/статуса сервиса; сроки действия профилей, отзыв
+подписки и bypass-группы настраиваются в разделе «Настройки сервера».
 
 ## Electron unit-тест падает на Windows
 
