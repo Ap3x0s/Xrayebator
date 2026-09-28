@@ -1010,7 +1010,10 @@ export function ServerSettings({
         }}
       >
         <AlertDialog.Backdrop className={styles.blurBackdrop}>
-          <AlertDialog.Container>
+          {/* placement="top": диалог прижат к верху. Иначе при центрировании
+              шапка календаря уезжает вверх/вниз при смене месяца (5 недель ↔ 6),
+              и стрелки «прыгают» под курсором. */}
+          <AlertDialog.Container placement="top">
             <AlertDialog.Dialog className={styles.confirmDialog}>
               <AlertDialog.Header>
                 <AlertDialog.Heading>
@@ -1116,7 +1119,9 @@ export function ServerSettings({
         }}
       >
         <AlertDialog.Backdrop className={styles.blurBackdrop}>
-          <AlertDialog.Container>
+          {/* placement="top": диалог прижат к верху, поэтому шестая неделя
+              календаря раскрывается ВНИЗ и не сдвигает шапку со стрелками. */}
+          <AlertDialog.Container placement="top">
             <AlertDialog.Dialog className={styles.confirmDialog}>
               <AlertDialog.Header>
                 <AlertDialog.Heading>{t('settings.createExpire')}</AlertDialog.Heading>
