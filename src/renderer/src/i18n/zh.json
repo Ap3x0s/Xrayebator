@@ -268,6 +268,7 @@
     "expireUntil": "至 {{date}}",
     "expireExpired": "已过期",
     "expireHint": "该配置将在这一天自动停用",
+    "expireHintSoon": "即将到期——请及时延长，否则配置会被服务器自动停用",
     "expireHintExpired": "已过期——服务器已停用该配置。延长有效期即可恢复访问。",
     "createExpire": "有效期",
     "bypassTitle": "绕过 VPN（分流）",
