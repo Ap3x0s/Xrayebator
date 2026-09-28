@@ -126,7 +126,8 @@ The GUI does persist the server metadata needed to return to a server, including
 username, authentication method, privilege mode, credential ids, display key name and installation
 diagnostics, plus preferences, the `subscription_url`, fetched `vless://` links and the SHA-256 SSH
 host-key pin. The subscription URL and VLESS links are bearer credentials, so protect the local
-Electron application data and revoke the subscription if they leak. Removing the last server card that
+Electron application data and revoke the subscription (Server settings) if they leak; a full
+revocation rotates the client key as well, so already-downloaded configs stop working. Removing the last server card that
 references a credential deletes that keychain entry; entries shared with another card are kept.
 
 Existing and imported servers can also be managed read-only: importing over SSH recognizes Xrayebator
