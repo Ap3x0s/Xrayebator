@@ -155,8 +155,9 @@ legacy-файлы и блоки, ранее созданные Xrayebator, и с
 
 Активное Electron-приложение — это CLI-фронтенд поверх SSH, а не полная замена терминальному меню.
 Оно выполняет деплой через `quickstart`, обновляет сохранённый `subscription_url` и предоставляет
-операции списка/создания/удаления профилей плюс выбранные SNI, fingerprint, port, update и uninstall.
-Bypass, probe, revoke, HAPP setup, cascade, self-steal, интерактивное меню и диагностика сервиса
+операции списка/создания/удаления профилей, отзыв подписки, срок действия профиля, bypass-домены
+и группы, а также выбранные SNI, fingerprint, port, update и uninstall.
+`probe-test`, HAPP setup, cascade, self-steal, интерактивное меню и диагностика сервиса
 остаются серверными операциями.
 
 См. [Electron Desktop GUI](desktop-gui.md) для полного описания команд, границы безопасности, сборки

@@ -105,7 +105,10 @@ http://127.0.0.1:8080/sub/<token>         # local-only запасной
 выбор. Нон-интерактивные IP-TLS пути `quickstart --email <address>` и `quickstart --without-email`
 создают nginx, сертификат и маркеры на `8443`, затем возвращают JSON с `subscription_url` для endpoint.
 Без email Certbot регистрирует ACME-аккаунт без контактного адреса: уведомления о продлении и восстановление
-по email недоступны. Токен хранится в профиле как `sub_token`; revoke меняет его и аннулирует старый URL.
+по email недоступны. Токен хранится в профиле как `sub_token`; revoke меняет его и аннулирует старый URL,
+а полный отзыв (`profile-revoke --full`) дополнительно меняет uuid во всех inbound'ах профиля, поэтому
+уже скачанные конфигурации перестают подключаться. Срок действия профиля хранится как `expire` (epoch-секунды)
+и принуждается серверным таймером `xrayebator-expire.timer` → `xrayebator expire-check` каждые 10 минут.
 
 Новый стандартный managed HAPP-профиль — schema-v3 профиль из семи маршрутов, включая `xhttp-legacy`
 и post-quantum XHTTP route. Публикуемый список HAPP содержит шесть VLESS-маршрутов, потому что
