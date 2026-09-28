@@ -11969,6 +11969,101 @@ _bypass_cli_groups() {
   return 0
 }
 
+# bypass groups — список готовых групп bundle (id, название, домены) для GUI.
+_bypass_cli_groups() {
+  local json
+  json=$(awk -F'|' 'NF >= 3 {
+    printf "%s\t%s\t%s\n", $1, $2, $3
+  }' < <(_bypass_bundle_groups) | jq -R -s '
+    split("\n") | map(select(length > 0)) |
+    map(split("\t") | {id: .[0], title: .[1],
+                       domains: (.[2] | split(",") | map(select(length > 0)))})') || {
+    echo '{"ok":false,"error":"Не удалось собрать список групп"}'
+    return 1
+  }
+  jq -n --argjson groups "$json" '{ok: true, groups: $groups}'
+  return 0
+}
+
+# bypass unbundle --group a,b — удалить домены выбранных групп из обхода.
+# Одна мутация/рестарт на команду (штучный remove = N рестартов — неприемлемо).
+_bypass_cli_unbundle() {
+  local groups_csv=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --group) groups_csv="$2"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+  if [[ -z "$groups_csv" ]]; then
+    echo '{"ok":false,"error":"Укажите --group a,b,c — unbundle без списка опасен, используйте reset"}'
+    return 1
+  fi
+
+  local doms_all="" gid gname d g
+  local -a wanted=()
+  IFS=',' read -r -a wanted <<< "$groups_csv"
+  for g in "${wanted[@]}"; do
+    g="${g// /}"
+    [[ -z "$g" ]] && continue
+    local found=false
+    while IFS='|' read -r gid gname d; do
+      [[ -z "$gid" ]] && continue
+      if [[ "$gid" == "$g" ]]; then
+        found=true
+        doms_all="${doms_all}${doms_all:+,}${d}"
+      fi
+    done < <(_bypass_bundle_groups)
+    if [[ "$found" == "false" ]]; then
+      echo "{\"ok\":false,\"error\":\"Неизвестная группа: $g\"}"
+      return 1
+    fi
+  done
+  [[ -n "$doms_all" ]] || { echo '{"ok":false,"error":"Нет доменов"}'; return 1; }
+
+  local remove_list
+  remove_list=$(printf '%s' "$doms_all" | tr ',' '\n' | sed '/^$/d' | jq -R '"domain:" + .' | jq -sc 'unique') || {
+    echo '{"ok":false,"error":"Не удалось собрать список удаления"}'
+    return 1
+  }
+
+  local rollback_config=""
+  # Контракт JSON-only: backup_config печатает статус — только после switch.
+  exec 3>&1
+  exec 1>&2
+  if ! backup_config "bypass_unbundle" rollback_config; then
+    echo '{"ok":false,"error":"Не удалось создать бэкап config.json"}' >&3
+    exec 1>&3 3>&-
+    return 1
+  fi
+  if ! safe_jq_write --argjson remove "$remove_list" '
+      .routing.rules = [
+        .routing.rules[] |
+        if (.outboundTag == "direct" and ((.domain // []) | length) > 0) then
+          .domain = ((.domain // []) - $remove)
+          | (if (.domain | length == 0) then empty else . end)
+        else
+          .
+        end
+      ]' "$CONFIG_FILE"; then
+    echo '{"ok":false,"error":"Не удалось удалить домены групп"}' >&3
+    exec 1>&3 3>&-
+    return 1
+  fi
+  fix_xray_permissions
+  if ! safe_restart_xray "$rollback_config"; then
+    echo '{"ok":false,"error":"Xray не принял конфиг — изменения откачены"}' >&3
+    exec 1>&3 3>&-
+    return 1
+  fi
+  exec 1>&3 3>&-
+
+  local count
+  count=$(printf '%s' "$remove_list" | jq 'length')
+  jq -n --argjson c "$count" '{ok: true, removed: $c}'
+  return 0
+}
+
 bypass_command() {
   export TERM=dumb
   export XRAYEBATOR_NONINTERACTIVE=1
@@ -11998,12 +12093,17 @@ bypass_command() {
       _bypass_cli_bundle "$@"
       return $?
       ;;
+    unbundle)
+      shift
+      _bypass_cli_unbundle "$@"
+      return $?
+      ;;
     groups)
       _bypass_cli_groups
       return $?
       ;;
     *)
-      echo '{"ok":false,"error":"Использование: bypass list | groups | add --domain D | remove --domain D | reset | bundle [--group a,b,c]"}'
+      echo '{"ok":false,"error":"Использование: bypass list | groups | add --domain D | remove --domain D | reset | bundle [--group a,b,c] | unbundle --group a,b,c"}'
       return 1
       ;;
   esac
