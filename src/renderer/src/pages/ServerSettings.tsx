@@ -447,19 +447,29 @@ export function ServerSettings({
     }
   }
 
-  /** Чип срока в карточке профиля: дата, «истёк» или «бессрочно». */
+  /** Чип срока в карточке профиля: дата, «истёк», «скоро истекает» или ничего. */
   const expireChip = (profile: ServerProfile): React.JSX.Element | null => {
-    const info = describeExpire(profile.expire ?? 0, profile.expire_disabled === true, Date.now())
+    const now = Date.now()
+    const info = describeExpire(profile.expire ?? 0, profile.expire_disabled === true, now)
     if (info.status === 'none') return null
-    const danger = info.status === 'expired'
+    const expired = info.status === 'expired'
+    // Предупреждаем за 3 дня: время продлить срок до автоотключения сервером.
+    const soon = !expired && profile.expire * 1000 - now < 3 * 24 * 60 * 60 * 1000
+    const tone = expired ? styles.expireChipDanger : soon ? styles.expireChipWarn : ''
     return (
       <Chip
         size="sm"
         color="default"
-        className={`${styles.expireChip} ${danger ? styles.expireChipDanger : ''}`}
-        title={t(danger ? 'settings.expireHintExpired' : 'settings.expireHint')}
+        className={`${styles.expireChip} ${tone}`}
+        title={t(
+          expired
+            ? 'settings.expireHintExpired'
+            : soon
+              ? 'settings.expireHintSoon'
+              : 'settings.expireHint'
+        )}
       >
-        {danger
+        {expired
           ? t('settings.expireExpired')
           : t('settings.expireUntil', { date: info.date })}
       </Chip>

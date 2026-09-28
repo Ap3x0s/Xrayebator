@@ -269,6 +269,7 @@
     "expireUntil": "until {{date}}",
     "expireExpired": "expired",
     "expireHint": "The profile will be switched off automatically on this date",
+    "expireHintSoon": "Expires within days — extend it, otherwise the profile is switched off automatically",
     "expireHintExpired": "Expired — the server disabled this profile. Extend the date to restore access.",
     "createExpire": "Expiry date",
     "bypassTitle": "Bypass routing",
