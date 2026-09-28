@@ -86,7 +86,9 @@ HAPP 兼容的 XHTTP 候选必须是 `xhttp-legacy`，而不是 PQ 线路。更�
 该配置档因有效期被停用：profile JSON 中带有 `.expire_disabled: true`，或者 `.expire`
 （epoch 秒）已经过期。强制执行由 systemd 定时器 `xrayebator-expire.timer` 完成（每 10 分钟运行
 `xrayebator expire-check`）：它会把客户端从 inbound 中移除，因此即使已经下载的链接也无法连接，
-订阅会返回 `410 Gone`，正文为 `Profile expired or disabled`。延长或取消有效期：
+订阅会返回 `410 Gone`，正文为 `Profile expired or disabled`。只选日期（例如 9 月 30 日）时，
+配置档在当天仍有效，并于服务器本地时区的 `23:59:59` 到期；CLI 显式指定的时间也按服务器时区解释。
+延长或取消有效期：
 
 ```bash
 sudo xrayebator profile-expire --name 名称 --expire 2026-12-31   # 延长
