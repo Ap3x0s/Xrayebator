@@ -87,6 +87,14 @@ if systemctl list-unit-files 'xrayebator-ip-renew.*' > /dev/null 2>&1; then
     rm -f /etc/systemd/system/xrayebator-ip-renew.service
     rm -f /etc/systemd/system/xrayebator-ip-renew.timer
 fi
+# Таймер принуждения сроков профилей: без удаления продолжал бы дёргать
+# удалённый /usr/local/bin/xrayebator expire-check каждые 10 минут.
+if systemctl list-unit-files 'xrayebator-expire.*' > /dev/null 2>&1; then
+    systemctl disable --now xrayebator-expire.timer > /dev/null 2>&1 || true
+    systemctl stop xrayebator-expire.service > /dev/null 2>&1 || true
+    rm -f /etc/systemd/system/xrayebator-expire.service
+    rm -f /etc/systemd/system/xrayebator-expire.timer
+fi
 rm -rf /usr/local/etc/xray
 rm -rf /var/log/xray
 echo -e "${GREEN}✓ Конфигурации и логи удалены${NC}\n"
