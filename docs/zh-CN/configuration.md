@@ -105,8 +105,11 @@ Xrayebator 不会更改主机的 TCP 拥塞控制算法，也不会写入或应�
 | `sudo xrayebator inspect --json` | GUI 导入时使用的只读安装检查：返回 Xray、配置档和订阅标记状态；不会安装、迁移或修改配置 |
 | `sudo xrayebator happ-setup` | 已有安装的精简 HAPP 路径：确保订阅服务和可用的多线路配置档；缺少订阅域或端口标记时，会先验证 `8443` 的产品 IP-TLS endpoint，否则失败 |
 | `sudo xrayebator profiles` | 以 JSON 数组输出服务器全部配置档（供桌面 GUI「服务器设置」页使用） |
-| `sudo xrayebator profile-create --name 名称 [--transport tcp\|tcp-utls\|tcp-xudp\|tcp-mux\|grpc\|xhttp] [--port P] [--count N]` | 非交互式创建单个或多个配置档，打印 `{"ok":true,"names":[...],"errors":[...]}` |
+| `sudo xrayebator profile-create --name 名称 [--transport tcp\|tcp-utls\|tcp-xudp\|tcp-mux\|grpc\|xhttp] [--port P] [--count N] [--expire 日期]` | 非交互式创建单个或多个配置档；`--expire` 接受 `YYYY-MM-DD[ HH:MM]` 或 epoch 秒（过去的时间会被拒绝），打印 `{"ok":true,"names":[...],"errors":[...]}` |
 | `sudo xrayebator profile-delete --name 名称` | 非交互式删除配置档，打印 `{"ok":true,"name":"..."}` |
+| `sudo xrayebator profile-revoke --name 名称 [--full]` | 重新签发订阅链接：新的 `sub_token`；带 `--full` 时还会更换该配置档所有 inbound 中的 uuid（已下载的配置立即失效），打印 JSON |
+| `sudo xrayebator profile-expire --name 名称 --expire 日期\|epoch\|none` | 设置、延长或取消配置档有效期；立即生效（已过期会移除客户端，延长则恢复），打印 JSON |
+| `sudo xrayebator expire-check` | 批量应用所有已到期的有效期；幂等，无变化时不重启 Xray。由 `xrayebator-expire.timer` 每 10 分钟触发 |
 | `sudo xrayebator fp-change --name 名称 [--route R] --fp 指纹` | 修改配置档的指纹，打印 JSON 结果 |
 | `sudo xrayebator sni-change --name 名称 [--route R] --sni SNI` | 修改配置档的 SNI，并同步更新同一端口上的所有配置档，打印 JSON 结果 |
 | `sudo xrayebator sni-list` | 按类别列出 `sni_list.txt` 中的候选 SNI，打印 JSON 结果（供桌面 GUI 的 SNI 对话框使用） |
@@ -116,6 +119,8 @@ Xrayebator 不会更改主机的 TCP 拥塞控制算法，也不会写入或应�
 | `sudo xrayebator bypass remove --domain D` | 从分流规则移除一个域名（JSON） |
 | `sudo xrayebator bypass reset` | 清空所有自定义分流规则（JSON） |
 | `sudo xrayebator bypass bundle [--group a,b,c]` | 应用默认分流分组；不带 `--group` 时重新应用全部分组（JSON） |
+| `sudo xrayebator bypass unbundle --group a,b,c` | 以单次变更和单次 Xray 重启移除所选分组的域名（JSON） |
+| `sudo xrayebator bypass groups` | 列出内置分流分组及其域名集合（JSON） |
 | `sudo xrayebator-update [branch]` | 运行完整的 `update.sh` 生命周期更新；无参数时显示 `.current_branch` 并打开交互式分支选择，有参数时使用该分支 |
 | `sudo xrayebator-uninstall` | 移除服务与配置 |
 
