@@ -124,6 +124,11 @@ is a client-side profile/route setting; changing it does not restart Xray or alt
 | `sudo xrayebator sni-change --name NAME [--route R] --sni SNI` | Change the shared inbound SNI and synchronise profiles on that port; prints JSON |
 | `sudo xrayebator sni-list` | Print SNI candidates grouped by category for the GUI SNI dialog; prints JSON |
 | `sudo xrayebator port-change --name NAME [--route R] --port PORT\|random` | Change the inbound port, firewall and subscription metadata; reconnect the client; prints JSON |
+| `sudo xrayebator bypass list` | Print current bypass domain rules as JSON |
+| `sudo xrayebator bypass add --domain D` | Add a domain to bypass rules |
+| `sudo xrayebator bypass remove --domain D` | Remove a domain from bypass rules |
+| `sudo xrayebator bypass reset` | Clear all custom bypass rules |
+| `sudo xrayebator bypass bundle [--group a,b,c]` | Apply the default bypass groups; without `--group`, apply all groups |
 | `sudo xrayebator-update [branch]` | Run the full `update.sh` project lifecycle update; without a branch, display `.current_branch` and open the interactive branch selector; with a branch, use that explicit branch |
 | `sudo xrayebator-uninstall` | Remove the service and installation |
 

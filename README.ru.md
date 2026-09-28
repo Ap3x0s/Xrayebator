@@ -6,7 +6,7 @@
 
 <p>
 <strong>инбаунды</strong> · <strong>профили</strong> · <strong>подписка</strong> ·
-<strong>каскад</strong>
+<strong>bypass</strong> · <strong>каскад</strong>
 </p>
 
 <p>
@@ -318,7 +318,7 @@ TypeScript, включая строгие onboarding-контракты из `te
 
 | Документ | О чём |
 |---|---|
-| [Настройка](docs/ru/configuration.md) | Переменные окружения, firewall и параметры хоста, главное меню, команды, каскад, self-steal, домен и DNS |
+| [Настройка](docs/ru/configuration.md) | Переменные окружения, firewall и параметры хоста, главное меню, команды, bypass, каскад, self-steal, домен и DNS |
 | [Архитектура](docs/ru/architecture.md) | Дерево репозитория и состояния на сервере, инбаунд против профиля, внутренности подписки |
 | [Безопасность](docs/ru/security.md) | Сервисный аккаунт и права, защита подписки, доступ к VPS по SSH |
 | [Частые проблемы](docs/ru/troubleshooting.md) | Подписка не обновляется, XHTTP не работает, клиент не подключается и другие кейсы |

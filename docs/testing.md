@@ -55,6 +55,7 @@ promise that installer and updater paths behave identically.
 | `test-main-readiness-regressions.sh` | Main-menu readiness and first-run regression checks |
 | `test-multiroute-argument-preservation.sh` | Preservation of multiroute transport arguments |
 | `test-port-change-cli.sh` | Port-change CLI scenarios, firewall moves and route selection |
+| `test-bypass-cli.sh` | Bypass CLI JSON output and routing rule updates |
 | `test-project-update-rollback.sh` | Rollback of a failed project update |
 | `test-apt-lock-race.sh` | apt-lock race: `DPkg::Lock::Timeout` on installs, the unattended-upgrade worker check, and the 12-minute quickstart budget |
 | `test-quickstart-email-and-inspect.sh` | Explicit `quickstart` email mode (`--without-email` without a fake address) and the read-only invariants of `inspect --json` |

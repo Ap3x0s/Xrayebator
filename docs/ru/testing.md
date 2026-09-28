@@ -38,6 +38,7 @@ for test_file in validation/*.sh; do bash "$test_file" || exit; done
 | `test-main-menu-numbering.sh` | Нумерацию пунктов меню и их соответствие обработчикам |
 | `test-main-readiness-regressions.sh` | Регрессии readyness после аудита: certbot-manifest, UFW manifest, nginx rollback, привилегии, SSH-порт |
 | `test-sni-change-cli.sh` | CLI `sni-change`: JSON stdout, Reality, XHTTP host, синхронизацию, rollback |
+| `test-bypass-cli.sh` | CLI `bypass`: JSON stdout, routing-правила, add с проверкой SNI |
 | `test-port-change-cli.sh` | CLI `port-change`: сценарии unit/shared/move, неверный порт, multi-route `--route` |
 | `test-profile-revoke-expire-cli.sh` | CLI `profile-revoke` (только токен / ротация uuid с сохранением чужих клиентов на общем порту) и сроки профилей (отключение, возврат из снимка, rebuild без снимка, идемпотентный `expire-check`) |
 | `test-apt-lock-race.sh` | Гонка apt-lock: `DPkg::Lock::Timeout` при установках, учёт воркера `unattended-upgrade` и бюджет 12 минут в quickstart |
