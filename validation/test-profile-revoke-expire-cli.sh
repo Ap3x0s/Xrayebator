@@ -210,13 +210,29 @@ jq -e '.ok == false' <<< "$out" >/dev/null || fail "revoke bad name: $out"
 if out=$(profile_revoke_command --name nosuch); then fail "revoke missing profile accepted"; fi
 jq -e '.ok == false' <<< "$out" >/dev/null || fail "revoke missing profile: $out"
 
-# --- 12. bypass groups: JSON с id/title/domains ---
+# --- 12. bypass groups: JSON с id/title/domains[] ---
 out=$(_bypass_cli_groups) || fail "bypass groups failed: $out"
 jq -e '.ok == true and (.groups | length >= 7) and
   all(.groups[]; (.id | type == "string") and (.title | type == "string") and
-      (.domains | type == "number" and . > 0)) and
-  any(.groups[]; .id == "banks")' <<< "$out" >/dev/null ||
+      (.domains | type == "array" and length > 0 and all(.[]; type == "string"))) and
+  any(.groups[]; .id == "banks" and (.domains | index("sberbank.ru") != null))' <<< "$out" >/dev/null ||
   fail "bypass groups bad payload: $out"
+
+# --- 12b. bypass unbundle: снимает только домены выбранных групп ---
+out=$(_bypass_cli_bundle --group steam) || fail "bundle steam for unbundle test failed: $out"
+out=$(_bypass_cli_bundle --group banks) || fail "bundle banks failed: $out"
+out=$(_bypass_cli_add --domain mycustom.example) || fail "add custom failed: $out"
+out=$(_bypass_cli_unbundle --group banks) || fail "unbundle banks failed: $out"
+jq -e '.ok == true and .removed > 0' <<< "$out" >/dev/null || fail "unbundle bad JSON: $out"
+jq -e '
+  all(.routing.rules[] | (.domain // [])[]; . != "domain:sberbank.ru") and
+  any(.routing.rules[] | (.domain // [])[]; . == "domain:steamcontent.com") and
+  any(.routing.rules[] | (.domain // [])[]; . == "domain:mycustom.example")
+' "$CONFIG_FILE" >/dev/null || fail "unbundle removed too much/too little"
+if out=$(_bypass_cli_unbundle); then fail "unbundle without --group accepted"; fi
+jq -e '.ok == false' <<< "$out" >/dev/null || fail "unbundle no-group: $out"
+if out=$(_bypass_cli_unbundle --group nosuch); then fail "unbundle unknown group accepted"; fi
+jq -e '.ok == false' <<< "$out" >/dev/null || fail "unbundle unknown group: $out"
 
 # --- 13. profile-create --expire: поле попадает в профиль (add_inbound застабан) ---
 add_inbound() { return 0; }
