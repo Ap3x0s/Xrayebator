@@ -44,7 +44,7 @@ GUI показывает лог и состояние шагов, но для в
 Мастер показывает индекс шагов и живую консоль реально выполненной работы: SSH-подключение, вызов `xrayebator inspect --json`, полученные статусы компонентов, проверку подписки и итог. URL подписки — bearer credential, поэтому его токен маскируется (`…`) до попадания в консоль; пароли и байты ключей туда не попадают вовсе.
 ### Server keys
 
-Server keys обновляет подписку по сохранённому `subscription_url` и показывает полученные VLESS-маршруты. Каждый VLESS-ключ можно скопировать или показать как QR-код; URL подписки также копируется, есть действие «скопировать всё». Эта страница не создаёт отдельную подписку на сервере и не меняет токен подписки.
+Server keys обновляет подписку по сохранённому `subscription_url` и показывает полученные VLESS-маршруты. Каждый VLESS-ключ можно скопировать или показать как QR-код; URL подписки также копируется, есть действие «скопировать всё». Эта страница не создаёт отдельную подписку на сервере и не меняет токен подписки (перевыпуск — на карточках профилей в Server settings).
 
 ### Server settings
 
@@ -81,12 +81,15 @@ GUI поддерживает SSH-аутентификацию по паролю 
 
 ```text
 xrayebator profiles
-xrayebator profile-create --name NAME [--transport T] [--port P] [--count N]
+xrayebator profile-create --name NAME [--transport T] [--port P] [--count N] [--expire DATE]
 xrayebator profile-delete --name NAME
+xrayebator profile-revoke --name NAME [--full]
+xrayebator profile-expire --name NAME --expire DATE|epoch|none
 xrayebator fp-change --name NAME [--route R] --fp FINGERPRINT
 xrayebator sni-change --name NAME [--route R] --sni SNI
 xrayebator sni-list
 xrayebator port-change --name NAME [--route R] --port PORT|random
+xrayebator bypass list|groups|add --domain D|remove --domain D|reset|bundle --group a,b,c|unbundle --group a,b,c
 ```
 
 При развёртывании дополнительно вызывается один из вариантов:
@@ -107,9 +110,7 @@ GUI использует поле `subscription_url` из результата, 
 Активный Electron-GUI **не предоставляет** следующие возможности сервера:
 
 ```text
-bypass
 probe-test
-revoke
 happ-setup
 cascade
 self-steal
@@ -117,7 +118,13 @@ self-steal
 логи/статус сервисов
 ```
 
-В частности, точка доступности на Dashboard не означает наличие доступа к `probe-test`, а страница ключей не предоставляет `revoke`.
+В частности, точка доступности на Dashboard не означает наличие доступа к `probe-test`.
+
+На странице Server settings доступны, помимо смены SNI/fingerprint/порта:
+
+- **Revoke подписки** — кнопка у профиля открывает меню с двумя режимами. «Только новая ссылка» перевыпускает `sub_token` (прежняя URL перестаёт работать, маршруты и ключи те же). «Полный отзыв» дополнительно меняет uuid во всех inbound'ах профиля: устройства, уже скачавшие конфиг, отключаются немедленно — это единственный способ реально закрыть доступ по утёкшей ссылке.
+- **Срок действия профиля** — дата передаётся клиенту в заголовке подписки и принудительно применяется сервером: systemd-таймер `xrayebator-expire.timer` раз в 10 минут вызывает `xrayebator expire-check` и снимает клиента с inbound'ов по истечении срока. Продление возвращает клиента обратно. Срок также можно задать сразу при создании профиля.
+- **Bypass-группы** — список доменов, идущих напрямую мимо туннеля (RU-банки, госуслуги, стриминг): свои домены добавляются и удаляются поштучно, готовые группы сервера включаются и выключаются чекбоксами, есть полный сброс.
 
 ## Протокол развёртывания
 
