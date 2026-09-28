@@ -117,8 +117,11 @@ is a client-side profile/route setting; changing it does not restart Xray or alt
 | `sudo xrayebator inspect --json` | Read-only GUI import probe: reports manager, Xray, profile and subscription markers without installing, migrating or changing services/configuration |
 | `sudo xrayebator happ-setup` | Reduced existing-install HAPP path: ensures the subscription service and a usable multi-route profile, but does not replace the endpoint prerequisite; when `.subscription_domain` or `.subscription_port` is missing, it verifies a real public TLS endpoint before writing markers and otherwise fails |
 | `sudo xrayebator profiles` | Print all server profiles as a JSON array for the desktop GUI Server Settings page |
-| `sudo xrayebator profile-create --name NAME [--transport tcp\|tcp-utls\|tcp-xudp\|tcp-mux\|grpc\|xhttp] [--port P] [--count N]` | Create one or more profiles non-interactively; prints `{"ok":true,"names":[...],"errors":[...]}` |
+| `sudo xrayebator profile-create --name NAME [--transport tcp\|tcp-utls\|tcp-xudp\|tcp-mux\|grpc\|xhttp] [--port P] [--count N] [--expire DATE]` | Create one or more profiles non-interactively; `--expire` accepts `YYYY-MM-DD[ HH:MM]` or epoch seconds (a past date is rejected); prints `{"ok":true,"names":[...],"errors":[...]}` |
 | `sudo xrayebator profile-delete --name NAME` | Delete a profile non-interactively; prints `{"ok":true,"name":"..."}` |
+| `sudo xrayebator profile-revoke --name NAME [--full]` | Reissue the subscription link: new `sub_token`; with `--full` also a new uuid in every inbound of the profile (already-downloaded configs are cut off); prints JSON |
+| `sudo xrayebator profile-expire --name NAME --expire DATE\|epoch\|none` | Set, extend or remove a profile expiry; applied immediately (a passed date removes the client, an extension restores it); prints JSON |
+| `sudo xrayebator expire-check` | Apply every due expiry in one batch; idempotent and never restarts Xray without changes. Driven by the `xrayebator-expire.timer` unit every 10 minutes |
 | `sudo xrayebator fp-change --name NAME [--route R] --fp FINGERPRINT` | Change the client fingerprint for one profile route; prints JSON |
 | `sudo xrayebator sni-change --name NAME [--route R] --sni SNI` | Change the shared inbound SNI and synchronise profiles on that port; prints JSON |
 | `sudo xrayebator sni-list` | Print SNI candidates grouped by category for the GUI SNI dialog; prints JSON |
@@ -128,6 +131,8 @@ is a client-side profile/route setting; changing it does not restart Xray or alt
 | `sudo xrayebator bypass remove --domain D` | Remove a domain from bypass rules |
 | `sudo xrayebator bypass reset` | Clear all custom bypass rules |
 | `sudo xrayebator bypass bundle [--group a,b,c]` | Apply the default bypass groups; without `--group`, apply all groups |
+| `sudo xrayebator bypass unbundle --group a,b,c` | Remove the domains of the selected groups in a single mutation and a single Xray restart |
+| `sudo xrayebator bypass groups` | List the ready bypass groups with their domain sets (JSON) |
 | `sudo xrayebator-update [branch]` | Run the full `update.sh` project lifecycle update; without a branch, display `.current_branch` and open the interactive branch selector; with a branch, use that explicit branch |
 | `sudo xrayebator-uninstall` | Remove the service and installation |
 

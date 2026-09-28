@@ -120,8 +120,11 @@ legacy-файлы и блоки, ранее созданные Xrayebator, и с
 | `sudo xrayebator inspect --json` | Read-only проверка установки для GUI-импорта: возвращает состояние Xray, профилей и маркеров подписки; не запускает установку, миграции или изменения конфигурации |
 | `sudo xrayebator happ-setup` | Сокращённый re-entry на существующей установке: проверяет subscription service и usable multi-route profile; при отсутствии markers проверяет IP-TLS endpoint на `8443`, но не фабрикует markers |
 | `sudo xrayebator profiles` | Вывести все профили сервера JSON-массивом (для «Настроек сервера» GUI) |
-| `sudo xrayebator profile-create --name ИМЯ [--transport tcp\|tcp-utls\|tcp-xudp\|tcp-mux\|grpc\|xhttp] [--port P] [--count N]` | Создать профили без интерактива; `{"ok":true,"names":[...],"errors":[...]}` |
+| `sudo xrayebator profile-create --name ИМЯ [--transport tcp\|tcp-utls\|tcp-xudp\|tcp-mux\|grpc\|xhttp] [--port P] [--count N] [--expire ДАТА]` | Создать профили без интерактива; `--expire` принимает `ГГГГ-ММ-ДД[ ЧЧ:ММ]` или epoch-секунды (прошлое отклоняется); `{"ok":true,"names":[...],"errors":[...]}` |
 | `sudo xrayebator profile-delete --name ИМЯ` | Удалить профиль без интерактива; `{"ok":true,"name":"..."}` |
+| `sudo xrayebator profile-revoke --name ИМЯ [--full]` | Перевыпустить ссылку подписки: новый `sub_token`; с `--full` — ещё и новый uuid во всех inbound'ах профиля (уже скачанные конфиги отваливаются); JSON |
+| `sudo xrayebator profile-expire --name ИМЯ --expire ДАТА\|epoch\|none` | Задать, продлить или снять срок действия профиля; применение немедленное (истёкший срок сразу снимает клиента, продление возвращает); JSON |
+| `sudo xrayebator expire-check` | Применить все наступившие сроки пакетно; идемпотентно, без изменений не перезапускает Xray. Вызывается таймером `xrayebator-expire.timer` каждые 10 минут |
 | `sudo xrayebator fp-change --name ИМЯ [--route R] --fp ОТПЕЧАТОК` | Сменить клиентский fingerprint для одного маршрута профиля; JSON |
 | `sudo xrayebator sni-change --name ИМЯ [--route R] --sni SNI` | Сменить общий inbound SNI и синхронизировать профили на этом порту; JSON |
 | `sudo xrayebator sni-list` | Вывести SNI-кандидаты по категориям для GUI; JSON |
@@ -131,6 +134,8 @@ legacy-файлы и блоки, ранее созданные Xrayebator, и с
 | `sudo xrayebator bypass remove --domain D` | Убрать домен из bypass-правил |
 | `sudo xrayebator bypass reset` | Сбросить все кастомные bypass-правила |
 | `sudo xrayebator bypass bundle [--group a,b,c]` | Применить дефолтные группы bypass; без `--group` — все группы |
+| `sudo xrayebator bypass unbundle --group a,b,c` | Снять домены выбранных групп с обхода одной мутацией и одним рестартом Xray |
+| `sudo xrayebator bypass groups` | Вывести готовые группы bypass с составом доменов (JSON) |
 | `sudo xrayebator-update [branch]` | Запустить полный `update.sh` lifecycle update; без аргумента — интерактивный выбор ветки |
 | `sudo xrayebator-uninstall` | Снять сервис и конфигурацию |
 
