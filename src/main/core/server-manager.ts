@@ -34,7 +34,10 @@ export class ServerManager {
    */
   async update(): Promise<ServerMaintenanceResult> {
     const client = new SshClient(this.creds)
-    let branch = 'main'
+    // LOCAL-DEV-DEFAULT: если сервер не закрепил ветку в .current_branch,
+    // локальная сборка обновляет его с dev (новые фичи: revoke/сроки/bypass).
+    // ПЕРЕД МЕРЖЕМ В MAIN ВЕРНУТЬ 'main' — иначе релизные серверы уедут на dev.
+    let branch = 'dev'
     try {
       await client.connect()
       const result = await client.exec(

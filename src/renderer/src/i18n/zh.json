@@ -262,6 +262,7 @@
     "expireSave": "保存有效期",
     "expireSaving": "正在保存…",
     "expireClear": "取消有效期",
+    "expireClearHint": "配置将变为永久有效，不会中断访问。",
     "expireChanged": "「{{name}}」的有效期至 {{date}}",
     "expireCleared": "已取消「{{name}}」的有效期：配置永久有效",
     "expireFailed": "无法保存有效期",

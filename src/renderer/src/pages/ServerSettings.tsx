@@ -1066,8 +1066,28 @@ export function ServerSettings({
                   )}
                 </div>
                 <p className={styles.fpNote}>{t('settings.expireEnforced')}</p>
+                {/* Снятие срока — отдельное осознанное действие в теле диалога:
+                    раньше оно жило в футере рядом с «Сохранить» и требовало
+                    второй кнопки «Готово», что путало (одно действие — два клика). */}
+                {expireTarget?.expire ? (
+                  <div className={styles.expireClearRow}>
+                    <Button
+                      variant="danger-soft"
+                      size="sm"
+                      isDisabled={expireBusy}
+                      onPress={() => void applyExpire(null)}
+                    >
+                      <CalendarX size={14} />
+                      {t('settings.expireClear')}
+                    </Button>
+                    <span className={styles.expireClearHint}>
+                      {t('settings.expireClearHint')}
+                    </span>
+                  </div>
+                ) : null}
               </AlertDialog.Body>
               <AlertDialog.Footer>
+                {/* Отмена — слева и всегда только закрывает диалог, без действий. */}
                 <Button
                   variant="secondary"
                   isDisabled={expireBusy}
@@ -1075,16 +1095,6 @@ export function ServerSettings({
                 >
                   {t('dashboard.cancel')}
                 </Button>
-                {expireTarget?.expire ? (
-                  <Button
-                    variant="danger-soft"
-                    isDisabled={expireBusy}
-                    onPress={() => void applyExpire(null)}
-                  >
-                    <CalendarX size={14} />
-                    {t('settings.expireClear')}
-                  </Button>
-                ) : null}
                 <Button
                   variant="primary"
                   className={

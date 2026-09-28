@@ -263,6 +263,7 @@
     "expireSave": "Save expiry",
     "expireSaving": "Saving…",
     "expireClear": "Remove expiry",
+    "expireClearHint": "The profile becomes unlimited; access is not interrupted.",
     "expireChanged": "Expiry of «{{name}}» set to {{date}}",
     "expireCleared": "Expiry of «{{name}}» removed: the profile is unlimited",
     "expireFailed": "Failed to save the expiry date",

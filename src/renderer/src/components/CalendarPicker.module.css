@@ -5,6 +5,11 @@
   border-radius: var(--radius-md);
   padding: 12px;
   user-select: none;
+  /* Высота фиксирована под 6 недель: месяцы с 5 неделями не «сжимают» плашку,
+     иначе кнопки внизу подпрыгивают при листании. Растёт только вниз — при
+     добавлении контента, а не при смене месяца. */
+  display: flex;
+  flex-direction: column;
 }
 
 .header {
@@ -13,6 +18,10 @@
   justify-content: space-between;
   gap: 8px;
   margin-bottom: 10px;
+  /* Фиксированная высота шапки: название месяца в разных локалях/месяцах
+     занимает разную высоту, из-за чего стрелки «прыгали» по вертикали. */
+  height: 28px;
+  flex-shrink: 0;
 }
 
 .monthLabel {
@@ -21,6 +30,11 @@
   color: var(--text-0);
   flex: 1;
   text-align: center;
+  line-height: 28px;
+  /* Длинные названия не переносятся и не толкают стрелки. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .navBtn {
@@ -54,19 +68,28 @@
   grid-template-columns: repeat(7, 1fr);
   gap: 2px;
   margin-bottom: 4px;
+  /* Строка дней недели тоже фиксирована: «Пн/Втр/Ср» разной ширины не должны
+     менять высоту, иначе сетка дней уезжает вниз при смене локали. */
+  height: 20px;
+  flex-shrink: 0;
 }
 
 .weekday {
   text-align: center;
   font-size: 11px;
   color: var(--text-2);
-  padding: 2px 0;
+  line-height: 20px;
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: 2px;
+  /* Всегда 6 строк — высота сетки не меняется между месяцами. */
+  grid-auto-rows: 30px;
+  min-height: 186px;
 }
 
 .day,

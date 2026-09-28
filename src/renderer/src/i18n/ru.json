@@ -264,6 +264,7 @@
     "expireSave": "Сохранить срок",
     "expireSaving": "Сохраняю…",
     "expireClear": "Снять срок",
+    "expireClearHint": "Профиль станет бессрочным, доступ не прерывается.",
     "expireChanged": "Срок «{{name}}» — до {{date}}",
     "expireCleared": "Срок «{{name}}» снят: профиль бессрочный",
     "expireFailed": "Не удалось сохранить срок",
