@@ -27,6 +27,8 @@ export function parseIso(value: string): Date | null {
 /**
  * Ячейки месяца: ведущие null'ы до первого дня, затем ISO-даты.
  * Неделя начинается с понедельника (раскладка Пн…Вс).
+ * Всегда ровно 42 ячейки (6 недель): фиксированная высота сетки, иначе месяцы
+ * с 5 неделями «сжимали» бы календарь и кнопки под ним прыгали.
  */
 export function monthCells(year: number, month0: number): (string | null)[] {
   const first = new Date(year, month0, 1)
@@ -34,6 +36,7 @@ export function monthCells(year: number, month0: number): (string | null)[] {
   const daysInMonth = new Date(year, month0 + 1, 0).getDate()
   const cells: (string | null)[] = Array.from({ length: offset }, () => null)
   for (let d = 1; d <= daysInMonth; d++) cells.push(isoOf(new Date(year, month0, d)))
+  while (cells.length < 42) cells.push(null)
   return cells
 }
 

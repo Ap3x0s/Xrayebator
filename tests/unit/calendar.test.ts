@@ -38,14 +38,14 @@ describe('monthCells', () => {
     // 1 сентября 2026 — вторник, значит Пн пустой.
     expect(cells[0]).toBeNull()
     expect(cells[1]).toBe('2026-09-01')
-    expect(cells[cells.length - 1]).toBe('2026-09-30')
+    expect(cells[cells.indexOf('2026-09-30')]).toBe('2026-09-30')
   })
 
   it('месяц, начинающийся с понедельника, не имеет ведущих пустых ячеек', () => {
     // 1 июня 2026 — понедельник.
     const cells = monthCells(2026, 5)
     expect(cells[0]).toBe('2026-06-01')
-    expect(cells.filter((c) => c === null)).toHaveLength(0)
+    expect(cells.filter((c) => c === null)).toHaveLength(42 - 30)
   })
 
   it('февраль високосного года содержит 29 дней', () => {
@@ -54,10 +54,21 @@ describe('monthCells', () => {
     expect(cells).toContain('2028-02-29')
   })
 
-  it('всегда укладывается в 6 недель', () => {
+  it('всегда ровно 42 ячейки — высота календаря не зависит от месяца', () => {
+    // Иначе месяцы с 5 неделями «сжимали» плашку и кнопки под ней прыгали.
     for (let m = 0; m < 12; m++) {
-      expect(monthCells(2026, m).length).toBeLessThanOrEqual(42)
+      expect(monthCells(2026, m)).toHaveLength(42)
+      expect(monthCells(2027, m)).toHaveLength(42)
     }
+    // Самый «длинный» случай: 31 день и старт в воскресенье (6 ведущих).
+    expect(monthCells(2026, 10)).toHaveLength(42) // ноябрь 2026: 1-е — воскресенье
+  })
+
+  it('даты в ячейках идут по возрастанию без пропусков', () => {
+    const days = monthCells(2026, 8).filter((c): c is string => c !== null)
+    expect(days[0]).toBe('2026-09-01')
+    expect(days[days.length - 1]).toBe('2026-09-30')
+    expect(new Set(days).size).toBe(30)
   })
 })
 
