@@ -472,12 +472,186 @@
 .confirmDialog {
   background: var(--bg-2);
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
+  border-radius: var(--radius-lg);
   padding: 24px;
   max-width: 420px;
   width: 100%;
   outline: none;
+}
+
+/*
+ * Blur-подложка новых плашек (revoke/expire). Класс навешивается точечно через
+ * className у AlertDialog.Backdrop — остальные диалоги приложения не меняются.
+ */
+.blurBackdrop {
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.revokeWide {
+  max-width: 480px;
+}
+
+.revokeOptions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.revokeOption {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+  color: var(--text-1);
+}
+
+.revokeOption:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.revokeOptionDanger {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+}
+
+.revokeOptionTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-0);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.revokeOptionDesc {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+
+.revokeNewUrl {
+  margin-top: 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--success);
+  word-break: break-all;
+  user-select: text;
+}
+
+.expireChip {
+  font-family: var(--font-mono);
+}
+
+.expireChipDanger {
+  border-color: color-mix(in srgb, var(--danger) 60%, var(--border)) !important;
+  color: var(--danger) !important;
+}
+
+.expireChipWarn {
+  border-color: color-mix(in srgb, var(--warning) 60%, var(--border)) !important;
+  color: var(--warning) !important;
+}
+
+.bypassSection {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.bypassGroups {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 8px;
+}
+
+.bypassGroupCard {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  color: var(--text-1);
+  transition: border-color 0.15s ease;
+}
+
+.bypassGroupCard:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.bypassGroupCardActive {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-1));
+}
+
+.bypassGroupTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-0);
+}
+
+.bypassGroupCount {
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+.bypassDomainList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.bypassDomainItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-1);
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 3px 6px 3px 8px;
+}
+
+.bypassDomainRemove {
+  display: inline-flex;
+  align-items: center;
+  background: none;
+  border: none;
+  color: var(--text-2);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 4px;
+}
+
+.bypassDomainRemove:hover {
+  color: var(--danger);
+}
+
+.bypassRow {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.bypassEmpty {
+  font-size: 12px;
+  color: var(--text-2);
 }
 
 .fpHint {

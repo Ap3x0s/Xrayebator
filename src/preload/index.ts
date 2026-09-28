@@ -10,13 +10,20 @@ import type {
   ProfileCreateInput,
   ProfileCreateResult,
   ProfileDeleteResult,
+  ProfileExpireInput,
+  ProfileExpireResult,
   ProfileFingerprintInput,
   ProfileFingerprintResult,
   ProfilePortInput,
   ProfilePortResult,
+  ProfileRevokeInput,
+  ProfileRevokeResult,
   ProfileSniInput,
   ProfileSniResult,
   SniListResult,
+  BypassActionResult,
+  BypassGroupsResult,
+  BypassStateResult,
   Server,
   ServerMaintenanceResult,
   ServerProfile,
@@ -101,7 +108,52 @@ const api: ElectronAPI = {
       access: SshAccessInput,
       input: ProfilePortInput
     ): Promise<ProfilePortResult> =>
-      ipcRenderer.invoke('profiles:changePort', serverId, access, input)
+      ipcRenderer.invoke('profiles:changePort', serverId, access, input),
+    revoke: (
+      serverId: string,
+      access: SshAccessInput,
+      input: ProfileRevokeInput
+    ): Promise<ProfileRevokeResult> =>
+      ipcRenderer.invoke('profiles:revoke', serverId, access, input),
+    setExpire: (
+      serverId: string,
+      access: SshAccessInput,
+      input: ProfileExpireInput
+    ): Promise<ProfileExpireResult> =>
+      ipcRenderer.invoke('profiles:setExpire', serverId, access, input)
+  },
+
+  bypass: {
+    list: (serverId: string, access: SshAccessInput): Promise<BypassStateResult> =>
+      ipcRenderer.invoke('bypass:list', serverId, access),
+    groups: (serverId: string, access: SshAccessInput): Promise<BypassGroupsResult> =>
+      ipcRenderer.invoke('bypass:groups', serverId, access),
+    add: (
+      serverId: string,
+      access: SshAccessInput,
+      domain: string
+    ): Promise<BypassActionResult> =>
+      ipcRenderer.invoke('bypass:add', serverId, access, domain),
+    remove: (
+      serverId: string,
+      access: SshAccessInput,
+      domain: string
+    ): Promise<BypassActionResult> =>
+      ipcRenderer.invoke('bypass:remove', serverId, access, domain),
+    reset: (serverId: string, access: SshAccessInput): Promise<BypassActionResult> =>
+      ipcRenderer.invoke('bypass:reset', serverId, access),
+    bundle: (
+      serverId: string,
+      access: SshAccessInput,
+      groups: string[]
+    ): Promise<BypassActionResult> =>
+      ipcRenderer.invoke('bypass:bundle', serverId, access, groups),
+    unbundle: (
+      serverId: string,
+      access: SshAccessInput,
+      groups: string[]
+    ): Promise<BypassActionResult> =>
+      ipcRenderer.invoke('bypass:unbundle', serverId, access, groups)
   },
 
   server: {

@@ -7,8 +7,10 @@ import type {
   ImportServerPayload,
   ImportStep,
   ProfileCreateInput,
+  ProfileExpireInput,
   ProfileFingerprintInput,
   ProfilePortInput,
+  ProfileRevokeInput,
   ProfileSniInput,
   Server,
   ServerMaintenanceResult,
@@ -18,6 +20,7 @@ import type { ServerConnectionMetadata, ServerStore } from './core/servers'
 import { Deployer } from './core/deployer'
 import { fetchSubscription } from './core/subscription'
 import { ProfileManager } from './core/profiles'
+import { BypassManager } from './core/bypass'
 import { ServerManager } from './core/server-manager'
 import { ServerInspector } from './core/server-inspector'
 import { probePortsFor } from './core/probe-ports'
@@ -440,6 +443,72 @@ export function registerIpcHandlers({ store }: IpcContext): void {
     ) => {
       const manager = await profileManagerFor(serverId, access)
       return manager.changePort(input)
+    }
+  )
+
+  ipcMain.handle(
+    'profiles:revoke',
+    async (_e, serverId: string, access: SshAccessInput, input: ProfileRevokeInput) => {
+      const manager = await profileManagerFor(serverId, access)
+      return manager.revoke(input)
+    }
+  )
+
+  ipcMain.handle(
+    'profiles:setExpire',
+    async (_e, serverId: string, access: SshAccessInput, input: ProfileExpireInput) => {
+      const manager = await profileManagerFor(serverId, access)
+      return manager.setExpire(input)
+    }
+  )
+
+  const bypassManagerFor = async (
+    serverId: string,
+    access: SshAccessInput
+  ): Promise<BypassManager> => {
+    const server = store.get(serverId)
+    if (!server) throw new Error('Сервер не найден')
+    const { credentials } = await credentialsFor(server, server, access)
+    return new BypassManager(credentials)
+  }
+
+  ipcMain.handle('bypass:list', async (_e, serverId: string, access: SshAccessInput) => {
+    return (await bypassManagerFor(serverId, access)).list()
+  })
+
+  ipcMain.handle('bypass:groups', async (_e, serverId: string, access: SshAccessInput) => {
+    return (await bypassManagerFor(serverId, access)).groups()
+  })
+
+  ipcMain.handle(
+    'bypass:add',
+    async (_e, serverId: string, access: SshAccessInput, domain: string) => {
+      return (await bypassManagerFor(serverId, access)).add(domain)
+    }
+  )
+
+  ipcMain.handle(
+    'bypass:remove',
+    async (_e, serverId: string, access: SshAccessInput, domain: string) => {
+      return (await bypassManagerFor(serverId, access)).remove(domain)
+    }
+  )
+
+  ipcMain.handle('bypass:reset', async (_e, serverId: string, access: SshAccessInput) => {
+    return (await bypassManagerFor(serverId, access)).reset()
+  })
+
+  ipcMain.handle(
+    'bypass:bundle',
+    async (_e, serverId: string, access: SshAccessInput, groups: string[]) => {
+      return (await bypassManagerFor(serverId, access)).bundle(groups)
+    }
+  )
+
+  ipcMain.handle(
+    'bypass:unbundle',
+    async (_e, serverId: string, access: SshAccessInput, groups: string[]) => {
+      return (await bypassManagerFor(serverId, access)).unbundle(groups)
     }
   )
 
