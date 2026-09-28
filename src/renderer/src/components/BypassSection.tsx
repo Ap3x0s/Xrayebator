@@ -78,6 +78,9 @@ export function BypassSection({
 
   const add = async (): Promise<void> => {
     const domain = draft.trim().replace(/^domain:/, '')
+    // Пустое поле — не ошибка пользователя: он просто ещё ничего не написал.
+    // Валидируем и НЕ дёргаем сервер (иначе SSH-вызов падал кодом 1).
+    if (!domain) return
     if (!DOMAIN_RE.test(domain)) {
       onError(t('settings.bypassInvalidDomain'))
       return

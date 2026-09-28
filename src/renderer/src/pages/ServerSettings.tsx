@@ -20,8 +20,10 @@ import {
 import { useTranslation } from 'react-i18next'
 import type { Server, ServerProfile, SniEntry, SshAccessInput } from '@shared/types'
 import { describeExpire, isFutureDate, presetDate } from '@shared/expire'
+import { todayIso } from '@shared/calendar'
 import { isSshAccessReady, SshAccessForm } from '../components/SshAccessForm'
 import { BypassSection } from '../components/BypassSection'
+import { CalendarPicker } from '../components/CalendarPicker'
 import { shouldAutoConnectServer } from './server-access'
 import styles from './ServerSettings.module.css'
 
@@ -95,6 +97,7 @@ export function ServerSettings({
   const [count, setCount] = useState('1')
   const [creating, setCreating] = useState(false)
   const [createExpire, setCreateExpire] = useState('')
+  const [createExpireOpen, setCreateExpireOpen] = useState(false)
 
   const [updating, setUpdating] = useState(false)
   const [uninstalling, setUninstalling] = useState(false)
@@ -476,6 +479,12 @@ export function ServerSettings({
     )
   }
 
+  /**
+   * Сервер старой версии не отдаёт поле expire: управление сроками недоступно.
+   * Без этой проверки GUI молча показывал «бессрочно» — как будто срока нет.
+   */
+  const expireSupported = (profiles ?? []).some((p) => p.expire_supported === true)
+
   const updateServer = async (): Promise<void> => {
     if (!accessReady) return
     setBusy(true)
@@ -645,15 +654,18 @@ export function ServerSettings({
                     onChange={(e) => setCount(e.target.value)}
                   />
                 </TextField>
-                <TextField variant="secondary" className={styles.countField}>
-                  <Label>{t('settings.createExpire')}</Label>
-                  <Input
-                    type="date"
-                    value={createExpire}
-                    disabled={busy}
-                    onChange={(e) => setCreateExpire(e.target.value)}
-                  />
-                </TextField>
+                <Button
+                  variant="secondary"
+                  size="lg"
+                  className={styles.createExpireBtn}
+                  isDisabled={busy}
+                  onPress={() => setCreateExpireOpen(true)}
+                >
+                  <CalendarClock size={16} />
+                  {createExpire
+                    ? t('settings.createExpireSet', { date: createExpire })
+                    : t('settings.createExpire')}
+                </Button>
                 <Button
                   variant="primary"
                   size="lg"
@@ -717,6 +729,9 @@ export function ServerSettings({
 
             <section className={styles.listCard}>
               <h2 className={styles.sectionTitle}>{t('settings.listTitle')}</h2>
+              {profiles!.length > 0 && !expireSupported && (
+                <p className={styles.serverTooOld}>{t('settings.serverTooOld')}</p>
+              )}
               {profiles!.length === 0 && <div className={styles.empty}>{t('settings.empty')}</div>}
               {profiles!.map((profile) => (
                 <div key={profile.name} className={styles.profileCard}>
@@ -1039,14 +1054,16 @@ export function ServerSettings({
                   </div>
                 </div>
                 <div className={styles.fpField}>
-                  <TextField variant="secondary" className={styles.bypassDomainField}>
-                    <Input
-                      type="date"
-                      value={expireDate}
-                      disabled={expireBusy}
-                      onChange={(e) => setExpireDate(e.target.value)}
-                    />
-                  </TextField>
+                  <CalendarPicker
+                    value={expireDate}
+                    disabled={expireBusy}
+                    onChange={setExpireDate}
+                  />
+                  {expireDate && (
+                    <p className={styles.fpCurrent}>
+                      {t('settings.expirePicked', { date: expireDate })}
+                    </p>
+                  )}
                 </div>
                 <p className={styles.fpNote}>{t('settings.expireEnforced')}</p>
               </AlertDialog.Body>
@@ -1084,6 +1101,42 @@ export function ServerSettings({
                   {expireDone
                     ? t('settings.done')
                     : t(expireBusy ? 'settings.expireSaving' : 'settings.expireSave')}
+                </Button>
+              </AlertDialog.Footer>
+            </AlertDialog.Dialog>
+          </AlertDialog.Container>
+        </AlertDialog.Backdrop>
+      </AlertDialog.Root>
+
+      <AlertDialog.Root
+        isOpen={createExpireOpen}
+        onOpenChange={(open) => {
+          if (!open) setCreateExpireOpen(false)
+        }}
+      >
+        <AlertDialog.Backdrop className={styles.blurBackdrop}>
+          <AlertDialog.Container>
+            <AlertDialog.Dialog className={styles.confirmDialog}>
+              <AlertDialog.Header>
+                <AlertDialog.Heading>{t('settings.createExpire')}</AlertDialog.Heading>
+              </AlertDialog.Header>
+              <AlertDialog.Body>
+                <p className={styles.fpHint}>{t('settings.createExpireHint')}</p>
+                <CalendarPicker
+                  value={createExpire}
+                  onChange={setCreateExpire}
+                  min={todayIso()}
+                />
+              </AlertDialog.Body>
+              <AlertDialog.Footer>
+                {createExpire ? (
+                  <Button variant="danger-soft" onPress={() => setCreateExpire('')}>
+                    <CalendarX size={14} />
+                    {t('settings.expireClear')}
+                  </Button>
+                ) : null}
+                <Button variant="secondary" onPress={() => setCreateExpireOpen(false)}>
+                  {t('settings.done')}
                 </Button>
               </AlertDialog.Footer>
             </AlertDialog.Dialog>

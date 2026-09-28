@@ -654,6 +654,22 @@
   color: var(--text-2);
 }
 
+/* Сервер старой версии: новые возможности недоступны до обновления менеджера. */
+.serverTooOld {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warning) 40%, var(--border));
+  border-radius: 10px;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+}
+
+.createExpireBtn {
+  flex-shrink: 0;
+}
+
 .fpHint {
   font-size: 13px;
   line-height: 1.5;

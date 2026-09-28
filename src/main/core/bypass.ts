@@ -1,6 +1,7 @@
 import { SshClient, SshCredentials } from './ssh-client'
 import { shellCommand } from './shell-command'
 import { extractJson } from './profiles'
+import { describeFailure, isUnknownCommandFailure, unknownCommandHint } from './cli-failure'
 import type { BypassActionResult, BypassGroupsResult, BypassStateResult } from '@shared/types'
 
 /**
@@ -17,7 +18,13 @@ export class BypassManager {
       await client.connect()
       const res = await client.exec(shellCommand('xrayebator', args), { elevated: true })
       if (res.code !== 0) {
-        throw new Error(`xrayebator bypass ${args[1] ?? ''} → код ${res.code}: ${res.stderr.trim()}`)
+        // Старый сервер печатает «Неизвестная команда» в stdout, а не в stderr —
+        // без этого разбора пользователь видел пустое «код 1: ».
+        const reason = describeFailure(res)
+        const hint = isUnknownCommandFailure(res) ? ` ${unknownCommandHint()}` : ''
+        throw new Error(
+          `xrayebator bypass ${args[1] ?? ''} → код ${res.code}${reason ? `: ${reason}` : ''}.${hint}`
+        )
       }
       return res.stdout
     } finally {
