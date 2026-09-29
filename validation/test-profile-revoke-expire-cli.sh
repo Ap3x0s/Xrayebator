@@ -119,6 +119,21 @@ jq -e --arg u "$rotated_uuid" '
 jq -e '.uuid == "'"$rotated_uuid"'" and .sub_token == "'"$full_token"'"' \
   "$PROFILES_DIR/friend.json" >/dev/null || fail "profile JSON not updated with rotated uuid"
 
+# --- 3. profiles JSON: календарная дата приходит из часового пояса сервера ---
+# Сервер в UTC-7 называет момент окончания 30 сентября, хотя в UTC и у клиента
+# в Москве это уже 1 октября. GUI должен показывать серверную календарную дату.
+expire_epoch=$(TZ=America/Los_Angeles date -d "2030-10-01 06:59:59 UTC" +%s)
+TZ=America/Los_Angeles _normalize_expire_value "2030-09-30" >/dev/null || fail "server-local September date rejected"
+# Build a minimal test profile and verify profiles_command returns the server's date.
+jq -n --argjson expire "$expire_epoch" '{uuid:"33333333-3333-4333-8333-333333333333",transport:"tcp",port:443,expire:$expire}' > "$PROFILES_DIR/tz-test.json"
+profiles_json=$(
+  _profile_cli_subscription_url() { return 1; }
+  _subscription_base_url() { printf 'https://example.invalid'; }
+  TZ=America/Los_Angeles profiles_command 2>/dev/null
+) || fail "profiles command failed for timezone test"
+server_date=$(jq -r '.[] | select(.name == "tz-test") | .expire_date // empty' <<< "$profiles_json")
+[[ "$server_date" == "2030-09-30" ]] || fail "profiles JSON expire_date wrong (got '$server_date', expected server-local 2030-09-30)"
+
 # --- 3. profile-expire: валидация нормализации ---
 [[ "$(_normalize_expire_value 1000000000000)" == "1000000000" ]] || fail "ms not normalized"
 [[ "$(_normalize_expire_value 1785000000)" == "1785000000" ]] || fail "sec epoch changed"

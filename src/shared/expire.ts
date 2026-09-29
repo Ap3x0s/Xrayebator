@@ -25,18 +25,29 @@ function isValidIsoDate(value: string): boolean {
 /**
  * epoch-секунды из profile JSON → статус + дата.
  *
- * Дата считается в ЛОКАЛЬНОЙ зоне клиента, а не через toISOString: сервер
- * записывает expire как начало выбранного дня в СВОЕЙ зоне, и UTC-срез
- * сдвигал отображение на день назад для зон восточнее UTC (Москва/Хельсинки
- * показывали 29 сентября вместо выбранного 30-го).
+ * Приоритет у expire_date, вычисленного сервером в его локальной временной
+ * зоне: epoch задаёт мгновение, а календарная дата может различаться между
+ * зонами VPS и компьютера. Для старых серверов без expire_date оставляем
+ * fallback на клиентскую локальную дату.
  */
-export function describeExpire(expire: number, disabled: boolean, nowMs: number): ExpireInfo {
+export function describeExpire(
+  expire: number,
+  disabled: boolean,
+  nowMs: number,
+  serverLocalDate?: string
+): ExpireInfo {
   if (!expire || expire <= 0) {
     return { status: 'none', date: '' }
   }
+  // Epoch is an instant, while the UI needs the civil date in the server's
+  // timezone. Prefer the date formatted by the server; fall back to the
+  // client's local date for older servers without this field.
   const d = new Date(expire * 1000)
   const pad = (n: number): string => String(n).padStart(2, '0')
-  const date = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+  const clientLocalDate = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+  const date = serverLocalDate && /^\d{4}-\d{2}-\d{2}$/.test(serverLocalDate)
+    ? serverLocalDate
+    : clientLocalDate
   if (disabled || expire * 1000 <= nowMs) {
     return { status: 'expired', date }
   }
