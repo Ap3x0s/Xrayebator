@@ -98,7 +98,7 @@ http://127.0.0.1:8080/sub/<token>         # 仅本地回退
 ```
 
 交互式 HAPP 设置可以选择公共端口，`_subscription_base_url` 会保留这一选择。非交互式的
-`quickstart --email <address>` 和 `quickstart --without-email` IP-TLS 流程会在 `8443` 配置 nginx、证书和标记，然后返回该 endpoint 的 `subscription_url`。不提供邮箱时，Certbot 会在没有 ACME 联系地址的情况下注册，因此无法接收续期通知或通过邮箱恢复。令牌以 `sub_token` 形式存储在配置档中；执行 revoke 会轮换令牌并使之前的 URL 失效，而完全吊销（`profile-revoke --full`）还会更换该配置档所有 inbound 中的 uuid，因此已下载的配置无法再连接。配置档有效期保存在 `expire`（epoch 秒）中，由 systemd 定时器 `xrayebator-expire.timer` 每 10 分钟通过 `xrayebator expire-check` 强制执行。只输入日期时，有效期包含服务器本地时区当天，至 `23:59:59` 到期；显式指定的时间也按服务器本地时区解释。
+`quickstart --email <address>` 和 `quickstart --without-email` IP-TLS 流程会在 `8443` 配置 nginx、证书和标记，然后返回该 endpoint 的 `subscription_url`。不提供邮箱时，Certbot 会在没有 ACME 联系地址的情况下注册，因此无法接收续期通知或通过邮箱恢复。令牌以 `sub_token` 形式存储在配置档中；执行 revoke 会轮换令牌并使之前的 URL 失效，而完全吊销（`profile-revoke --full`）还会更换该配置档所有 inbound 中的 uuid，因此已下载的配置无法再连接。配置档有效期保存在 `expire`（epoch 秒）中，由 systemd 定时器 `xrayebator-expire.timer` 每 10 分钟通过 `xrayebator expire-check` 强制执行。只输入日期时，有效期包含服务器本地时区当天，至 `23:59:59` 到期；显式指定的时间也按服务器本地时区解释。`profiles` JSON 还会提供服务器时区中的 `expire_date`，GUI 无需按客户端本地时区从 epoch 时间戳反推出日期。
 
 新创建的标准托管 HAPP 配置档是 schema-v3 七路由配置档，包括 `xhttp-legacy` 和后量子 XHTTP 路由。
 发布的 HAPP 连接列表包含六个 VLESS 路由，因为 PQ 路由仍可通过原始/配置档路径访问。助手也可能
