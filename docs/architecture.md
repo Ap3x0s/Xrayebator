@@ -114,7 +114,9 @@ revoke rotates it and invalidates the previous URL, while a full revoke (`profil
 changes the uuid in every inbound of the profile so already-downloaded configurations stop connecting.
 A profile expiry lives in `expire` (epoch seconds) and is enforced by the `xrayebator-expire.timer`
 systemd timer through `xrayebator expire-check` every 10 minutes. A date entered without a time is
-inclusive through `23:59:59` in the server's local timezone; an explicit time uses that timezone too.
+inclusive through `23:59:59` in the server's local timezone; an explicit time uses that timezone too. The
+`profiles` JSON also carries `expire_date` in that timezone, so the GUI does not have to infer the server's
+date from the client's local rendering of an epoch timestamp.
 
 A newly provisioned standard HAPP managed profile has `schema_version: 3` and seven routes,
 including `xhttp-legacy` and `xhttp-pq`. The published HAPP connection list contains six VLESS

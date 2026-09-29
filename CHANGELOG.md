@@ -13,7 +13,7 @@ User-facing Xrayebator changes. The server manager and Electron application are 
 ### Fixed
 
 - Expired or disabled profiles now receive `410 Gone` instead of subscription routes.
-- A date-only profile expiry now includes the selected day through `23:59:59` in the server's local timezone; explicit times use that timezone as entered. The GUI formats expiry dates from local calendar fields rather than truncating an ISO-UTC string, avoiding a one-day-back display at positive UTC offsets; date/time fields with leading zeroes such as September (`09`) are accepted correctly.
+- A date-only profile expiry now includes the selected day through `23:59:59` in the server's local timezone; explicit times use that timezone as entered. The server returns its own `expire_date` for GUI display, so a desktop in a different timezone still shows the selected server-local calendar day (covered by a UTC−7 server / UTC+14 client regression test). Date/time fields with leading zeroes such as September (`09`) are accepted correctly.
 
 ## [0.5.5] - 2026-09-25
 
