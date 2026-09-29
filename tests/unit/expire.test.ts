@@ -25,11 +25,17 @@ describe('describeExpire', () => {
     expect(describeExpire(future, true, NOW).status).toBe('expired')
   })
 
-  it('дата показывается в локальной зоне, без UTC-сдвига', () => {
-    // Сервер (Москва, UTC+3) записал expire как 2026-09-30 23:59:59 MSK.
-    // Раньше отображение через toISOString давало 29 сентября — на день меньше.
-    const msk = Math.floor(new Date('2026-09-30T23:59:59+03:00').getTime() / 1000)
-    const info = describeExpire(msk, false, new Date('2026-09-01T00:00:00Z').getTime())
+  it('uses the server-local calendar date instead of the client timezone date', () => {
+    // Server in UTC-7 encoded Sep 30 23:59:59 as Oct 1 06:59:59Z. On this
+    // Moscow client the same epoch is already Oct 1, so client-local formatting
+    // must not replace the server's selected calendar date.
+    const expire = Math.floor(new Date('2026-10-01T06:59:59Z').getTime() / 1000)
+    const info = describeExpire(
+      expire,
+      false,
+      new Date('2026-09-01T00:00:00Z').getTime(),
+      '2026-09-30'
+    )
     expect(info.date).toBe('2026-09-30')
   })
 })

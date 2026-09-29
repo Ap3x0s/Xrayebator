@@ -413,7 +413,11 @@ export function ServerSettings({
 
   const openExpire = (profile: ServerProfile): void => {
     setExpireTarget(profile)
-    setExpireDate(profile.expire ? describeExpire(profile.expire, false, Date.now()).date : '')
+    setExpireDate(
+      profile.expire
+        ? describeExpire(profile.expire, false, Date.now(), profile.expire_date).date
+        : ''
+    )
     setExpireDone(false)
   }
 
@@ -452,7 +456,12 @@ export function ServerSettings({
   /** Чип срока в карточке профиля: дата, «истёк», «скоро истекает» или ничего. */
   const expireChip = (profile: ServerProfile): React.JSX.Element | null => {
     const now = Date.now()
-    const info = describeExpire(profile.expire ?? 0, profile.expire_disabled === true, now)
+    const info = describeExpire(
+      profile.expire ?? 0,
+      profile.expire_disabled === true,
+      now,
+      profile.expire_date
+    )
     if (info.status === 'none') return null
     const expired = info.status === 'expired'
     // Предупреждаем за 3 дня: время продлить срок до автоотключения сервером.
@@ -1026,7 +1035,12 @@ export function ServerSettings({
                   <p className={styles.fpCurrent}>
                     {t('settings.expireCurrent', {
                       value: expireTarget.expire
-                        ? describeExpire(expireTarget.expire, false, Date.now()).date
+                        ? describeExpire(
+                            expireTarget.expire,
+                            false,
+                            Date.now(),
+                            expireTarget.expire_date
+                          ).date
                         : t('settings.expireNever')
                     })}
                   </p>

@@ -131,6 +131,8 @@ export interface ServerProfile {
   subscription_url: string
   /** epoch-секунды истечения; 0 = бессрочный. Принуждается серверным таймером. */
   expire: number
+  /** Календарная дата истечения в локальной временной зоне сервера (YYYY-MM-DD). */
+  expire_date?: string
   /** true — профиль сейчас отключён по сроку (клиент снят с inbound'ов). */
   expire_disabled: boolean
   /**
