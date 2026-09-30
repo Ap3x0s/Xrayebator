@@ -111,7 +111,7 @@ legacy-файлы и блоки, ранее созданные Xrayebator, и с
 |---|---|
 | `sudo xrayebator` | Открыть интерактивное меню |
 | `sudo xrayebator update` | Обновить только бинарник Xray-core |
-| `sudo xrayebator update <branch>` | Self-update менеджера из canonical raw-репозитория (ветка branch), продолжить новым скриптом, затем обновить Xray-core |
+| `sudo xrayebator update <branch>` | Self-update менеджера из canonical raw-репозитория (ветка branch), продолжить новым скриптом, затем обновить Xray-core; ветка закрепляется в `.current_branch` для последующих обновлений из GUI |
 | `sudo xrayebator probe-test` | Проверить SNI reachability с VPS |
 | `sudo xrayebator quickstart --email <адрес>` | Путь одноразового деплоя (используется GUI): broad setup/migration, IP-TLS endpoint на `8443` и стандартный schema-v3 HAPP-профиль из 7 маршрутов; выводит JSON с `subscription_url`. Migration calls best-effort, проверяйте итоговый профиль и сервисы |
 | `sudo xrayebator quickstart --without-email` | Тот же путь развёртывания без ACME email; Certbot регистрирует аккаунт с `--register-unsafely-without-email`, поэтому уведомления и восстановление аккаунта по email недоступны |

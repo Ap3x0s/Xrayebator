@@ -108,7 +108,7 @@ is a client-side profile/route setting; changing it does not restart Xray or alt
 |---|---|
 | `sudo xrayebator` | Open the interactive menu |
 | `sudo xrayebator update` | Update only the Xray-core binary |
-| `sudo xrayebator update <branch>` | Self-update the manager from the canonical raw repository branch, continue with the new script, then update Xray-core |
+| `sudo xrayebator update <branch>` | Self-update the manager from the canonical raw repository branch, continue with the new script, then update Xray-core; the branch is pinned in `.current_branch` for later GUI updates |
 | `sudo xrayebator probe-test` | Check SNI reachability from the VPS before switching |
 | `sudo xrayebator quickstart --email <address>` | One-shot deploy path used by the desktop GUI: runs the broad setup/migration path, provisions the current IP-TLS endpoint on `8443`, and creates a standard HAPP profile with `schema_version: 3` and 7 routes; emits JSON with `subscription_url` |
 | `sudo xrayebator quickstart --without-email` | Same new-server path without an ACME contact email; Certbot uses `--register-unsafely-without-email`, so no renewal notices or email-based account recovery are available |

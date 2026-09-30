@@ -117,6 +117,8 @@ systemd timer through `xrayebator expire-check` every 10 minutes. A date entered
 inclusive through `23:59:59` in the server's local timezone; an explicit time uses that timezone too. The
 `profiles` JSON also carries `expire_date` in that timezone, so the GUI does not have to infer the server's
 date from the client's local rendering of an epoch timestamp.
+Enforcement keeps the inbounds alive: a disabled client is snapshotted into `.expire_clients` and restored on
+renewal, because recreating an inbound would change the Reality shortId and break every issued URL.
 
 A newly provisioned standard HAPP managed profile has `schema_version: 3` and seven routes,
 including `xhttp-legacy` and `xhttp-pq`. The published HAPP connection list contains six VLESS

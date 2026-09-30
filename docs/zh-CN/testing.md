@@ -15,7 +15,7 @@ for test_file in validation/*.sh; do bash "$test_file" || exit; done
 
 ## 测试覆盖范围
 
-`validation/` 中有 26 个静态与本地回归测试：
+`validation/` 中有 28 个静态与本地回归测试：
 
 | 测试 | 检查内容 |
 |---|---|
@@ -29,6 +29,7 @@ for test_file in validation/*.sh; do bash "$test_file" || exit; done
 | `test-dead-stealth-route-pruning.sh` | 失效 stealth 线路的清理 |
 | `test-cascade-routing.sh` | 级联路由 |
 | `test-cascade-upstream-import.sh` | 从链接导入级联上游 |
+| `test-update-branch-pinning.sh` | `update <branch>` 在 `.current_branch` 固定分支；GUI 更新不会切回其它分支 |
 | `test-update-xray-core-sync.sh` | Xray-core 更新同步 |
 | `test-vless-url-generation.sh` | `vless://` 链接生成 |
 | `test-installer-network-fallbacks.sh` | 安装脚本网络回退 |
@@ -101,7 +102,7 @@ npm test              # Vitest 单元测试
 
 三个独立 workflow：
 
-- **ci-linux.yml** — Bash validation：在 ubuntu-24.04 上对所有脚本执行 `bash -n`，并运行全部 26 个
+- **ci-linux.yml** — Bash validation：在 ubuntu-24.04 上对所有脚本执行 `bash -n`，并运行全部 28 个
   `validation/test-*.sh`；在 push 到 `main`、`dev`、`experimental` 以及 pull request 时运行。
 - **release.yml** — Electron 构建（Windows/macOS/Linux）。只在 `v*` tag 和手动触发时运行；先由
   `preflight` 检查发布说明 `docs/releases/<tag>.en.md` 是否存在，以及仓库密钥 `AP3X0`（若已设置）

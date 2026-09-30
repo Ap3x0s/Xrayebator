@@ -7,12 +7,14 @@ User-facing Xrayebator changes. The server manager and Electron application are 
 ### Added
 
 - Subscription revocation in Server settings: a per-profile button opens a menu with two modes. "New link only" reissues the `sub_token`; "full revocation" also rotates the uuid in every inbound of the profile, so devices that already downloaded the configuration are cut off immediately — the only way to actually close access through a leaked link.
-- Profile expiry dates: `profile-create --expire`, `profile-expire`, the `expire` field in the profile JSON, a date chip and editor in the GUI, plus server-side enforcement — a `xrayebator-expire.timer` systemd unit runs `xrayebator expire-check` every 10 minutes and switches an expired profile off (the client is removed from the inbounds and restored on renewal).
+- Profile expiry dates: `profile-create --expire`, `profile-expire`, the `expire` field in the profile JSON, a date chip and an in-theme calendar editor in the GUI (past days disabled, +7/+30/+90/+365 presets), plus server-side enforcement — a `xrayebator-expire.timer` systemd unit runs `xrayebator expire-check` every 10 minutes and switches an expired profile off (the client is removed from the inbounds and restored on renewal).
 - The subscription-userinfo `expire` header now has a UI path: HAPP and other clients display the date handed out by the subscription.
 
 ### Fixed
 
 - Expired or disabled profiles now receive `410 Gone` instead of subscription routes.
+- `xrayebator update <branch>` now pins the branch in `.current_branch`: previously the GUI’s "Update Xrayebator" silently rolled an updated server back to the release branch and the new commands disappeared.
+- GUI failures now surface the real reason (parsed from stderr, falling back to stdout); an unknown command on an outdated server is answered with an update hint instead of a bare exit code.
 - A date-only profile expiry now includes the selected day through `23:59:59` in the server's local timezone; explicit times use that timezone as entered. The server returns its own `expire_date` for GUI display, so a desktop in a different timezone still shows the selected server-local calendar day (covered by a UTC−7 server / UTC+14 client regression test). Date/time fields with leading zeroes such as September (`09`) are accepted correctly.
 
 ## [0.5.5] - 2026-09-25

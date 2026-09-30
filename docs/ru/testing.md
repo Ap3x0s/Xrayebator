@@ -16,7 +16,7 @@ for test_file in validation/*.sh; do bash "$test_file" || exit; done
 
 ## Что покрывают тесты
 
-В `validation/` лежат 26 статических и локальных регрессионных тестов:
+В `validation/` лежат 28 статических и локальных регрессионных тестов:
 
 | Тест | Что проверяет |
 |---|---|
@@ -30,6 +30,7 @@ for test_file in validation/*.sh; do bash "$test_file" || exit; done
 | `test-dead-stealth-route-pruning.sh` | Отсечение мёртвых stealth-маршрутов |
 | `test-cascade-routing.sh` | Cascade routing |
 | `test-cascade-upstream-import.sh` | Импорт upstream каскада из ссылки |
+| `test-update-branch-pinning.sh` | `update <branch>` закрепляет ветку в `.current_branch`; GUI-обновление не откатывает сервер на другую ветку |
 | `test-update-xray-core-sync.sh` | Синхронность обновления Xray-core |
 | `test-vless-url-generation.sh` | Генерацию ссылок `vless://` |
 | `test-installer-network-fallbacks.sh` | Сетевые fallback'и установщика |
@@ -104,7 +105,7 @@ npm test              # Vitest unit-тесты
 
 Три независимых workflow:
 
-- **ci-linux.yml** — Bash validation: `bash -n` всех скриптов + все 26 `validation/test-*.sh` на
+- **ci-linux.yml** — Bash validation: `bash -n` всех скриптов + все 28 `validation/test-*.sh` на
   ubuntu-24.04. Запускается на push в `main`, `dev`, `experimental` и на pull request.
 - **release.yml** — Electron сборка (Windows/macOS/Linux). Запускается только на теги `v*` и manual
   dispatch. Сначала `preflight`: проверяет наличие текста релиза `docs/releases/<tag>.en.md` и
