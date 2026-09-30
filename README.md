@@ -101,7 +101,8 @@ about.
 | HAPP subscription | Serves the `vless://` list, a managed Global Proxy routing profile and token-protected geo databases; nginx publishes it over HTTPS | `subhttp.sh`, `xrayebator-sub.service` |
 | Post-quantum XHTTP | The `xhttp-pq` route runs VLESS encryption `mlkem768x25519plus` | `.vless_encryption`, `.vless_decryption` |
 | v2ray compatibility | `v2rayNG` and `v2rayN` receive a classic base64 body without HAPP metadata | `subhttp.sh` |
-| Subscription revoke | Generates a new 32-character hex token; the old URL stops working | `openssl rand -hex 16` |
+| Subscription revoke | Generates a new 32-character hex token; the old URL stops working. Full revocation (`--full`) also rotates the uuid, so already-downloaded configs stop connecting | `openssl rand -hex 16`, `profile-revoke` |
+| Profile expiry | A profile can carry an expiry date; `xrayebator-expire.timer` switches the client off the inbounds when it passes and restores the same uuid on renewal | `profile-expire`, `expire-check` |
 | Bypass routing | Seven domain groups can be sent straight through `freedom`, skipping the VPN | menu `7` |
 | Cascade | Switches the `tcp,udp` catch-all to a foreign VLESS Reality upstream of type `tcp` or `xhttp` | `upstreams/cascade.json` |
 | Self-steal stub | Puts nginx with a valid certificate on `127.0.0.1:9444` and points a Reality fallback at it | menu `9` |

@@ -96,7 +96,7 @@ Xrayebator 不会更改主机的 TCP 拥塞控制算法，也不会写入或应�
 |---|---|
 | `sudo xrayebator` | 打开交互菜单 |
 | `sudo xrayebator update` | 仅更新 **Xray-core 内核** |
-| `sudo xrayebator update <branch>` | 从规范 raw 仓库分支 self-update 管理器，继续使用新脚本，然后更新 Xray-core |
+| `sudo xrayebator update <branch>` | 从规范 raw 仓库分支 self-update 管理器，继续使用新脚本，然后更新 Xray-core；分支写入 `.current_branch` 固定，供后续 GUI 更新使用 |
 | `sudo xrayebator probe-test` | 更换 SNI 前，从 VPS 检查其可达性 |
 | `sudo xrayebator quickstart --email <邮箱>` | 桌面 GUI 使用的一次性部署路径：执行广泛设置/迁移，在 `8443` 配置 IP-TLS endpoint，创建带 `schema_version: 3` 和 7 条线路的标准 HAPP 配置档；输出带 `subscription_url` 的 JSON。非交互迁移是 best-effort，请检查最终配置档与服务 |
 | `sudo xrayebator quickstart --without-email` | 相同的一次性部署路径，但不提供 ACME 联系邮箱；Certbot 使用 `--register-unsafely-without-email`，因此没有续期通知或邮箱恢复 |

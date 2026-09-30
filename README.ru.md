@@ -100,7 +100,8 @@ Xrayebator решает обе задачи так:
 | HAPP-подписка | Отдаёт список `vless://`, управляемый Global Proxy routing и geo-базы по защищённому токеном URL; наружу публикуется nginx по HTTPS | `subhttp.sh`, `xrayebator-sub.service` |
 | Post-quantum XHTTP | Маршрут `xhttp-pq` работает с VLESS-шифрованием `mlkem768x25519plus` | `.vless_encryption`, `.vless_decryption` |
 | Совместимость с v2ray | `v2rayNG`/`v2rayN` получают классический base64-body без HAPP-метаданных | `subhttp.sh` |
-| Revoke подписки | Генерирует новый 32-символьный hex-токен, старый URL перестаёт работать | `openssl rand -hex 16` |
+| Revoke подписки | Генерирует новый 32-символьный hex-токен, старый URL перестаёт работать; полный отзыв (`--full`) меняет ещё и uuid — уже скачанные конфиги отваливаются | `openssl rand -hex 16`, `profile-revoke` |
+| Срок действия профиля | У профиля может быть дата окончания: `xrayebator-expire.timer` снимает клиента с inbound при наступлении срока и возвращает его при продлении (тот же uuid) | `profile-expire`, `expire-check` |
 | Bypass routing | Семь групп доменов можно отправить напрямую через `freedom`, минуя VPN | меню `7` |
 | Каскад | Переключает catch-all `tcp,udp` на зарубежный VLESS Reality upstream типа `tcp` или `xhttp` | `upstreams/cascade.json` |
 | Self-steal заглушка | Ставит nginx с валидным сертификатом на `127.0.0.1:9444` и заводит Reality fallback на него | меню `9` |

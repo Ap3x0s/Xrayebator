@@ -95,7 +95,8 @@ Xrayebator 同时解决这两个问题：
 | HAPP 订阅 | 提供 `vless://` 列表、托管的 Global Proxy 路由及令牌保护的 geo 数据库，由 nginx 通过 HTTPS 对外发布 | `subhttp.sh`、`xrayebator-sub.service` |
 | 后量子 XHTTP | `xhttp-pq` 线路使用 VLESS 加密 `mlkem768x25519plus` | `.vless_encryption`、`.vless_decryption` |
 | v2ray 兼容 | `v2rayNG` 与 `v2rayN` 获得不含 HAPP 元数据的经典 base64 订阅体 | `subhttp.sh` |
-| 吊销订阅 | 生成新的 32 位十六进制令牌，旧链接立即失效 | `openssl rand -hex 16` |
+| 吊销订阅 | 生成新的 32 位十六进制令牌，旧链接立即失效；完全吊销（`--full`）同时更换 uuid，已下载的配置随即断开 | `openssl rand -hex 16`、`profile-revoke` |
+| 配置档有效期 | 配置档可设置到期日：`xrayebator-expire.timer` 到期后把客户端从入站移除，续期后以同一 uuid 恢复 | `profile-expire`、`expire-check` |
 | 分流路由 | 七组域名可经 `freedom` 直连，绕过 VPN | 菜单 `7` |
 | 级联 | 把 `tcp,udp` 兜底规则切换到 `tcp` 或 `xhttp` 类型的境外 VLESS Reality 上游 | `upstreams/cascade.json` |
 | Self-steal 挡板 | 在 `127.0.0.1:9444` 部署带有效证书的 nginx，并让 Reality 回落指向它 | 菜单 `9` |

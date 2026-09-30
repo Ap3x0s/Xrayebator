@@ -36,7 +36,7 @@ promise that installer and updater paths behave identically.
 
 ## Validation suite
 
-`validation/` contains exactly 26 scripts. Run every `validation/test-*.sh`; the current set is:
+`validation/` contains exactly 28 scripts. Run every `validation/test-*.sh`; the current set is:
 
 | Script | What it checks |
 |---|---|
@@ -64,6 +64,7 @@ promise that installer and updater paths behave identically.
 | `test-sni-change-cli.sh` | SNI-change JSON output, transport fields, profile sync and rollback |
 | `test-subscription-server-name.sh` | HAPP subscription display name |
 | `test-transaction-safety.sh` | Transactional safety of configuration operations |
+| `test-update-branch-pinning.sh` | `xrayebator update <branch>` pins `.current_branch` so later GUI updates keep the branch |
 | `test-update-xray-core-sync.sh` | Synchronisation between the core-update implementations |
 | `test-vless-url-generation.sh` | VLESS link generation |
 | `test-xhttp-route-path-repair.sh` | XHTTP route-path repair during migration |
@@ -148,7 +149,7 @@ provide useful local coverage, while CI runs the Electron typecheck and unit sui
 The workflows have separate responsibilities:
 
 - `.github/workflows/ci-linux.yml` is the Bash core gate on `ubuntu-24.04`: it installs `jq`,
-  `uuid-runtime` and `ripgrep`, runs all four Bash syntax checks, then runs all 26 validation
+  `uuid-runtime` and `ripgrep`, runs all four Bash syntax checks, then runs all 28 validation
   scripts.
 - `.github/workflows/release.yml` is the active Electron release path for `v*` tags or manual runs.
   A `preflight` job first checks that the release notes file `docs/releases/<tag>.en.md` exists and
