@@ -52,7 +52,7 @@ configuration and systemd unit form the HAPP subscription path. The active deskt
 
 /usr/local/etc/xray/
 ├── config.json                   # inbounds, outbounds, routing and DNS
-├── profiles/<name>.json          # profile metadata and subscription token
+├── profiles/<name>.json          # profile metadata, subscription token, expiry (.expire)
 ├── upstreams/cascade.json        # cascade upstream parameters
 ├── backups/                      # config backups made before runtime mutations
 ├── .private_key / .public_key    # Reality keys
@@ -110,7 +110,15 @@ choice. The non-interactive `quickstart --email <address>` and `quickstart --wit
 provision nginx, certificate and markers on `8443`, then emit JSON containing `subscription_url` for that
 endpoint. Without an email, Certbot is explicitly told to register without an ACME contact; renewal
 notices and email-based recovery are unavailable. The token is stored in the profile as `sub_token`;
-revoke rotates it and invalidates the previous URL.
+revoke rotates it and invalidates the previous URL, while a full revoke (`profile-revoke --full`) also
+changes the uuid in every inbound of the profile so already-downloaded configurations stop connecting.
+A profile expiry lives in `expire` (epoch seconds) and is enforced by the `xrayebator-expire.timer`
+systemd timer through `xrayebator expire-check` every 10 minutes. A date entered without a time is
+inclusive through `23:59:59` in the server's local timezone; an explicit time uses that timezone too. The
+`profiles` JSON also carries `expire_date` in that timezone, so the GUI does not have to infer the server's
+date from the client's local rendering of an epoch timestamp.
+Enforcement keeps the inbounds alive: a disabled client is snapshotted into `.expire_clients` and restored on
+renewal, because recreating an inbound would change the Reality shortId and break every issued URL.
 
 A newly provisioned standard HAPP managed profile has `schema_version: 3` and seven routes,
 including `xhttp-legacy` and `xhttp-pq`. The published HAPP connection list contains six VLESS

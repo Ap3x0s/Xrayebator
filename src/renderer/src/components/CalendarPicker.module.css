@@ -1,0 +1,156 @@
+/* Календарь выбора срока действия — в теме приложения, а не системный date-input. */
+.root {
+  /* Размер квадратной ячейки дня. Одна переменная на всю сетку: из неё же
+     считается резерв высоты под 6 недель, поэтому геометрия не расходится. */
+  --day-size: 44px;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  user-select: none;
+  /* Растёт вниз по содержимому; шапка зафиксирована, поэтому верх не смещается. */
+  display: flex;
+  flex-direction: column;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+  /* Фиксированная высота шапки: название месяца в разных локалях/месяцах
+     занимает разную высоту, из-за чего стрелки «прыгали» по вертикали. */
+  height: 28px;
+  flex-shrink: 0;
+}
+
+.monthLabel {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-0);
+  flex: 1;
+  text-align: center;
+  line-height: 28px;
+  /* Длинные названия не переносятся и не толкают стрелки. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.navBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  color: var(--text-1);
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.navBtn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.navBtn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  margin-bottom: 4px;
+  /* Строка дней недели тоже фиксирована: «Пн/Втр/Ср» разной ширины не должны
+     менять высоту, иначе сетка дней уезжает вниз при смене локали. */
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.weekday {
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-2);
+  line-height: 20px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  /* Квадраты центрируются в колонках — между днями воздух. */
+  justify-items: center;
+  align-content: start;
+  /* Высота НЕ резервируется: месяц с 5 неделями занимает 5 строк, с 6 — 6.
+     Пустой зоны внизу нет. Шестая неделя раскрывается ВНИЗ и не сдвигает
+     верхнюю часть (шапку со стрелками и уже показанные дни), потому что
+     диалог прижат к верху через placement="top" — он растёт только вниз. */
+}
+
+/*
+ * Квадратный бокс даты — прежняя «яблочная» геометрия. Сторона квадрата
+ * задана переменной --day-size (44px); строка сетки принимает её высоту,
+ * поэтому переполнения не возникает.
+ */
+.day,
+.emptyCell {
+  width: var(--day-size);
+  height: var(--day-size);
+  min-width: 0;
+}
+
+.day {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-1);
+  font-size: 13px;
+  font-family: var(--font);
+  cursor: pointer;
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease,
+    color 0.12s ease;
+}
+
+.day:hover:not(:disabled) {
+  background: var(--bg-2);
+  border-color: var(--border);
+  color: var(--text-0);
+}
+
+.day:disabled {
+  color: var(--text-2);
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.dayToday {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.daySelected {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #0d1117;
+  font-weight: 600;
+}
+
+.daySelected:hover:not(:disabled) {
+  background: var(--accent);
+  color: #0d1117;
+}

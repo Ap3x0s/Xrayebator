@@ -34,6 +34,9 @@ export class ServerManager {
    */
   async update(): Promise<ServerMaintenanceResult> {
     const client = new SshClient(this.creds)
+    // Ветка берётся из .current_branch на сервере (её закрепляет
+    // `xrayebator update <branch>`); main — только дефолт для серверов,
+    // где ветка ещё не закреплена.
     let branch = 'main'
     try {
       await client.connect()

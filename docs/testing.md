@@ -36,14 +36,14 @@ promise that installer and updater paths behave identically.
 
 ## Validation suite
 
-`validation/` contains exactly 26 scripts. Run every `validation/test-*.sh`; the current set is:
+`validation/` contains exactly 28 scripts. Run every `validation/test-*.sh`; the current set is:
 
 | Script | What it checks |
 |---|---|
 | `test-audit-functional.sh` | Functional P0/P1 regressions from the HowDeploy integration audit |
 | `test-audit-privilege-regressions.sh` | Privilege boundaries, certificate ownership, rollback and HAPP setup regressions |
 | `test-bbr-removal-migration.sh` | Safe removal of the retired BBR/TCP tuning |
-| `test-bypass-cli.sh` | Bypass CLI JSON output and routing rule updates |
+| `test-profile-revoke-expire-cli.sh` | Subscription revoke (token-only and uuid rotation, foreign clients on shared ports survive) and profile expiry (disable/enable, rebuild without a snapshot, idempotent `expire-check`) |
 | `test-cascade-routing.sh` | Cascade routing configuration |
 | `test-cascade-upstream-import.sh` | Cascade upstream import from a VLESS link |
 | `test-dead-stealth-route-pruning.sh` | Pruning dead stealth routes |
@@ -55,6 +55,7 @@ promise that installer and updater paths behave identically.
 | `test-main-readiness-regressions.sh` | Main-menu readiness and first-run regression checks |
 | `test-multiroute-argument-preservation.sh` | Preservation of multiroute transport arguments |
 | `test-port-change-cli.sh` | Port-change CLI scenarios, firewall moves and route selection |
+| `test-bypass-cli.sh` | Bypass CLI JSON output and routing rule updates |
 | `test-project-update-rollback.sh` | Rollback of a failed project update |
 | `test-apt-lock-race.sh` | apt-lock race: `DPkg::Lock::Timeout` on installs, the unattended-upgrade worker check, and the 12-minute quickstart budget |
 | `test-quickstart-email-and-inspect.sh` | Explicit `quickstart` email mode (`--without-email` without a fake address) and the read-only invariants of `inspect --json` |
@@ -63,6 +64,7 @@ promise that installer and updater paths behave identically.
 | `test-sni-change-cli.sh` | SNI-change JSON output, transport fields, profile sync and rollback |
 | `test-subscription-server-name.sh` | HAPP subscription display name |
 | `test-transaction-safety.sh` | Transactional safety of configuration operations |
+| `test-update-branch-pinning.sh` | `xrayebator update <branch>` pins `.current_branch` so later GUI updates keep the branch |
 | `test-update-xray-core-sync.sh` | Synchronisation between the core-update implementations |
 | `test-vless-url-generation.sh` | VLESS link generation |
 | `test-xhttp-route-path-repair.sh` | XHTTP route-path repair during migration |
@@ -147,7 +149,7 @@ provide useful local coverage, while CI runs the Electron typecheck and unit sui
 The workflows have separate responsibilities:
 
 - `.github/workflows/ci-linux.yml` is the Bash core gate on `ubuntu-24.04`: it installs `jq`,
-  `uuid-runtime` and `ripgrep`, runs all four Bash syntax checks, then runs all 26 validation
+  `uuid-runtime` and `ripgrep`, runs all four Bash syntax checks, then runs all 28 validation
   scripts.
 - `.github/workflows/release.yml` is the active Electron release path for `v*` tags or manual runs.
   A `preflight` job first checks that the release notes file `docs/releases/<tag>.en.md` exists and

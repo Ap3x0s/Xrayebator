@@ -4,7 +4,6 @@
 
 Sections: [Prerequisites](#prerequisites-and-tested-systems) · [Environment variables](#installer-environment-variables) ·
 [Firewall and host networking](#firewall-and-host-networking) · [Main menu](#main-menu) ·
-[Commands](#commands) · [Desktop GUI](#desktop-gui) · [Bypass routing](#bypass-routing) ·
 [Cascade](#cascade-and-upstream-nodes) · [Self-steal](#custom-domain-and-self-steal-stub) · [Domain and DNS](#domain-and-dns)
 
 ---
@@ -94,7 +93,6 @@ The interactive menu uses these exact meanings:
 | `4` | Manage a profile: SNI, client fingerprint, port and advanced settings |
 | `5` | Upgrade a single profile to post-quantum XHTTP + Reality |
 | `6` | HAPP subscription: provision public/local publishing, URL/QR, revoke and HAPP settings; the managed profile has 7 routes and the published list has 6 |
-| `7` | Bypass routing: send selected domains directly instead of through the VPN |
 | `8` | Cascade and upstream nodes |
 | `9` | Custom domain and self-steal stub |
 | `10` | Set up an outbound server so another VPS can use this server as a foreign cascade node |
@@ -110,15 +108,18 @@ is a client-side profile/route setting; changing it does not restart Xray or alt
 |---|---|
 | `sudo xrayebator` | Open the interactive menu |
 | `sudo xrayebator update` | Update only the Xray-core binary |
-| `sudo xrayebator update <branch>` | Self-update the manager from the canonical raw repository branch, continue with the new script, then update Xray-core |
+| `sudo xrayebator update <branch>` | Self-update the manager from the canonical raw repository branch, continue with the new script, then update Xray-core; the branch is pinned in `.current_branch` for later GUI updates |
 | `sudo xrayebator probe-test` | Check SNI reachability from the VPS before switching |
 | `sudo xrayebator quickstart --email <address>` | One-shot deploy path used by the desktop GUI: runs the broad setup/migration path, provisions the current IP-TLS endpoint on `8443`, and creates a standard HAPP profile with `schema_version: 3` and 7 routes; emits JSON with `subscription_url` |
 | `sudo xrayebator quickstart --without-email` | Same new-server path without an ACME contact email; Certbot uses `--register-unsafely-without-email`, so no renewal notices or email-based account recovery are available |
 | `sudo xrayebator inspect --json` | Read-only GUI import probe: reports manager, Xray, profile and subscription markers without installing, migrating or changing services/configuration |
 | `sudo xrayebator happ-setup` | Reduced existing-install HAPP path: ensures the subscription service and a usable multi-route profile, but does not replace the endpoint prerequisite; when `.subscription_domain` or `.subscription_port` is missing, it verifies a real public TLS endpoint before writing markers and otherwise fails |
-| `sudo xrayebator profiles` | Print all server profiles as a JSON array for the desktop GUI Server Settings page |
-| `sudo xrayebator profile-create --name NAME [--transport tcp\|tcp-utls\|tcp-xudp\|tcp-mux\|grpc\|xhttp] [--port P] [--count N]` | Create one or more profiles non-interactively; prints `{"ok":true,"names":[...],"errors":[...]}` |
+| `sudo xrayebator profiles` | Print all server profiles as a JSON array for the desktop GUI Server Settings page; expiry includes both epoch seconds (`expire`) for enforcement and the server-local calendar date (`expire_date`) for display, so clients in another timezone still see the selected date |
+| `sudo xrayebator profile-create --name NAME [--transport tcp\|tcp-utls\|tcp-xudp\|tcp-mux\|grpc\|xhttp] [--port P] [--count N] [--expire DATE]` | Create one or more profiles non-interactively; `--expire` accepts `YYYY-MM-DD[ HH:MM]`, epoch seconds or 13-digit milliseconds. A date without time is inclusive through `23:59:59` in the server's local timezone; an explicit time uses that server-local time. Past expiries are rejected; prints `{"ok":true,"names":[...],"errors":[...]}` |
 | `sudo xrayebator profile-delete --name NAME` | Delete a profile non-interactively; prints `{"ok":true,"name":"..."}` |
+| `sudo xrayebator profile-revoke --name NAME [--full]` | Reissue the subscription link: new `sub_token`; with `--full` also a new uuid in every inbound of the profile (already-downloaded configs are cut off); prints JSON |
+| `sudo xrayebator profile-expire --name NAME --expire DATE\|epoch\|none` | Set, extend or remove a profile expiry; a date without time is inclusive through `23:59:59` in the server's local timezone, while an explicit time is used as given in that timezone; applied immediately (a passed expiry removes the client, an extension restores it); prints JSON |
+| `sudo xrayebator expire-check` | Apply every due expiry in one batch; idempotent and never restarts Xray without changes. Driven by the `xrayebator-expire.timer` unit every 10 minutes |
 | `sudo xrayebator fp-change --name NAME [--route R] --fp FINGERPRINT` | Change the client fingerprint for one profile route; prints JSON |
 | `sudo xrayebator sni-change --name NAME [--route R] --sni SNI` | Change the shared inbound SNI and synchronise profiles on that port; prints JSON |
 | `sudo xrayebator sni-list` | Print SNI candidates grouped by category for the GUI SNI dialog; prints JSON |
@@ -174,9 +175,8 @@ profile when `xhttp-legacy`, `xhttp-pq` or the expected seven-route shape is mis
 
 The active Electron app is a CLI front-end over SSH, not a complete replacement for the terminal
 menu. It deploys with `quickstart`, refreshes the saved `subscription_url`, and exposes profile
-list/create/delete plus selected SNI, fingerprint, port, update and uninstall operations. Bypass,
-probe, revoke, HAPP setup, cascade, self-steal, the interactive menu and service diagnostics remain
-server-side operations.
+SNI, fingerprint, port, update and uninstall operations. `probe-test`, HAPP setup, cascade,
+self-steal, the interactive menu and service diagnostics remain server-side operations.
 
 See [Electron Desktop GUI](desktop-gui.md) for the complete command mapping, security boundary,
 packaging and test details.
@@ -191,9 +191,7 @@ npm test
 npm run typecheck
 ```
 
-## Bypass routing
 
-Bypass adds Xray routing rules so selected domains go straight out through `freedom` instead of the
 VPN. The `domain -> direct` rules sit above the catch-all, so they keep working with the cascade
 enabled.
 

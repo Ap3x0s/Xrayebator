@@ -7,8 +7,10 @@ import type {
   ImportServerPayload,
   ImportStep,
   ProfileCreateInput,
+  ProfileExpireInput,
   ProfileFingerprintInput,
   ProfilePortInput,
+  ProfileRevokeInput,
   ProfileSniInput,
   Server,
   ServerMaintenanceResult,
@@ -440,6 +442,22 @@ export function registerIpcHandlers({ store }: IpcContext): void {
     ) => {
       const manager = await profileManagerFor(serverId, access)
       return manager.changePort(input)
+    }
+  )
+
+  ipcMain.handle(
+    'profiles:revoke',
+    async (_e, serverId: string, access: SshAccessInput, input: ProfileRevokeInput) => {
+      const manager = await profileManagerFor(serverId, access)
+      return manager.revoke(input)
+    }
+  )
+
+  ipcMain.handle(
+    'profiles:setExpire',
+    async (_e, serverId: string, access: SshAccessInput, input: ProfileExpireInput) => {
+      const manager = await profileManagerFor(serverId, access)
+      return manager.setExpire(input)
     }
   )
 

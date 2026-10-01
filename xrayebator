@@ -3389,49 +3389,6 @@ _migrate_sni_list_2026() {
   return 0
 }
 
-_migrate_bypass_routing_2026() {
-  echo ""
-  echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
-  echo -e "${BLUE}  BYPASS ROUTING                              ${NC}"
-  echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
-  echo ""
-  echo -e "${CYAN}Можно настроить чтобы определенные домены шли в обход VPN:${NC}"
-  echo -e "  ${YELLOW}-${NC} Steam (CDN, чат, community) — быстрее без VPN"
-  echo -e "  ${YELLOW}-${NC} РФ-сервисы (gosuslugi, nalog, mos) — обязательно с РФ-IP"
-  echo -e "  ${YELLOW}-${NC} РФ-банки (sber, vtb, tinkoff, alfa) — требуют РФ-IP"
-  echo -e "  ${YELLOW}-${NC} Маркетплейсы (ozon, wb, avito)"
-  echo -e "  ${YELLOW}-${NC} Yandex сервисы"
-  echo ""
-  echo -e "${CYAN}Эти домены пойдут через freedom outbound (direct), не через VPN.${NC}"
-  echo ""
-
-  # BASH-4-fix: в noninteractive режиме (quickstart/happ-setup exportирует
-  # XRAYEBATOR_NONINTERACTIVE=1) read зависнет молча — детерминированный default.
-  # Default = N (не добавлять bypass): безопасный вариант, пользователь всегда
-  # может включить правила позже через меню (пункт 11). Не пытаемся читать
-  # из закрытого stdin — hang в systemd/GUI-контексте был реальным багом.
-  if [[ "${XRAYEBATOR_NONINTERACTIVE:-}" == "1" ]]; then
-    echo -e "${CYAN}  → noninteractive: bypass-правила пропущены (default). Настройка: меню → пункт 11.${NC}"
-    return 1
-  fi
-
-  echo -n -e "${YELLOW}Добавить дефолтные bypass-правила? [y/N]: ${NC}"
-
-  local ans
-  read -r ans
-  ans="${ans:-N}"
-
-  if [[ "$ans" =~ ^[yYдД]$ ]]; then
-    _bypass_apply_bundle
-  else
-    echo -e "${CYAN}Пропущено. Можно настроить позже через главное меню → пункт 11.${NC}"
-    sleep 1
-  fi
-
-  # Marker ставится через run_migration независимо от ответа — больше не спрашивать.
-  return 1
-}
-
 _migrate_subhttp_multiroute_2026() {
   if [[ ! -f /usr/local/etc/xray/.subscription_installed ]]; then
     echo -e "${CYAN}  → HAPP subscription не установлена — subhttp migration skip${NC}"
@@ -3550,6 +3507,31 @@ _migrate_subhttp_stale_profiles_410_2026() {
   return 1
 }
 
+# Профиль с истёкшим сроком должен отдавать 410, а не рабочий на вид конфиг:
+# subhttp — heredoc, поэтому на существующих установках нужна регенерация.
+_migrate_subhttp_expired_410_2026() {
+  if [[ ! -f /usr/local/etc/xray/.subscription_installed ]]; then
+    echo -e "${CYAN}  → HAPP subscription не установлена — expired-410 migration skip${NC}"
+    return 1
+  fi
+
+  echo -e "${CYAN}  → Регенерация subhttp.sh с отдачей 410 для истёкших профилей...${NC}"
+  if ! install_subscription_server >/dev/null 2>&1; then
+    echo -e "${RED}  ✗ Не удалось регенерировать subhttp.sh${NC}"
+    return 2
+  fi
+
+  if systemctl is-active --quiet xrayebator-sub.service; then
+    systemctl restart xrayebator-sub.service || {
+      echo -e "${RED}  ✗ Не удалось перезапустить xrayebator-sub.service${NC}"
+      return 2
+    }
+    echo -e "${GREEN}  ✓ xrayebator-sub.service перезапущен${NC}"
+  fi
+
+  return 1
+}
+
 _migrate_subhttp_happ_xhttp_compat_2026() {
   if [[ ! -f /usr/local/etc/xray/.subscription_installed ]]; then
     echo -e "${CYAN}  → HAPP subscription не установлена — HAPP XHTTP compatibility migration skip${NC}"
@@ -3632,107 +3614,6 @@ _sni_in_use() {
   fi
 
   return 1
-}
-
-_bypass_list_current() {
-  jq -r '
-    [.routing.rules[]?
-     | select(.outboundTag == "direct" and (((.domain // []) | length) > 0))
-     | .domain[]
-    ] | unique | .[]
-  ' "$CONFIG_FILE" 2>/dev/null
-}
-
-_apply_bypass_rule() {
-  local domain_list_json="$1"
-  local normalized_json
-  if ! normalized_json=$(printf '%s' "$domain_list_json" | jq -c '
-      if type == "array" and all(.[]; type == "string" and startswith("domain:")) then
-        unique
-      else
-        error("invalid domain list")
-      end
-    ' 2>/dev/null); then
-    echo -e "${RED}✗ Некорректный JSON domain-list для bypass${NC}"
-    return 2
-  fi
-
-  local domain_count
-  domain_count=$(printf '%s' "$normalized_json" | jq 'length' 2>/dev/null)
-  if [[ "$domain_count" == "0" ]]; then
-    echo -e "${YELLOW}Нет доменов для применения${NC}"
-    return 1
-  fi
-
-  local domains_raw
-  domains_raw=$(printf '%s' "$normalized_json" | jq -r '.[] | ltrimstr("domain:")')
-  local dom
-  while IFS= read -r dom; do
-    [[ -z "$dom" ]] && continue
-    if _sni_in_use "$dom"; then
-      echo -e "${RED}Конфликт: $dom используется как Reality SNI — добавление сломает handshake${NC}"
-      echo -e "${YELLOW}  Bypass правила не применены. Удалите $dom из списка и попробуйте снова.${NC}"
-      return 1
-    fi
-  done <<< "$domains_raw"
-
-  local rollback_config=""
-  backup_config "bypass_routing_add" rollback_config || return 2
-  # safe_jq_write routing.rules: PREPEND нового bypass-правила.
-  if safe_jq_write \
-      --argjson domains "$normalized_json" \
-      '.routing.rules = [{"type":"field","domain":$domains,"outboundTag":"direct"}] + .routing.rules' \
-      "$CONFIG_FILE"; then
-    fix_xray_permissions
-    if safe_restart_xray "$rollback_config"; then
-      return 0
-    fi
-    return 2
-  fi
-  return 2
-}
-
-_bypass_remove_rule() {
-  local d="domain:$1"
-  local rollback_config=""
-  backup_config "bypass_routing_remove" rollback_config || return 2
-  # safe_jq_write routing.rules: удалить domain из bypass-правил.
-  if safe_jq_write \
-      --arg d "$d" \
-      '.routing.rules = [
-        .routing.rules[] |
-        if (.outboundTag == "direct" and ((.domain // []) | length) > 0) then
-          .domain = ((.domain // []) - [$d])
-          | (if (.domain | length == 0) then empty else . end)
-        else
-          .
-        end
-      ]' "$CONFIG_FILE"; then
-    fix_xray_permissions
-    if safe_restart_xray "$rollback_config"; then
-      return 0
-    fi
-    return 2
-  fi
-  return 2
-}
-
-_bypass_reset_all() {
-  local rollback_config=""
-  backup_config "bypass_routing_reset" rollback_config || return 2
-  # safe_jq_write routing.rules: удалить только domain bypass-правила.
-  if safe_jq_write '
-      .routing.rules = [
-        .routing.rules[] |
-        select(.outboundTag != "direct" or (.network // null) != null or (.port // null) != null or (((.domain // []) | length) == 0))
-      ]' "$CONFIG_FILE"; then
-    fix_xray_permissions
-    if safe_restart_xray "$rollback_config"; then
-      return 0
-    fi
-    return 2
-  fi
-  return 2
 }
 
 _cascade_ensure_dir() {
@@ -4913,7 +4794,6 @@ else
   SERVER_IP=""
 fi
 
-
 # Показать ASCII арт
 show_ascii() {
   clear
@@ -5229,6 +5109,12 @@ update_command() {
   # xrayebator с этой ветки (self-update, как в update.sh). Иначе — только Xray binary.
   if [[ -n "${1:-}" ]]; then
     local branch="$1"
+    # Ветка уходит в URL, имя файла и .current_branch — валидируем строго.
+    if [[ ! "$branch" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$ ]] \
+       || [[ "$branch" == *".."* ]] || [[ "$branch" == *"//"* ]]; then
+      echo -e "${RED}✗ Некорректное имя ветки: $branch${NC}"
+      exit 2
+    fi
     echo -e "${CYAN}  → Self-update xrayebator с ветки: ${YELLOW}$branch${NC}"
     local up_script up_tmp
     up_script=$(command -v xrayebator 2>/dev/null || echo /usr/local/bin/xrayebator)
@@ -5239,6 +5125,17 @@ update_command() {
       chmod 755 "$up_tmp"
       if mv "$up_tmp" "$up_script"; then
         chown root:root "$up_script" 2>/dev/null || true
+        # Закрепляем ветку: GUI-кнопка «Обновить Xrayebator» читает .current_branch
+        # и без этой записи откатывала сервер обратно на main — новые команды
+        # (profile-revoke/profile-expire/bypass groups) молча исчезали.
+        if [[ -d /usr/local/etc/xray ]]; then
+          if printf '%s\n' "$branch" > /usr/local/etc/xray/.current_branch 2>/dev/null; then
+            chown root:root /usr/local/etc/xray/.current_branch 2>/dev/null || true
+            chmod 644 /usr/local/etc/xray/.current_branch 2>/dev/null || true
+          else
+            echo -e "${YELLOW}  ⚠ Не удалось закрепить ветку $branch в .current_branch — обновление из GUI может вернуть main${NC}"
+          fi
+        fi
         echo -e "${GREEN}  ✓ xrayebator обновлён с ветки $branch${NC}"
         echo -e "${YELLOW}  → Перезапуск...${NC}"
         exec bash "$up_script" update
@@ -5521,6 +5418,20 @@ emit_410_stale() {
   exit 0
 }
 
+# Профиль отключён по сроку: маршруты не отдаём вовсе. HAPP показывает «срок
+# истёк» вместо конфига, который молча не подключится (uuid снят с inbound'ов).
+emit_410_expired() {
+  sleep 0.1
+  printf 'HTTP/1.1 410 Gone\r\n'
+  printf 'content-type: text/plain; charset=utf-8\r\n'
+  printf 'content-length: 28\r\n'
+  printf 'connection: close\r\n'
+  printf 'cache-control: no-store\r\n'
+  printf '\r\n'
+  printf 'Profile expired or disabled\n'
+  exit 0
+}
+
 # Method check: только GET. Любой другой — 404 (НЕ 405: не раскрываем существование endpoint).
 [[ "$method" == "GET" ]] || emit_404
 
@@ -5550,6 +5461,16 @@ done
 
 profile_name=$(basename "$profile_file" .json)
 short_token="${token:0:8}"
+
+# Профиль с истёкшим/отключённым сроком не отдаёт маршруты: клиент сразу видит
+# «срок вышел» вместо рабочего на вид конфига, который всё равно не подключится
+# (клиента нет в inbound — принуждение делает xrayebator expire-check).
+# Проверяем и флаг, и сам срок: таймер мог ещё не отработать (окно до 10 минут).
+if jq -e '(.expire_disabled == true)
+          or ((.expire // 0) > 0 and (.expire // 0) <= now)' \
+     --argjson now "$(date +%s)" "$profile_file" >/dev/null 2>&1; then
+  emit_410_expired
+fi
 
 # Geo databases use the already authenticated subscription endpoint. This keeps
 # downloads working when GitHub is blocked and avoids changing nginx on existing
@@ -7076,7 +6997,9 @@ main_menu() {
     fi
   fi
   run_migration "sni_list_2026" "SNI list 2026 (РФ-банки/логистика, удалить apple/icloud)" _migrate_sni_list_2026 || ((migration_failures++))
+  run_migration "expire_timer_2026" "Таймер принуждения сроков профилей" _migrate_expire_timer_2026 || ((migration_failures++))
   run_migration "bypass_routing_2026" "Bypass routing first-run prompt (опционально)" _migrate_bypass_routing_2026 || ((migration_failures++))
+  run_migration "subhttp_expired_410_2026" "Subhttp: 410 для истёкших профилей" _migrate_subhttp_expired_410_2026 || ((migration_failures++))
   run_migration "subhttp_multiroute_2026" "HAPP subhttp multi-route handler" _migrate_subhttp_multiroute_2026 || ((migration_failures++))
   run_migration "subhttp_client_compat_2026" "HAPP/v2rayNG subscription client compatibility" _migrate_subhttp_client_compat_2026 || ((migration_failures++))
   run_migration "subhttp_no_default_happ_routing_2026" "HAPP subscription: remove invalid legacy routing payload" _migrate_subhttp_no_default_happ_routing_2026 || ((migration_failures++))
@@ -7142,6 +7065,7 @@ main_menu() {
     echo ""
     echo -e "${MAGENTA} HAPP SUBSCRIPTION:${NC}"
     echo -e "${CYAN} 6)${NC} Подписка HAPP (профиль 7 / HAPP 6 routes + URL/QR)"
+    echo ""
     echo ""
     echo -e "${MAGENTA} BYPASS ROUTING:${NC}"
     echo -e "${CYAN} 7)${NC} Управление обходом VPN"
@@ -8037,6 +7961,368 @@ _move_profile_client_between_inbounds() {
     ' "$CONFIG_FILE"
 }
 
+# Уникальные порты профиля (JSON-массив): routes[] multi-route или top-level .port.
+# Общий для profile-delete / revoke / expire — источник истины "где лежат клиенты".
+_profile_ports_json() {
+  local profile_file="$1"
+  local rcount
+  rcount=$(_profile_route_count "$profile_file")
+  if [[ "$rcount" =~ ^[0-9]+$ ]] && [[ "$rcount" -gt 0 ]]; then
+    jq -c '[.routes[]?.port | select(type == "number")] | unique' "$profile_file" 2>/dev/null
+  else
+    jq -c '[.port | select(type == "number")] | unique' "$profile_file" 2>/dev/null
+  fi
+}
+
+# Заменяет id клиента во всех inbounds на данных портах (revoke --full).
+_replace_uuid_in_config() {
+  local old_uuid=$1 new_uuid=$2 ports_json=$3
+  safe_jq_write --arg old "$old_uuid" --arg new "$new_uuid" --argjson ports "$ports_json" '
+    .inbounds |= map(
+      .port as $inbound_port |
+      if (($ports | index($inbound_port)) != null)
+         and any(.settings.clients[]?; .id == $old) then
+        .settings.clients = ((.settings.clients // [])
+          | map(if .id == $old then .id = $new else . end))
+      else
+        .
+      end
+    )
+  ' "$CONFIG_FILE"
+}
+
+# Нормализация значения срока: unix-секунды (10 цифр), unix-мс (13 цифр → /1000)
+# или ISO-локальное "ГГГГ-ММ-ДД[ TЧЧ:ММ[:СС]]" → epoch. stdout — только число.
+_normalize_expire_value() {
+  local raw="$1"
+  [[ -n "$raw" ]] || return 1
+  if [[ "$raw" =~ ^[0-9]+$ ]]; then
+    if [[ "${#raw}" -eq 13 ]]; then
+      printf '%s' "$((raw / 1000))"
+    elif [[ "${#raw}" -le 12 ]]; then
+      printf '%s' "$raw"
+    else
+      return 1
+    fi
+    return 0
+  fi
+  if [[ "$raw" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}([T\ ][0-9]{2}:[0-9]{2}(:[0-9]{2})?)?$ ]]; then
+    local norm="${raw/T/ }"
+    # Дата без времени трактуется ВКЛЮЧИТЕЛЬНО: срок истекает в 23:59:59
+    # выбранного дня, а не в его начале. Иначе выбранное «до 30 сентября»
+    # отключало профиль ровно в 00:00 30-го — на сутки раньше, чем ожидает
+    # пользователь; последним рабочим днём оказывалось 29-е.
+    [[ "${#norm}" -eq 10 ]] && norm="$norm 23:59:59"
+    [[ "${#norm}" -eq 16 ]] && norm="$norm:00"
+    if [[ "$norm" =~ ^([0-9]{4})-([0-9]{2})-([0-9]{2})\ ([0-9]{2}):([0-9]{2}):([0-9]{2})$ ]] \
+       && [[ "10#${BASH_REMATCH[2]}" -ge 1 && "10#${BASH_REMATCH[2]}" -le 12 ]] \
+       && [[ "10#${BASH_REMATCH[3]}" -ge 1 && "10#${BASH_REMATCH[3]}" -le 31 ]] \
+       && [[ "10#${BASH_REMATCH[4]}" -le 23 && "10#${BASH_REMATCH[5]}" -le 59 && "10#${BASH_REMATCH[6]}" -le 60 ]]; then
+      # GNU date (Debian/Ubuntu обязательны по install.sh); время локальное —
+      # как и у date +%s в expire-check, расхождения с серверными часами нет.
+      local ts
+      ts=$(date -d "$norm" +%s 2>/dev/null) || return 1
+      printf '%s' "$ts"
+      return 0
+    fi
+  fi
+  return 1
+}
+
+# Нормализованный .expire профиля → epoch в stdout (0 = бессрочный).
+# 13-значные ms из старых записей приводятся к секундам — иначе expiry никогда
+# не наступит (ms-epoch ~ 1.7e12 всегда больше now).
+_profile_expire_epoch() {
+  local profile_file="$1" raw
+  raw=$(jq -r '.expire // empty' "$profile_file" 2>/dev/null) || return 1
+  [[ -n "$raw" && "$raw" != "null" ]] || { printf '0'; return 0; }
+  [[ "$raw" =~ ^[0-9]+$ ]] || { printf '0'; return 0; }
+  if [[ "${#raw}" -eq 13 ]]; then
+    printf '%s' "$((raw / 1000))"
+  else
+    printf '%s' "$raw"
+  fi
+}
+
+# Профиль "отключён по expire" = в JSON стоит флаг .expire_disabled.
+# Флаг (а не снимок) — маркер идемпотентности: expire-check без флага обязан
+# что-то изменить, иначе таймер будет рестартить xray на пустом месте каждый цикл.
+_profile_is_expire_disabled() {
+  local profile_file="$1"
+  jq -e '.expire_disabled == true' "$profile_file" >/dev/null 2>&1
+}
+
+# Есть ли клиент профиля (по текущему uuid) хоть в одном inbound конфига.
+# Отличает "флаг+клиент исчезли" (спокойно) от "флаг, но клиента вернули руками"
+# (надо переналожить бан) — и не даёт таймеру рестартить xray на пустом месте.
+_profile_client_in_config() {
+  local profile_file="$1" uuid
+  uuid=$(jq -r '.uuid // empty' "$profile_file")
+  [[ -n "$uuid" ]] || return 1
+  jq -e --arg uuid "$uuid" '
+    any(.inbounds[]?; any(.settings.clients[]?; .id == $uuid))
+  ' "$CONFIG_FILE" >/dev/null 2>&1
+}
+
+# Отключение истёкшего профиля: снимок клиентов (flow и доп. поля включительно)
+# в .expire_clients профиля + флаг → удаление клиента из inbound'ов портов профиля.
+# ВАЖНО: inbound'ы сохраняются даже с пустым списком клиентов — _remove_profile_uuid
+# выкидывал бы пустой inbound целиком, а на продлении новый inbound = новый shortId
+# = смерть всех выданных URL. Клиенты чужих профилей на общих портах не затрагиваются.
+# Клиента нет в конфиге — только флаг (бан уже наложен руками).
+_expire_disable_profile() {
+  local profile_file="$1"
+  local uuid ports_json saved
+  uuid=$(jq -r '.uuid // empty' "$profile_file")
+  [[ -n "$uuid" ]] || return 1
+  ports_json=$(_profile_ports_json "$profile_file")
+  jq -e 'type == "array" and length > 0' <<< "$ports_json" >/dev/null 2>&1 || return 1
+
+  saved=$(jq -c --arg uuid "$uuid" --argjson ports "$ports_json" '
+    [.inbounds[] as $in
+     | select(($ports | index($in.port)) != null)
+     | $in.settings.clients[]? | select(.id == $uuid)
+     | {port: $in.port, client: .}]' "$CONFIG_FILE" 2>/dev/null) || return 1
+
+  if [[ "$(jq 'length' <<< "$saved")" != "0" ]]; then
+    safe_jq_write --arg uuid "$uuid" --argjson ports "$ports_json" '
+      .inbounds |= map(
+        .port as $p |
+        if (($ports | index($p)) != null) then
+          .settings.clients = ((.settings.clients // []) | map(select(.id != $uuid)))
+        else . end
+      )
+    ' "$CONFIG_FILE" || return 1
+  fi
+  safe_jq_write --argjson saved "$saved" \
+    '.expire_clients = $saved | .expire_disabled = true' "$profile_file" || return 1
+  return 0
+}
+
+# Включение профиля до истечения нового срока: клиенты из снимка (с актуальным
+# uuid на случай revoke между циклами). Снимка нет — rebuild из routes-метаданных;
+# и он ничего не добавил (порты пересобраны вручную) — гасим флаг с предупреждением,
+# иначе expire-check зациклится на недостижимом профиле.
+_expire_enable_profile() {
+  local profile_file="$1"
+  local uuid ports_json saved
+  uuid=$(jq -r '.uuid // empty' "$profile_file")
+  [[ -n "$uuid" ]] || return 1
+  ports_json=$(_profile_ports_json "$profile_file")
+  jq -e 'type == "array" and length > 0' <<< "$ports_json" >/dev/null 2>&1 || return 1
+
+  saved=$(jq -c '.expire_clients // []' "$profile_file") || return 1
+
+  if [[ "$(jq 'length' <<< "$saved")" == "0" ]]; then
+    if ! _expire_rebuild_clients "$profile_file"; then
+      echo -e "${YELLOW}  ⚠ $(basename "$profile_file" .json): порты профиля не найдены — срок снят, клиент не восстановлен${NC}" >&2
+      safe_jq_write 'del(.expire_clients) | .expire_disabled = false' "$profile_file" || return 1
+      return 0
+    fi
+  else
+    safe_jq_write --arg uuid "$uuid" --argjson ports "$ports_json" --argjson saved "$saved" '
+      .inbounds |= map(
+        .port as $p |
+        if (($ports | index($p)) != null) then
+          .settings.clients = ((.settings.clients // []) | map(select(.id != $uuid)))
+        else . end
+      )
+      | .inbounds |= map(
+          .port as $p |
+          if (($ports | index($p)) != null) and any($saved[]; .port == $p) then
+            .settings.clients = ((.settings.clients // [])
+              + [$saved[] | select(.port == $p) | .client | .id = $uuid])
+          else . end
+        )' "$CONFIG_FILE" || return 1
+  fi
+  safe_jq_write 'del(.expire_clients) | .expire_disabled = false' "$profile_file" || return 1
+  return 0
+}
+
+# Fallback-восстановление без снимка: добавить {id, flow} в существующий inbound
+# порта (flow — как в add_inbound: vision для tcp/utls/xudp, пусто для mux/grpc/xhttp).
+_expire_rebuild_clients() {
+  local profile_file="$1"
+  local uuid rcount idx transport port flow added=false
+  uuid=$(jq -r '.uuid // empty' "$profile_file")
+  [[ -n "$uuid" ]] || return 1
+  rcount=$(_profile_route_count "$profile_file")
+  [[ "$rcount" =~ ^[0-9]+$ ]] || rcount=0
+
+  local -a specs=()
+  if [[ "$rcount" -gt 0 ]]; then
+    for ((idx=0; idx<rcount; idx++)); do
+      transport=$(jq -r --argjson i "$idx" '.routes[$i].transport // empty' "$profile_file")
+      port=$(jq -r --argjson i "$idx" '.routes[$i].port // empty' "$profile_file")
+      [[ -n "$transport" && "$port" =~ ^[0-9]+$ ]] && specs+=("$transport|$port")
+    done
+  else
+    transport=$(jq -r '.transport // empty' "$profile_file")
+    port=$(jq -r '.port // empty' "$profile_file")
+    [[ -n "$transport" && "$port" =~ ^[0-9]+$ ]] && specs+=("$transport|$port")
+  fi
+
+  local spec
+  for spec in "${specs[@]}"; do
+    IFS='|' read -r transport port <<< "$spec"
+    flow=""
+    case "$transport" in
+      tcp|tcp-utls|tcp-xudp) flow="xtls-rprx-vision" ;;
+    esac
+    # Инбаунд должен существовать (порт не должен быть пересобран вручную).
+    local exists
+    exists=$(jq -r --argjson p "$port" '[.inbounds[] | select(.port == $p)] | length' "$CONFIG_FILE" 2>/dev/null)
+    [[ "$exists" == "1" ]] || continue
+    if safe_jq_write --arg uuid "$uuid" --argjson port "$port" --arg flow "$flow" '
+      (.inbounds[] | select(.port == $port) | .settings.clients) |=
+        (map(select(.id != $uuid)) + [ {id: $uuid, flow: $flow} ])
+    ' "$CONFIG_FILE"; then
+      added=true
+    fi
+  done
+  [[ "$added" == "true" ]]
+}
+
+_migrate_bypass_routing_2026() {
+  echo ""
+  echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
+  echo -e "${BLUE}  BYPASS ROUTING                              ${NC}"
+  echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
+  echo ""
+  echo -e "${CYAN}Можно настроить чтобы определенные домены шли в обход VPN:${NC}"
+  echo -e "  ${YELLOW}-${NC} Steam (CDN, чат, community) — быстрее без VPN"
+  echo -e "  ${YELLOW}-${NC} РФ-сервисы (gosuslugi, nalog, mos) — обязательно с РФ-IP"
+  echo -e "  ${YELLOW}-${NC} РФ-банки (sber, vtb, tinkoff, alfa) — требуют РФ-IP"
+  echo -e "  ${YELLOW}-${NC} Маркетплейсы (ozon, wb, avito)"
+  echo -e "  ${YELLOW}-${NC} Yandex сервисы"
+  echo ""
+  echo -e "${CYAN}Эти домены пойдут через freedom outbound (direct), не через VPN.${NC}"
+  echo ""
+
+  # BASH-4-fix: в noninteractive режиме (quickstart/happ-setup exportирует
+  # XRAYEBATOR_NONINTERACTIVE=1) read зависнет молча — детерминированный default.
+  # Default = N (не добавлять bypass): безопасный вариант, пользователь всегда
+  # может включить правила позже через меню (пункт 11). Не пытаемся читать
+  # из закрытого stdin — hang в systemd/GUI-контексте был реальным багом.
+  if [[ "${XRAYEBATOR_NONINTERACTIVE:-}" == "1" ]]; then
+    echo -e "${CYAN}  → noninteractive: bypass-правила пропущены (default). Настройка: меню → пункт 11.${NC}"
+    return 1
+  fi
+
+  echo -n -e "${YELLOW}Добавить дефолтные bypass-правила? [y/N]: ${NC}"
+
+  local ans
+  read -r ans
+  ans="${ans:-N}"
+
+  if [[ "$ans" =~ ^[yYдД]$ ]]; then
+    _bypass_apply_bundle
+  else
+    echo -e "${CYAN}Пропущено. Можно настроить позже через главное меню → пункт 11.${NC}"
+    sleep 1
+  fi
+
+  # Marker ставится через run_migration независимо от ответа — больше не спрашивать.
+  return 1
+}
+_bypass_list_current() {
+  jq -r '
+    [.routing.rules[]?
+     | select(.outboundTag == "direct" and (((.domain // []) | length) > 0))
+     | .domain[]
+    ] | unique | .[]
+  ' "$CONFIG_FILE" 2>/dev/null
+}
+_apply_bypass_rule() {
+  local domain_list_json="$1"
+  local normalized_json
+  if ! normalized_json=$(printf '%s' "$domain_list_json" | jq -c '
+      if type == "array" and all(.[]; type == "string" and startswith("domain:")) then
+        unique
+      else
+        error("invalid domain list")
+      end
+    ' 2>/dev/null); then
+    echo -e "${RED}✗ Некорректный JSON domain-list для bypass${NC}"
+    return 2
+  fi
+
+  local domain_count
+  domain_count=$(printf '%s' "$normalized_json" | jq 'length' 2>/dev/null)
+  if [[ "$domain_count" == "0" ]]; then
+    echo -e "${YELLOW}Нет доменов для применения${NC}"
+    return 1
+  fi
+
+  local domains_raw
+  domains_raw=$(printf '%s' "$normalized_json" | jq -r '.[] | ltrimstr("domain:")')
+  local dom
+  while IFS= read -r dom; do
+    [[ -z "$dom" ]] && continue
+    if _sni_in_use "$dom"; then
+      echo -e "${RED}Конфликт: $dom используется как Reality SNI — добавление сломает handshake${NC}"
+      echo -e "${YELLOW}  Bypass правила не применены. Удалите $dom из списка и попробуйте снова.${NC}"
+      return 1
+    fi
+  done <<< "$domains_raw"
+
+  local rollback_config=""
+  backup_config "bypass_routing_add" rollback_config || return 2
+  # safe_jq_write routing.rules: PREPEND нового bypass-правила.
+  if safe_jq_write \
+      --argjson domains "$normalized_json" \
+      '.routing.rules = [{"type":"field","domain":$domains,"outboundTag":"direct"}] + .routing.rules' \
+      "$CONFIG_FILE"; then
+    fix_xray_permissions
+    if safe_restart_xray "$rollback_config"; then
+      return 0
+    fi
+    return 2
+  fi
+  return 2
+}
+_bypass_remove_rule() {
+  local d="domain:$1"
+  local rollback_config=""
+  backup_config "bypass_routing_remove" rollback_config || return 2
+  # safe_jq_write routing.rules: удалить domain из bypass-правил.
+  if safe_jq_write \
+      --arg d "$d" \
+      '.routing.rules = [
+        .routing.rules[] |
+        if (.outboundTag == "direct" and ((.domain // []) | length) > 0) then
+          .domain = ((.domain // []) - [$d])
+          | (if (.domain | length == 0) then empty else . end)
+        else
+          .
+        end
+      ]' "$CONFIG_FILE"; then
+    fix_xray_permissions
+    if safe_restart_xray "$rollback_config"; then
+      return 0
+    fi
+    return 2
+  fi
+  return 2
+}
+_bypass_reset_all() {
+  local rollback_config=""
+  backup_config "bypass_routing_reset" rollback_config || return 2
+  # safe_jq_write routing.rules: удалить только domain bypass-правила.
+  if safe_jq_write '
+      .routing.rules = [
+        .routing.rules[] |
+        select(.outboundTag != "direct" or (.network // null) != null or (.port // null) != null or (((.domain // []) | length) == 0))
+      ]' "$CONFIG_FILE"; then
+    fix_xray_permissions
+    if safe_restart_xray "$rollback_config"; then
+      return 0
+    fi
+    return 2
+  fi
+  return 2
+}
+
 # Удаление профиля
 delete_profile_menu() {
   show_ascii
@@ -8175,6 +8461,248 @@ connect_profile_menu() {
     echo -e "${RED}✗ Неверный выбор${NC}"
     sleep 2
   fi
+}
+
+_bypass_add_single_domain() {
+  echo -n -e "${YELLOW}Введите домен (без domain:, например steamcontent.com): ${NC}"
+  local user_dom
+  read -r user_dom
+  user_dom="${user_dom#domain:}"
+
+  if [[ ! "$user_dom" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}$ ]]; then
+    echo -e "${RED}✗ Некорректный домен${NC}"
+    sleep 2
+    return
+  fi
+
+  echo -n -e "${YELLOW}Добавить domain:${user_dom} в обход VPN? [y/N]: ${NC}"
+  local confirm
+  read -r confirm
+  [[ "$confirm" =~ ^[yYдД]$ ]] || { echo -e "${CYAN}✓ Отменено${NC}"; sleep 1; return; }
+
+  if _apply_bypass_rule "[\"domain:${user_dom}\"]"; then
+    echo -e "${GREEN}✓ domain:${user_dom} добавлен в обход VPN${NC}"
+  else
+    echo -e "${RED}✗ Правило не применено${NC}"
+  fi
+  echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
+  read -r _
+}
+_bypass_apply_bundle() {
+  local -a group_ids=()
+  local -a group_names=()
+  local -a group_domains=()
+  local -a state=()
+  local cursor=0
+  local gid gname doms_csv
+
+  while IFS='|' read -r gid gname doms_csv; do
+    [[ -z "$gid" ]] && continue
+    group_ids+=("$gid")
+    group_names+=("$gname")
+    group_domains+=("$doms_csv")
+    state+=("on")
+  done < <(_bypass_bundle_groups)
+
+  while true; do
+    show_ascii
+    echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
+    echo -e "${BLUE}    ДЕФОЛТНЫЙ BYPASS BUNDLE                   ${NC}"
+    echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
+    echo ""
+    echo -e "${YELLOW}Выберите группы для применения:${NC}"
+    echo -e "${CYAN}↑/↓ — выбор, Space — вкл/выкл, Enter — применить, q/Esc — отмена${NC}"
+    echo ""
+
+    local i
+    for i in "${!group_ids[@]}"; do
+      local mark="[ ]"
+      [[ "${state[$i]}" == "on" ]] && mark="[x]"
+      local count
+      count=$(awk -F',' '{print NF}' <<< "${group_domains[$i]}")
+      local pointer=" "
+      [[ $i -eq $cursor ]] && pointer=">"
+      echo -e "${CYAN}${pointer} $((i+1)))${NC} $mark ${group_names[$i]} (${count} доменов)"
+    done
+
+    echo ""
+    echo -n -e "${YELLOW}Клавиша: ${NC}"
+    local key rest
+    IFS= read -rsn1 key
+    case "$key" in
+      "")
+        local all_doms_csv=""
+        for i in "${!group_ids[@]}"; do
+          if [[ "${state[$i]}" == "on" ]]; then
+            all_doms_csv="${all_doms_csv}${all_doms_csv:+,}${group_domains[$i]}"
+          fi
+        done
+
+        if [[ -z "$all_doms_csv" ]]; then
+          echo -e "${YELLOW}Нет выбранных групп. Отменено.${NC}"
+          sleep 1
+          return
+        fi
+
+        local doms_json
+        doms_json=$(printf '%s' "$all_doms_csv" | tr ',' '\n' | sed '/^$/d' | jq -R '"domain:" + .' | jq -s '.')
+        local domain_count
+        domain_count=$(printf '%s' "$doms_json" | jq 'length')
+        echo -e "${CYAN}Применяю ${domain_count} доменов...${NC}"
+
+        if _apply_bypass_rule "$doms_json"; then
+          echo -e "${GREEN}✓ Дефолтный bundle применен${NC}"
+        else
+          echo -e "${RED}✗ Bundle не применен. Если был создан бэкап, config.json откатан safe_restart_xray.${NC}"
+        fi
+        echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
+        read -r _
+        return
+        ;;
+      " ")
+        if [[ "${state[$cursor]}" == "on" ]]; then
+          state[$cursor]="off"
+        else
+          state[$cursor]="on"
+        fi
+        ;;
+      q|Q)
+        return
+        ;;
+      $'\e')
+        rest=""
+        IFS= read -rsn2 -t 0.1 rest || true
+        case "$rest" in
+          "[A")
+            ((cursor--))
+            [[ $cursor -lt 0 ]] && cursor=$((${#group_ids[@]} - 1))
+            ;;
+          "[B")
+            ((cursor++))
+            [[ $cursor -ge ${#group_ids[@]} ]] && cursor=0
+            ;;
+          *)
+            return
+            ;;
+        esac
+        ;;
+      *)
+        # Fallback для терминалов без нормальных escape-последовательностей.
+        if [[ "$key" =~ ^[0-9]$ ]] && [[ "$key" -ge 1 ]] && [[ "$key" -le ${#group_ids[@]} ]]; then
+          local idx=$((key-1))
+          cursor=$idx
+          if [[ "${state[$idx]}" == "on" ]]; then
+            state[$idx]="off"
+          else
+            state[$idx]="on"
+          fi
+        fi
+        ;;
+    esac
+  done
+}
+_bypass_remove_domain_interactive() {
+  local -a current_domains=()
+  mapfile -t current_domains < <(_bypass_list_current)
+
+  if [[ ${#current_domains[@]} -eq 0 ]]; then
+    echo -e "${YELLOW}Нет правил для удаления${NC}"
+    sleep 1
+    return
+  fi
+
+  echo -e "${CYAN}Текущие bypass-домены:${NC}"
+  local i
+  for i in "${!current_domains[@]}"; do
+    echo -e "${CYAN} $((i+1)))${NC} ${current_domains[$i]}"
+  done
+  echo -e "${CYAN} 0)${NC} Отмена"
+  echo ""
+  echo -n -e "${YELLOW}Выберите правило для удаления: ${NC}"
+  local choice
+  read -r choice
+  [[ "$choice" == "0" ]] && return
+  if [[ ! "$choice" =~ ^[0-9]+$ ]] || [[ "$choice" -lt 1 ]] || [[ "$choice" -gt ${#current_domains[@]} ]]; then
+    echo -e "${RED}Неверный выбор${NC}"
+    sleep 1
+    return
+  fi
+
+  local selected="${current_domains[$((choice-1))]}"
+  local dom="${selected#domain:}"
+  echo -n -e "${YELLOW}Удалить ${selected}? [y/N]: ${NC}"
+  local confirm
+  read -r confirm
+  [[ "$confirm" =~ ^[yYдД]$ ]] || { echo -e "${CYAN}✓ Отменено${NC}"; sleep 1; return; }
+
+  if _bypass_remove_rule "$dom"; then
+    echo -e "${GREEN}✓ ${selected} удален из обхода${NC}"
+  else
+    echo -e "${RED}✗ Не удалось удалить ${selected}${NC}"
+  fi
+  echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
+  read -r _
+}
+_bypass_reset_all_interactive() {
+  echo -e "${RED}╔═══════════════════════════════════════════════════════════╗${NC}"
+  echo -e "${RED}║  СБРОС ВСЕХ BYPASS-ПРАВИЛ                                ║${NC}"
+  echo -e "${RED}╚═══════════════════════════════════════════════════════════╝${NC}"
+  echo ""
+  echo -e "${YELLOW}Будут удалены только domain bypass-правила.${NC}"
+  echo -e "${CYAN}Дефолтные правила install.sh (private/ads/BitTorrent block и direct catch-all) останутся.${NC}"
+  echo ""
+  echo -n -e "${RED}Действительно сбросить? [y/N]: ${NC}"
+  local confirm
+  read -r confirm
+  [[ "$confirm" =~ ^[yYдД]$ ]] || { echo -e "${CYAN}✓ Отменено${NC}"; sleep 1; return; }
+
+  if _bypass_reset_all; then
+    echo -e "${GREEN}✓ Все bypass-правила удалены${NC}"
+  else
+    echo -e "${RED}✗ Сброс не выполнен${NC}"
+  fi
+  echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
+  read -r _
+}
+bypass_routing_menu() {
+  while true; do
+    show_ascii
+    echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
+    echo -e "${BLUE}    УПРАВЛЕНИЕ ОБХОДОМ VPN                    ${NC}"
+    echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
+    echo ""
+
+    local current
+    current=$(_bypass_list_current)
+    if [[ -z "$current" ]]; then
+      echo -e "${YELLOW}  Нет правил обхода (весь трафик через VPN)${NC}"
+    else
+      echo -e "${CYAN}Текущие домены в обходе:${NC}"
+      while IFS= read -r dom; do
+        [[ -n "$dom" ]] && echo -e "  ${GREEN}->${NC} $dom"
+      done <<< "$current"
+    fi
+    echo ""
+
+    echo -e "${CYAN} 1)${NC} Добавить домен в обход"
+    echo -e "${CYAN} 2)${NC} Применить дефолтный bundle (5 групп)"
+    echo -e "${CYAN} 3)${NC} Удалить домен из обхода"
+    echo -e "${CYAN} 4)${NC} Сбросить ВСЕ правила обхода"
+    echo -e "${CYAN} 0)${NC} Назад в главное меню"
+    echo ""
+    echo -n -e "${YELLOW}Выбор: ${NC}"
+
+    local c
+    read -r c
+    case "$c" in
+      1) _bypass_add_single_domain ;;
+      2) _bypass_apply_bundle ;;
+      3) _bypass_remove_domain_interactive ;;
+      4) _bypass_reset_all_interactive ;;
+      0) return ;;
+      *) echo -e "${RED}Неверный выбор${NC}"; sleep 1 ;;
+    esac
+  done
 }
 
 manage_profile_menu() {
@@ -9427,252 +9955,6 @@ manage_profile_advanced_menu() {
   read -r _
 }
 
-_bypass_add_single_domain() {
-  echo -n -e "${YELLOW}Введите домен (без domain:, например steamcontent.com): ${NC}"
-  local user_dom
-  read -r user_dom
-  user_dom="${user_dom#domain:}"
-
-  if [[ ! "$user_dom" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}$ ]]; then
-    echo -e "${RED}✗ Некорректный домен${NC}"
-    sleep 2
-    return
-  fi
-
-  echo -n -e "${YELLOW}Добавить domain:${user_dom} в обход VPN? [y/N]: ${NC}"
-  local confirm
-  read -r confirm
-  [[ "$confirm" =~ ^[yYдД]$ ]] || { echo -e "${CYAN}✓ Отменено${NC}"; sleep 1; return; }
-
-  if _apply_bypass_rule "[\"domain:${user_dom}\"]"; then
-    echo -e "${GREEN}✓ domain:${user_dom} добавлен в обход VPN${NC}"
-  else
-    echo -e "${RED}✗ Правило не применено${NC}"
-  fi
-  echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
-  read -r _
-}
-
-_bypass_apply_bundle() {
-  local -a group_ids=()
-  local -a group_names=()
-  local -a group_domains=()
-  local -a state=()
-  local cursor=0
-  local gid gname doms_csv
-
-  while IFS='|' read -r gid gname doms_csv; do
-    [[ -z "$gid" ]] && continue
-    group_ids+=("$gid")
-    group_names+=("$gname")
-    group_domains+=("$doms_csv")
-    state+=("on")
-  done < <(_bypass_bundle_groups)
-
-  while true; do
-    show_ascii
-    echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
-    echo -e "${BLUE}    ДЕФОЛТНЫЙ BYPASS BUNDLE                   ${NC}"
-    echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
-    echo ""
-    echo -e "${YELLOW}Выберите группы для применения:${NC}"
-    echo -e "${CYAN}↑/↓ — выбор, Space — вкл/выкл, Enter — применить, q/Esc — отмена${NC}"
-    echo ""
-
-    local i
-    for i in "${!group_ids[@]}"; do
-      local mark="[ ]"
-      [[ "${state[$i]}" == "on" ]] && mark="[x]"
-      local count
-      count=$(awk -F',' '{print NF}' <<< "${group_domains[$i]}")
-      local pointer=" "
-      [[ $i -eq $cursor ]] && pointer=">"
-      echo -e "${CYAN}${pointer} $((i+1)))${NC} $mark ${group_names[$i]} (${count} доменов)"
-    done
-
-    echo ""
-    echo -n -e "${YELLOW}Клавиша: ${NC}"
-    local key rest
-    IFS= read -rsn1 key
-    case "$key" in
-      "")
-        local all_doms_csv=""
-        for i in "${!group_ids[@]}"; do
-          if [[ "${state[$i]}" == "on" ]]; then
-            all_doms_csv="${all_doms_csv}${all_doms_csv:+,}${group_domains[$i]}"
-          fi
-        done
-
-        if [[ -z "$all_doms_csv" ]]; then
-          echo -e "${YELLOW}Нет выбранных групп. Отменено.${NC}"
-          sleep 1
-          return
-        fi
-
-        local doms_json
-        doms_json=$(printf '%s' "$all_doms_csv" | tr ',' '\n' | sed '/^$/d' | jq -R '"domain:" + .' | jq -s '.')
-        local domain_count
-        domain_count=$(printf '%s' "$doms_json" | jq 'length')
-        echo -e "${CYAN}Применяю ${domain_count} доменов...${NC}"
-
-        if _apply_bypass_rule "$doms_json"; then
-          echo -e "${GREEN}✓ Дефолтный bundle применен${NC}"
-        else
-          echo -e "${RED}✗ Bundle не применен. Если был создан бэкап, config.json откатан safe_restart_xray.${NC}"
-        fi
-        echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
-        read -r _
-        return
-        ;;
-      " ")
-        if [[ "${state[$cursor]}" == "on" ]]; then
-          state[$cursor]="off"
-        else
-          state[$cursor]="on"
-        fi
-        ;;
-      q|Q)
-        return
-        ;;
-      $'\e')
-        rest=""
-        IFS= read -rsn2 -t 0.1 rest || true
-        case "$rest" in
-          "[A")
-            ((cursor--))
-            [[ $cursor -lt 0 ]] && cursor=$((${#group_ids[@]} - 1))
-            ;;
-          "[B")
-            ((cursor++))
-            [[ $cursor -ge ${#group_ids[@]} ]] && cursor=0
-            ;;
-          *)
-            return
-            ;;
-        esac
-        ;;
-      *)
-        # Fallback для терминалов без нормальных escape-последовательностей.
-        if [[ "$key" =~ ^[0-9]$ ]] && [[ "$key" -ge 1 ]] && [[ "$key" -le ${#group_ids[@]} ]]; then
-          local idx=$((key-1))
-          cursor=$idx
-          if [[ "${state[$idx]}" == "on" ]]; then
-            state[$idx]="off"
-          else
-            state[$idx]="on"
-          fi
-        fi
-        ;;
-    esac
-  done
-}
-
-_bypass_remove_domain_interactive() {
-  local -a current_domains=()
-  mapfile -t current_domains < <(_bypass_list_current)
-
-  if [[ ${#current_domains[@]} -eq 0 ]]; then
-    echo -e "${YELLOW}Нет правил для удаления${NC}"
-    sleep 1
-    return
-  fi
-
-  echo -e "${CYAN}Текущие bypass-домены:${NC}"
-  local i
-  for i in "${!current_domains[@]}"; do
-    echo -e "${CYAN} $((i+1)))${NC} ${current_domains[$i]}"
-  done
-  echo -e "${CYAN} 0)${NC} Отмена"
-  echo ""
-  echo -n -e "${YELLOW}Выберите правило для удаления: ${NC}"
-  local choice
-  read -r choice
-  [[ "$choice" == "0" ]] && return
-  if [[ ! "$choice" =~ ^[0-9]+$ ]] || [[ "$choice" -lt 1 ]] || [[ "$choice" -gt ${#current_domains[@]} ]]; then
-    echo -e "${RED}Неверный выбор${NC}"
-    sleep 1
-    return
-  fi
-
-  local selected="${current_domains[$((choice-1))]}"
-  local dom="${selected#domain:}"
-  echo -n -e "${YELLOW}Удалить ${selected}? [y/N]: ${NC}"
-  local confirm
-  read -r confirm
-  [[ "$confirm" =~ ^[yYдД]$ ]] || { echo -e "${CYAN}✓ Отменено${NC}"; sleep 1; return; }
-
-  if _bypass_remove_rule "$dom"; then
-    echo -e "${GREEN}✓ ${selected} удален из обхода${NC}"
-  else
-    echo -e "${RED}✗ Не удалось удалить ${selected}${NC}"
-  fi
-  echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
-  read -r _
-}
-
-_bypass_reset_all_interactive() {
-  echo -e "${RED}╔═══════════════════════════════════════════════════════════╗${NC}"
-  echo -e "${RED}║  СБРОС ВСЕХ BYPASS-ПРАВИЛ                                ║${NC}"
-  echo -e "${RED}╚═══════════════════════════════════════════════════════════╝${NC}"
-  echo ""
-  echo -e "${YELLOW}Будут удалены только domain bypass-правила.${NC}"
-  echo -e "${CYAN}Дефолтные правила install.sh (private/ads/BitTorrent block и direct catch-all) останутся.${NC}"
-  echo ""
-  echo -n -e "${RED}Действительно сбросить? [y/N]: ${NC}"
-  local confirm
-  read -r confirm
-  [[ "$confirm" =~ ^[yYдД]$ ]] || { echo -e "${CYAN}✓ Отменено${NC}"; sleep 1; return; }
-
-  if _bypass_reset_all; then
-    echo -e "${GREEN}✓ Все bypass-правила удалены${NC}"
-  else
-    echo -e "${RED}✗ Сброс не выполнен${NC}"
-  fi
-  echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
-  read -r _
-}
-
-bypass_routing_menu() {
-  while true; do
-    show_ascii
-    echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
-    echo -e "${BLUE}    УПРАВЛЕНИЕ ОБХОДОМ VPN                    ${NC}"
-    echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
-    echo ""
-
-    local current
-    current=$(_bypass_list_current)
-    if [[ -z "$current" ]]; then
-      echo -e "${YELLOW}  Нет правил обхода (весь трафик через VPN)${NC}"
-    else
-      echo -e "${CYAN}Текущие домены в обходе:${NC}"
-      while IFS= read -r dom; do
-        [[ -n "$dom" ]] && echo -e "  ${GREEN}->${NC} $dom"
-      done <<< "$current"
-    fi
-    echo ""
-
-    echo -e "${CYAN} 1)${NC} Добавить домен в обход"
-    echo -e "${CYAN} 2)${NC} Применить дефолтный bundle (5 групп)"
-    echo -e "${CYAN} 3)${NC} Удалить домен из обхода"
-    echo -e "${CYAN} 4)${NC} Сбросить ВСЕ правила обхода"
-    echo -e "${CYAN} 0)${NC} Назад в главное меню"
-    echo ""
-    echo -n -e "${YELLOW}Выбор: ${NC}"
-
-    local c
-    read -r c
-    case "$c" in
-      1) _bypass_add_single_domain ;;
-      2) _bypass_apply_bundle ;;
-      3) _bypass_remove_domain_interactive ;;
-      4) _bypass_reset_all_interactive ;;
-      0) return ;;
-      *) echo -e "${RED}Неверный выбор${NC}"; sleep 1 ;;
-    esac
-  done
-}
-
 # ═══════════════════════════════════════════════════════════
 # POST-QUANTUM UPGRADE (REQ-A09 REVISED — IN-PLACE replace)
 # ═══════════════════════════════════════════════════════════
@@ -10268,7 +10550,9 @@ quickstart_command() {
   run_migration "sni_list_2026" "SNI list 2026" _migrate_sni_list_2026 >/dev/null 2>&1 || true
   run_migration "subhttp_multiroute_2026" "Subhttp multiroute handler" _migrate_subhttp_multiroute_2026 >/dev/null 2>&1 || true
   run_migration "subhttp_client_compat_2026" "Subhttp client compat" _migrate_subhttp_client_compat_2026 >/dev/null 2>&1 || true
+  run_migration "expire_timer_2026" "Expire enforcement timer" _migrate_expire_timer_2026 >/dev/null 2>&1 || true
   run_migration "bypass_routing_2026" "Bypass routing first-run" _migrate_bypass_routing_2026 >/dev/null 2>&1 || true
+  run_migration "subhttp_expired_410_2026" "Subhttp expired 410" _migrate_subhttp_expired_410_2026 >/dev/null 2>&1 || true
   run_migration "subhttp_happ_legacy_xhttp_2026" "Subhttp HAPP legacy XHTTP route" _migrate_subhttp_happ_legacy_xhttp_2026 >/dev/null 2>&1 || true
   run_migration "subhttp_happ_xhttp_compat_2026" "Subhttp HAPP XHTTP compat" _migrate_subhttp_happ_xhttp_compat_2026 >/dev/null 2>&1 || true
   run_migration "subhttp_no_default_happ_routing_2026" "Subhttp no default HAPP routing profile" _migrate_subhttp_no_default_happ_routing_2026 >/dev/null 2>&1 || true
@@ -10789,7 +11073,7 @@ profiles_command() {
     [[ "$first" -eq 0 ]] && printf ','
     first=0
 
-    local name uuid transport port fingerprint sni created sub_token multi_route rcount pq
+    local name uuid transport port fingerprint sni created sub_token multi_route rcount pq expire expire_date expire_disabled
     name=$(basename "$file" .json)
     uuid=$(jq -r '.uuid // ""' "$file" 2>/dev/null)
     transport=$(jq -r '.transport // ""' "$file" 2>/dev/null)
@@ -10801,6 +11085,18 @@ profiles_command() {
     multi_route=$(jq -r '(.multi_route // false)' "$file" 2>/dev/null)
     rcount=$(jq -r '((.routes // []) | length)' "$file" 2>/dev/null)
     pq=$(jq -r '(.pq_enabled // false)' "$file" 2>/dev/null)
+    expire=$(_profile_expire_epoch "$file" 2>/dev/null || printf '0')
+    [[ "$expire" =~ ^[0-9]+$ ]] || expire=0
+    expire_date=""
+    if (( expire > 0 )); then
+      expire_date=$(date -d "@$expire" +%F 2>/dev/null || true)
+      [[ "$expire_date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || expire_date=""
+    fi
+    if _profile_is_expire_disabled "$file" 2>/dev/null; then
+      expire_disabled=true
+    else
+      expire_disabled=false
+    fi
     [[ "$rcount" =~ ^[0-9]+$ ]] || rcount=0
 
     local sub_url=""
@@ -10814,10 +11110,14 @@ profiles_command() {
       --arg created "$created" --arg sub_token "$sub_token" \
       --argjson multi_route "$multi_route" --argjson routes "$rcount" \
       --argjson pq "$pq" --arg subscription_url "$sub_url" \
+      --argjson expire "$expire" --arg expire_date "$expire_date" \
+      --argjson expire_disabled "$expire_disabled" \
       '{name: $name, uuid: $uuid, transport: $transport, port: $port,
         fingerprint: $fingerprint, sni: $sni, created: $created,
         sub_token: $sub_token, multi_route: $multi_route, routes: $routes,
-        pq_enabled: $pq, subscription_url: $subscription_url}'
+        pq_enabled: $pq, subscription_url: $subscription_url,
+        expire: $expire, expire_date: $expire_date, expire_disabled: $expire_disabled,
+        expire_supported: true}'
   done
   printf ']\n'
   return 0
@@ -10832,13 +11132,14 @@ profile_create_command() {
   export DEBIAN_FRONTEND=noninteractive
   export XRAYEBATOR_NONINTERACTIVE=1
 
-  local name="" transport="xhttp" port="" count=1
+  local name="" transport="xhttp" port="" count=1 expire_raw=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --name) name="$2"; shift 2 ;;
       --transport) transport="$2"; shift 2 ;;
       --port) port="$2"; shift 2 ;;
       --count) count="$2"; shift 2 ;;
+      --expire) expire_raw="$2"; shift 2 ;;
       *) shift ;;
     esac
   done
@@ -10890,12 +11191,29 @@ profile_create_command() {
   exec 1>&2
 
   local created_names=() errors=()
+  local expire_value=0
+  if [[ -n "$expire_raw" ]]; then
+    if ! expire_value=$(_normalize_expire_value "$expire_raw"); then
+      exec 1>&3 3>&-
+      rm -f "$results_file"
+      echo '{"ok":false,"error":"Некорректный --expire: нужен epoch (сек/мс) или дата 2006-12-31[ 23:59]"}'
+      return 1
+    fi
+    local now_epoch
+    now_epoch=$(date +%s)
+    if [[ "$expire_value" -le "$now_epoch" ]]; then
+      exec 1>&3 3>&-
+      rm -f "$results_file"
+      echo '{"ok":false,"error":"Срок действия уже в прошлом"}'
+      return 1
+    fi
+  fi
   for pname in "${profile_names[@]}"; do
     if [[ -f "$PROFILES_DIR/$pname.json" ]]; then
       errors+=("$pname: уже существует")
       continue
     fi
-    if _profile_cli_create_one "$pname" "$transport" "$port" "$results_file"; then
+    if _profile_cli_create_one "$pname" "$transport" "$port" "$results_file" "$expire_value"; then
       created_names+=("$pname")
     else
       errors+=("$pname: не удалось создать")
@@ -10914,8 +11232,9 @@ profile_create_command() {
 }
 
 # Один профиль: файл JSON + inbound + safe_restart_xray. Возвращает 0/1.
+# $5 — expire (epoch-секунды, 0 = бессрочный).
 _profile_cli_create_one() {
-  local pname="$1" transport="$2" fixed_port="${3:-}" results_file="${4:-}"
+  local pname="$1" transport="$2" fixed_port="${3:-}" results_file="${4:-}" expire_value="${5:-0}"
   local uuid sub_token grpc_service_name xhttp_path port default_sni
   uuid=$(uuidgen)
   sub_token=$(openssl rand -hex 16)
@@ -10965,7 +11284,12 @@ _profile_cli_create_one() {
     jq_args+=(--argjson schema_v 2 --argjson pq_enabled true)
     jq_expr+=', schema_version: $schema_v, pq_enabled: $pq_enabled'
   fi
-  jq_expr+=', sub_token: $sub_token, created: $created}'
+  jq_expr+=', sub_token: $sub_token, created: $created'
+  if [[ "$expire_value" -gt 0 ]]; then
+    jq_args+=(--argjson expire "$expire_value")
+    jq_expr+=', expire: $expire'
+  fi
+  jq_expr+='}'
   if ! jq -n "${jq_args[@]}" "$jq_expr" > "$PROFILES_DIR/$pname.json"; then
     rm -f "$PROFILES_DIR/$pname.json"
     echo -e "${RED}✗ Не удалось создать JSON профиля${NC}" >&2
@@ -11000,9 +11324,11 @@ _profile_cli_create_one() {
     --arg name "$pname" --arg uuid "$uuid" --arg transport "$transport" \
     --argjson port "$port" --arg fingerprint "$fingerprint" --arg sni "$default_sni" \
     --arg sub_token "$sub_token" --arg subscription_url "$sub_url" \
+    --argjson expire "$expire_value" \
     '{name: $name, uuid: $uuid, transport: $transport, port: $port,
       fingerprint: $fingerprint, sni: $sni, sub_token: $sub_token,
-      subscription_url: $subscription_url}' >> "$results_file"
+      subscription_url: $subscription_url}
+     + (if $expire > 0 then {expire: $expire} else {} end)' >> "$results_file"
   return 0
 }
 
@@ -11085,36 +11411,25 @@ profile_delete_command() {
   return 0
 }
 
-# Смена fingerprint профиля (клиентский TLS ClientHello, Xray не перезапускается).
-# Если профиль multi-route и --route не указан — профиль требует выбора маршрута.
-fp_change_command() {
+# xrayebator profile-revoke --name NAME [--full]
+#   без --full: перевыпуск sub_token (старая URL подписки умирает, uuid жив);
+#   --full: + новый uuid во всех inbound'ах портов профиля — уже скачанные
+#   конфиги отваливаются немедленно (реальный ремонт утечки ссылки в чат).
+profile_revoke_command() {
   export TERM=dumb
   export XRAYEBATOR_NONINTERACTIVE=1
 
-  local name="" route_index="" fingerprint=""
+  local name="" full=false
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --name) name="$2"; shift 2 ;;
-      --route) route_index="$2"; shift 2 ;;
-      --fp) fingerprint="$2"; shift 2 ;;
+      --full) full=true; shift ;;
       *) shift ;;
     esac
   done
 
   if [[ -z "$name" ]] || ! [[ "$name" =~ ^[a-zA-Z0-9_-]{1,48}$ ]]; then
     echo '{"ok":false,"error":"Некорректное имя профиля (1-48 симв.: a-z, 0-9, _ -)"}'
-    return 1
-  fi
-  case "$fingerprint" in
-    chrome|firefox|safari|edge|ios|random) ;;
-    *)
-      echo '{"ok":false,"error":"Некорректный fingerprint: chrome|firefox|safari|edge|ios|random"}'
-      return 1
-      ;;
-  esac
-
-  if [[ -n "$route_index" ]] && ! [[ "$route_index" =~ ^[0-9]+$ ]]; then
-    echo '{"ok":false,"error":"Некорректный --route (целое число, 0-based)"}'
     return 1
   fi
 
@@ -11124,39 +11439,333 @@ fp_change_command() {
     return 1
   fi
 
-  local route_count route_label
-  route_count=$(_profile_route_count "$profile_file")
-  [[ "$route_count" =~ ^[0-9]+$ ]] || route_count=0
-
-  if [[ "$route_count" -gt 0 ]]; then
-    if [[ -z "$route_index" ]]; then
-      echo "{\"ok\":false,\"error\":\"Профиль multi-route ($route_count маршрутов): укажите --route N\"}"
-      return 1
-    fi
-    if [[ "$route_index" -ge "$route_count" ]]; then
-      echo "{\"ok\":false,\"error\":\"Некорректный --route: в профиле $route_count маршрутов\"}"
-      return 1
-    fi
-    route_label=$(jq -r --argjson i "$route_index" '.routes[$i].label // .routes[$i].transport // ""' "$profile_file" 2>/dev/null)
-  else
-    route_index=""
-    route_label=""
-  fi
-
-  # CLI-режим: статусы safe_jq_write печатают мусор в stdout — душим в stderr.
-  exec 3>&1
-  exec 1>&2
-
-  if ! update_profile_fingerprint "$profile_file" "$route_index" "$fingerprint"; then
-    exec 1>&3 3>&-
-    echo "{\"ok\":false,\"error\":\"Не удалось обновить fingerprint профиля\"}"
+  local new_token
+  new_token=$(openssl rand -hex 16)
+  if [[ ! "$new_token" =~ ^[a-f0-9]{32}$ ]]; then
+    echo '{"ok":false,"error":"Не удалось сгенерировать sub_token"}'
     return 1
   fi
 
-  exec 1>&3 3>&-
+  local old_uuid="" new_uuid="" ports_json=""
+  if [[ "$full" == "true" ]]; then
+    old_uuid=$(jq -r '.uuid // empty' "$profile_file")
+    if [[ -z "$old_uuid" ]]; then
+      echo '{"ok":false,"error":"Профиль повреждён: нет uuid"}'
+      return 1
+    fi
+    new_uuid=$(uuidgen)
+    if [[ ! "$new_uuid" =~ ^[0-9a-fA-F-]{36}$ ]]; then
+      echo '{"ok":false,"error":"Не удалось сгенерировать uuid"}'
+      return 1
+    fi
+    ports_json=$(_profile_ports_json "$profile_file")
+    if ! jq -e 'type == "array" and length > 0' <<< "$ports_json" >/dev/null 2>&1; then
+      echo '{"ok":false,"error":"Профиль повреждён: нет корректных портов"}'
+      return 1
+    fi
+    # Полный отзыв должен выключать и уже истёкший по сроку профиль.
+    if _profile_is_expire_disabled "$profile_file"; then
+      echo '{"ok":false,"error":"Профиль отключён по сроку — сначала продлите срок (profile-expire)"}'
+      return 1
+    fi
+  fi
+
+  # CLI-режим: статусы helpers (backup_config, safe_restart_xray, safe_jq_write)
+  # печатают цветной мусор в stdout — душим в stderr (контракт JSON-only).
+  # Бэкап тоже внутри redirect: его "-> Бэкап конфига" иначе ломает JSON.
+  exec 3>&1
+  exec 1>&2
+
+  local rollback_config=""
+  if ! backup_config "cli_revoke_$name" rollback_config; then
+    echo '{"ok":false,"error":"Не удалось создать бэкап config.json"}' >&3
+    exec 1>&3 3>&-
+    return 1
+  fi
+
+  # Профиль-JSON: новый токен всегда; при --full ещё и uuid (top-level + routes).
+  # Порядок при full: сначала конфиг+рестарт, потом профиль; сбой записи профиля
+  # при full откатывает конфиг — иначе uuid разедутся.
+  local jq_args=(--arg t "$new_token")
+  local jq_expr='.sub_token = $t'
+  if [[ "$full" == "true" ]]; then
+    jq_args+=(--arg old "$old_uuid" --arg new "$new_uuid")
+    jq_expr+=' | .uuid = $new | (.routes // []) |= map(if .uuid? == $old then .uuid = $new else . end)'
+    # routes не хранят uuid (общий на профиль), но выражение безопасно для будущих схем.
+
+    if ! _replace_uuid_in_config "$old_uuid" "$new_uuid" "$ports_json"; then
+      echo '{"ok":false,"error":"Не удалось обновить clients в config.json"}' >&3
+      exec 1>&3 3>&-
+      return 1
+    fi
+    if ! safe_restart_xray "$rollback_config"; then
+      echo '{"ok":false,"error":"Xray не принял конфиг — изменения откачены"}' >&3
+      exec 1>&3 3>&-
+      return 1
+    fi
+  fi
+
+  if ! safe_jq_write "${jq_args[@]}" "$jq_expr" "$profile_file"; then
+    if [[ "$full" == "true" ]]; then
+      # Полусостояние недопустимо: конфиг уже с новым uuid, профиль — со старым.
+      # Откатываем config.json из бэкапа транзакции.
+      if [[ -n "$rollback_config" && -f "$rollback_config" ]]; then
+        cp "$rollback_config" "$CONFIG_FILE"
+        safe_restart_xray ""
+      fi
+    fi
+    echo '{"ok":false,"error":"Не удалось записать profile JSON"}' >&3
+    exec 1>&3 3>&-
+    return 1
+  fi
+  chown root:root "$profile_file" 2>/dev/null || true
+
   fix_xray_permissions
-  echo "{\"ok\":true,\"name\":\"$name\",\"fingerprint\":\"$fingerprint\",\"route\":\"$route_label\"}"
+  exec 1>&3 3>&-
+
+  local sub_url="" base
+  base=$(_subscription_base_url 2>/dev/null || true)
+  if [[ -n "$base" ]] && _profile_cli_subscription_url "$new_token" >/dev/null 2>&1; then
+    sub_url="${base}/sub/${new_token}"
+  fi
+  jq -n \
+    --arg name "$name" --arg token "$new_token" --arg url "$sub_url" \
+    --argjson full "$full" --arg uuid "$new_uuid" \
+    '{ok: true, name: $name, full: $full, sub_token: $token,
+      subscription_url: $url}
+     + (if $full then {uuid: $uuid} else {} end)'
   return 0
+}
+
+# ═══════════════════════════════════════════════════════════
+# CLI сроков действия профилей (profile-expire / expire-check).
+# Принуждение серверное: systemd-таймер раз в 10 мин вызывает expire-check,
+# который удаляет клиента истёкшего профиля из inbound'ов (снимок в .expire_clients)
+# и возвращает обратно при продлении. subhttp отдаёт .expire как subscription-userinfo.
+# ═══════════════════════════════════════════════════════════
+
+# xrayebator profile-expire --name NAME --expire VALUE|none
+#   VALUE: unix-секунды | unix-мс (13 цифр) | "ГГГГ-ММ-ДД" | "ГГГГ-ММ-ДД HH:MM".
+#   none — снять срок (вечный профиль). Смена статуса перезапускает xray.
+profile_expire_command() {
+  export TERM=dumb
+  export XRAYEBATOR_NONINTERACTIVE=1
+
+  local name="" raw=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --name) name="$2"; shift 2 ;;
+      --expire) raw="$2"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+
+  if [[ -z "$name" ]] || ! [[ "$name" =~ ^[a-zA-Z0-9_-]{1,48}$ ]]; then
+    echo '{"ok":false,"error":"Некорректное имя профиля (1-48 симв.: a-z, 0-9, _ -)"}'
+    return 1
+  fi
+  if [[ -z "$raw" ]]; then
+    echo '{"ok":false,"error":"Укажите --expire ГГГГ-ММ-ДД|epoch|none"}'
+    return 1
+  fi
+
+  local expire=0
+  if [[ "$raw" != "none" ]]; then
+    if ! expire=$(_normalize_expire_value "$raw"); then
+      echo '{"ok":false,"error":"Некорректный срок: нужен epoch (сек/мс) или дата 2006-12-31[ 23:59]"}'
+      return 1
+    fi
+  fi
+
+  local profile_file="$PROFILES_DIR/$name.json"
+  if [[ ! -f "$profile_file" ]]; then
+    echo "{\"ok\":false,\"error\":\"Профиль $name не найден\"}"
+    return 1
+  fi
+
+  local now action=""
+  now=$(date +%s)
+  if [[ "$expire" -gt 0 && "$expire" -le "$now" ]]; then
+    # Профиль уже помечен отключённым, но клиента снова нашли в конфиге
+    # (вмешательство руками) — бан нужно наложить заново.
+    if ! _profile_is_expire_disabled "$profile_file" || _profile_client_in_config "$profile_file"; then
+      action="disable"
+    fi
+  else
+    if _profile_is_expire_disabled "$profile_file"; then action="enable"; fi
+  fi
+
+  # Тот же контракт JSON-only: backup_config печатает статус — только после switch.
+  exec 3>&1
+  exec 1>&2
+
+  local rollback_config=""
+  if [[ -n "$action" ]] && ! backup_config "cli_expire_$name" rollback_config; then
+    echo '{"ok":false,"error":"Не удалось создать бэкап config.json"}' >&3
+    exec 1>&3 3>&-
+    return 1
+  fi
+
+  if ! safe_jq_write --argjson e "$expire" \
+      'if $e == 0 then del(.expire) else .expire = $e end' "$profile_file"; then
+    echo "{\"ok\":false,\"error\":\"Не удалось записать expire в профиль\"}" >&3
+    exec 1>&3 3>&-
+    return 1
+  fi
+  chown root:root "$profile_file" 2>/dev/null || true
+
+  local apply_rc=0
+  if [[ "$action" == "disable" ]]; then
+    _expire_disable_profile "$profile_file" || apply_rc=1
+  elif [[ "$action" == "enable" ]]; then
+    _expire_enable_profile "$profile_file" || apply_rc=1
+  fi
+
+  if [[ "$apply_rc" -ne 0 ]]; then
+    echo "{\"ok\":false,\"error\":\"Не удалось применить отключение/включение профиля\"}" >&3
+    exec 1>&3 3>&-
+    return 1
+  fi
+
+  if [[ -n "$action" ]]; then
+    fix_xray_permissions
+    if ! safe_restart_xray "$rollback_config"; then
+      echo '{"ok":false,"error":"Xray не принял конфиг — изменения откачены"}' >&3
+      exec 1>&3 3>&-
+      return 1
+    fi
+  fi
+  exec 1>&3 3>&-
+
+  local expired=false
+  [[ "$expire" -gt 0 && "$expire" -le "$now" ]] && expired=true
+  jq -n --arg name "$name" --argjson e "$expire" --argjson expired "$expired" \
+    '{ok: true, name: $name, expire: $e, expired: $expired}'
+  return 0
+}
+
+# xrayebator expire-check — пакетное принуждение сроков (вызывается таймером
+# xrayebator-expire.timer и вручную). Идемпотентен: без изменений — без рестарта.
+expire_check_command() {
+  export TERM=dumb
+  export XRAYEBATOR_NONINTERACTIVE=1
+
+  local now
+  now=$(date +%s)
+
+  # Проход 1: только классификация (никаких мутаций конфига до общего бэкапа).
+  local -a disable_files=() enable_files=()
+  local profile_file expire
+  for profile_file in "$PROFILES_DIR"/*.json; do
+    [[ -f "$profile_file" ]] || continue
+    expire=$(_profile_expire_epoch "$profile_file" 2>/dev/null) || continue
+    [[ "$expire" =~ ^[0-9]+$ ]] || continue
+    if [[ "$expire" -gt 0 && "$expire" -le "$now" ]]; then
+      # Кандидат на бан: не помечен ИЛИ помечен, но клиент снова в конфиге.
+      if ! _profile_is_expire_disabled "$profile_file" || _profile_client_in_config "$profile_file"; then
+        disable_files+=("$profile_file")
+      fi
+    elif _profile_is_expire_disabled "$profile_file"; then
+      enable_files+=("$profile_file")
+    fi
+  done
+
+  if [[ ${#disable_files[@]} -eq 0 && ${#enable_files[@]} -eq 0 ]]; then
+    echo '{"ok":true,"disabled":[],"enabled":[]}'
+    return 0
+  fi
+
+  exec 3>&1
+  exec 1>&2
+
+  local rollback_config=""
+  if ! backup_config "expire_check" rollback_config; then
+    echo '{"ok":false,"error":"Не удалось создать бэкап config.json"}' >&3
+    exec 1>&3 3>&-
+    return 1
+  fi
+
+  local -a done_disable=() done_enable=()
+  for profile_file in "${disable_files[@]}"; do
+    if _expire_disable_profile "$profile_file"; then
+      done_disable+=("$(basename "$profile_file" .json)")
+    fi
+  done
+  for profile_file in "${enable_files[@]}"; do
+    if _expire_enable_profile "$profile_file"; then
+      done_enable+=("$(basename "$profile_file" .json)")
+    fi
+  done
+
+  fix_xray_permissions
+  if ! safe_restart_xray "$rollback_config"; then
+    echo '{"ok":false,"error":"Xray не принял конфиг — изменения откачены"}' >&3
+    exec 1>&3 3>&-
+    return 1
+  fi
+  exec 1>&3 3>&-
+
+  jq -n \
+    --argjson d "$(printf '%s\n' "${done_disable[@]}" | jq -R . | jq -s 'map(select(length > 0))')" \
+    --argjson e "$(printf '%s\n' "${done_enable[@]}" | jq -R . | jq -s 'map(select(length > 0))')" \
+    '{ok: true, disabled: $d, enabled: $e}'
+  return 0
+}
+
+# systemd-таймер принуждения expire (2 unit'а, root-контекст: мутит config.json).
+# Контракт no-op: таймер уже включён и ExecStart актуален → return 1 (no-op),
+# установка прошла → return 0. Совпадает с контрактом run_migration.
+_install_expire_timer() {
+  local unit=/etc/systemd/system/xrayebator-expire.service
+  local timer=/etc/systemd/system/xrayebator-expire.timer
+
+  if [[ -f "$unit" && -f "$timer" ]] \
+     && grep -q "ExecStart=/usr/local/bin/xrayebator expire-check" "$unit" \
+     && systemctl is-enabled --quiet xrayebator-expire.timer 2>/dev/null; then
+    return 1
+  fi
+
+  cat > "$unit" << 'SVCEOF'
+[Unit]
+Description=Xrayebator: enforce profile expiry dates
+After=network-online.target xray.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/xrayebator expire-check
+IOSchedulingClass=idle
+SVCEOF
+  chmod 644 "$unit"
+  chown root:root "$unit" || return 2
+
+  cat > "$timer" << 'TMREOF'
+[Unit]
+Description=Run Xrayebator profile-expiry enforcement every 10 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=10min
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target
+TMREOF
+  chmod 644 "$timer"
+  chown root:root "$timer" || return 2
+
+  systemctl daemon-reload || return 2
+  systemctl enable --now xrayebator-expire.timer >/dev/null 2>&1 || return 2
+  return 0
+}
+
+# Контракт run_migration: 1 = no-op (маркер ставится БЕЗ рестарта xray — таймер
+# не трогает config.json, ронять соединения из-за него нельзя); ≥2 = фалл (повтор).
+_migrate_expire_timer_2026() {
+  _install_expire_timer
+  local rc=$?
+  [[ $rc -le 1 ]] && return 1
+  return 2
 }
 
 # ═══════════════════════════════════════════════════════════
@@ -11180,7 +11789,6 @@ _bypass_cli_list() {
     return 1
   fi
 }
-
 # bypass add --domain D — добавить домен в обход (проверка SNI-конфликта).
 _bypass_cli_add() {
   local domain=""
@@ -11222,7 +11830,6 @@ _bypass_cli_add() {
   echo '{"ok":false,"error":"Не удалось добавить домен в обход"}'
   return 1
 }
-
 # bypass remove --domain D — удалить домен из обхода.
 _bypass_cli_remove() {
   local domain=""
@@ -11249,7 +11856,6 @@ _bypass_cli_remove() {
   echo '{"ok":false,"error":"Не удалось удалить домен из обхода"}'
   return 1
 }
-
 # bypass reset — удалить ВСЕ domain bypass-правила (дефолтные rules install.sh остаются).
 _bypass_cli_reset() {
   local out rc
@@ -11262,7 +11868,6 @@ _bypass_cli_reset() {
   echo '{"ok":false,"error":"Не удалось сбросить bypass-правила"}'
   return 1
 }
-
 # bypass bundle [--group a,b,c] — применить группы доменов из _bypass_bundle_groups.
 # Без --group применяются ВСЕ группы. Возвращает количество добавленных доменов.
 _bypass_cli_bundle() {
@@ -11340,7 +11945,6 @@ _bypass_cli_bundle() {
   echo '{"ok":false,"error":"Не удалось применить bundle"}'
   return 1
 }
-
 bypass_command() {
   export TERM=dumb
   export XRAYEBATOR_NONINTERACTIVE=1
@@ -11375,6 +11979,80 @@ bypass_command() {
       return 1
       ;;
   esac
+}
+
+# Смена fingerprint профиля (клиентский TLS ClientHello, Xray не перезапускается).
+# Если профиль multi-route и --route не указан — профиль требует выбора маршрута.
+fp_change_command() {
+  export TERM=dumb
+  export XRAYEBATOR_NONINTERACTIVE=1
+
+  local name="" route_index="" fingerprint=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --name) name="$2"; shift 2 ;;
+      --route) route_index="$2"; shift 2 ;;
+      --fp) fingerprint="$2"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+
+  if [[ -z "$name" ]] || ! [[ "$name" =~ ^[a-zA-Z0-9_-]{1,48}$ ]]; then
+    echo '{"ok":false,"error":"Некорректное имя профиля (1-48 симв.: a-z, 0-9, _ -)"}'
+    return 1
+  fi
+  case "$fingerprint" in
+    chrome|firefox|safari|edge|ios|random) ;;
+    *)
+      echo '{"ok":false,"error":"Некорректный fingerprint: chrome|firefox|safari|edge|ios|random"}'
+      return 1
+      ;;
+  esac
+
+  if [[ -n "$route_index" ]] && ! [[ "$route_index" =~ ^[0-9]+$ ]]; then
+    echo '{"ok":false,"error":"Некорректный --route (целое число, 0-based)"}'
+    return 1
+  fi
+
+  local profile_file="$PROFILES_DIR/$name.json"
+  if [[ ! -f "$profile_file" ]]; then
+    echo "{\"ok\":false,\"error\":\"Профиль $name не найден\"}"
+    return 1
+  fi
+
+  local route_count route_label
+  route_count=$(_profile_route_count "$profile_file")
+  [[ "$route_count" =~ ^[0-9]+$ ]] || route_count=0
+
+  if [[ "$route_count" -gt 0 ]]; then
+    if [[ -z "$route_index" ]]; then
+      echo "{\"ok\":false,\"error\":\"Профиль multi-route ($route_count маршрутов): укажите --route N\"}"
+      return 1
+    fi
+    if [[ "$route_index" -ge "$route_count" ]]; then
+      echo "{\"ok\":false,\"error\":\"Некорректный --route: в профиле $route_count маршрутов\"}"
+      return 1
+    fi
+    route_label=$(jq -r --argjson i "$route_index" '.routes[$i].label // .routes[$i].transport // ""' "$profile_file" 2>/dev/null)
+  else
+    route_index=""
+    route_label=""
+  fi
+
+  # CLI-режим: статусы safe_jq_write печатают мусор в stdout — душим в stderr.
+  exec 3>&1
+  exec 1>&2
+
+  if ! update_profile_fingerprint "$profile_file" "$route_index" "$fingerprint"; then
+    exec 1>&3 3>&-
+    echo "{\"ok\":false,\"error\":\"Не удалось обновить fingerprint профиля\"}"
+    return 1
+  fi
+
+  exec 1>&3 3>&-
+  fix_xray_permissions
+  echo "{\"ok\":true,\"name\":\"$name\",\"fingerprint\":\"$fingerprint\",\"route\":\"$route_label\"}"
+  return 0
 }
 
 # ═══════════════════════════════════════════════════════════
@@ -11924,13 +12602,21 @@ if [[ "$XRAYEBATOR_SOURCED" -eq 0 ]]; then
       shift
       profile_delete_command "$@"
       ;;
+    profile-revoke)
+      shift
+      profile_revoke_command "$@"
+      ;;
+    profile-expire)
+      shift
+      profile_expire_command "$@"
+      ;;
+    expire-check)
+      shift
+      expire_check_command "$@"
+      ;;
     fp-change)
       shift
       fp_change_command "$@"
-      ;;
-    bypass)
-      shift
-      bypass_command "$@"
       ;;
     sni-change)
       shift
@@ -11943,6 +12629,10 @@ if [[ "$XRAYEBATOR_SOURCED" -eq 0 ]]; then
     port-change)
       shift
       port_change_command "$@"
+      ;;
+    bypass)
+      shift
+      bypass_command "$@"
       ;;
     ""|menu)
       main_menu
@@ -11959,18 +12649,21 @@ if [[ "$XRAYEBATOR_SOURCED" -eq 0 ]]; then
       echo -e "  ${CYAN}sudo xrayebator happ-setup${NC}       — создать/переиспользовать HAPP multi-route профиль"
       echo -e "  ${CYAN}sudo xrayebator probe-test${NC}       — проверить доступность SNI с VPS"
       echo -e "  ${CYAN}sudo xrayebator profiles${NC}          — JSON-список профилей"
-      echo -e "  ${CYAN}sudo xrayebator profile-create --name N [--transport T] [--port P] [--count N]${NC}"
+      echo -e "  ${CYAN}sudo xrayebator profile-create --name N [--transport T] [--port P] [--count N] [--expire 2006-12-31]${NC}"
       echo -e "                               — создать профиль/семейство профилей (JSON)"
       echo -e "  ${CYAN}sudo xrayebator profile-delete --name N${NC} — удалить профиль (JSON)"
       echo -e "  ${CYAN}sudo xrayebator fp-change --name N [--route R] --fp FINGERPRINT${NC} — сменить fingerprint (JSON)"
+      echo -e "  ${CYAN}sudo xrayebator profile-revoke --name N [--full]${NC} — новый sub_token; --full: и новый uuid, старые клиенты отваливаются (JSON)"
+      echo -e "  ${CYAN}sudo xrayebator profile-expire --name N --expire 2006-12-31|epoch|none${NC} — срок действия профиля (JSON)"
+      echo -e "  ${CYAN}sudo xrayebator expire-check${NC} — применить наступившие сроки (для systemd-таймера) (JSON)"
+      echo -e "  ${CYAN}sudo xrayebator sni-list${NC} — список допустимых SNI (JSON)"
+      echo -e "  ${CYAN}sudo xrayebator sni-change --name N [--route R] --sni S${NC} — сменить SNI (JSON; обновит все профили на порту)"
+      echo -e "  ${CYAN}sudo xrayebator port-change --name N [--route R] --port P|random${NC} — сменить порт (JSON; reconnect клиентов)"
       echo -e "  ${CYAN}sudo xrayebator bypass list${NC} — список доменов в обходе (JSON)"
       echo -e "  ${CYAN}sudo xrayebator bypass add --domain D${NC} — добавить домен в обход (JSON)"
       echo -e "  ${CYAN}sudo xrayebator bypass remove --domain D${NC} — убрать домен из обхода (JSON)"
       echo -e "  ${CYAN}sudo xrayebator bypass reset${NC} — сбросить все bypass-правила (JSON)"
       echo -e "  ${CYAN}sudo xrayebator bypass bundle [--group a,b,c]${NC} — применить группы доменов (JSON)"
-      echo -e "  ${CYAN}sudo xrayebator sni-list${NC} — список допустимых SNI (JSON)"
-      echo -e "  ${CYAN}sudo xrayebator sni-change --name N [--route R] --sni S${NC} — сменить SNI (JSON; обновит все профили на порту)"
-      echo -e "  ${CYAN}sudo xrayebator port-change --name N [--route R] --port P|random${NC} — сменить порт (JSON; reconnect клиентов)"
       echo ""
       echo -e "${YELLOW}Файлы:${NC}"
       echo -e "  config:    /usr/local/etc/xray/config.json"
