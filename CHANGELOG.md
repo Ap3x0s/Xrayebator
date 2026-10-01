@@ -2,7 +2,11 @@
 
 User-facing Xrayebator changes. The server manager and Electron application are published from the canonical `howdeploy/Xrayebator` repository.
 
-## [Unreleased]
+## [0.6.0] - 2026-10-01
+
+Access control in the panel: subscription revocation (link-only or full), profile expiry
+enforced server-side by a systemd timer, `410 Gone` for expired profiles, and a themed
+calendar picker; self-update now remembers its branch.
 
 ### Added
 
