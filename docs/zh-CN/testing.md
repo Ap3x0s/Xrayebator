@@ -15,7 +15,7 @@ for test_file in validation/*.sh; do bash "$test_file" || exit; done
 
 ## 测试覆盖范围
 
-`validation/` 中有 26 个静态与本地回归测试：
+`validation/` 中有 28 个静态与本地回归测试：
 
 | 测试 | 检查内容 |
 |---|---|
@@ -29,6 +29,7 @@ for test_file in validation/*.sh; do bash "$test_file" || exit; done
 | `test-dead-stealth-route-pruning.sh` | 失效 stealth 线路的清理 |
 | `test-cascade-routing.sh` | 级联路由 |
 | `test-cascade-upstream-import.sh` | 从链接导入级联上游 |
+| `test-update-branch-pinning.sh` | `update <branch>` 在 `.current_branch` 固定分支；GUI 更新不会切回其它分支 |
 | `test-update-xray-core-sync.sh` | Xray-core 更新同步 |
 | `test-vless-url-generation.sh` | `vless://` 链接生成 |
 | `test-installer-network-fallbacks.sh` | 安装脚本网络回退 |
@@ -37,8 +38,9 @@ for test_file in validation/*.sh; do bash "$test_file" || exit; done
 | `test-main-menu-numbering.sh` | 主菜单条目编号连续并与处理函数一致 |
 | `test-main-readiness-regressions.sh` | 审计后的 readiness 回归：certbot manifest、UFW manifest、nginx 回滚、权限与 SSH 端口 |
 | `test-sni-change-cli.sh` | `sni-change` CLI：JSON 输出、Reality、XHTTP host、配置档同步与回滚 |
-| `test-port-change-cli.sh` | `port-change` CLI：unit/shared/move 入站场景、无效端口、缺少配置档、多线路 `--route` |
 | `test-bypass-cli.sh` | `bypass` CLI：JSON 输出、路由规则更新、带 SNI 探测的 add |
+| `test-port-change-cli.sh` | `port-change` CLI：unit/shared/move 入站场景、无效端口、缺少配置档、多线路 `--route` |
+| `test-profile-revoke-expire-cli.sh` | `profile-revoke`（仅令牌 / 轮换 uuid 且保留共享端口上的其他客户端）与配置档有效期（停用、从快照恢复、无快照重建、幂等的 `expire-check`） |
 | `test-apt-lock-race.sh` | apt-lock 竞态：安装命令携带 `DPkg::Lock::Timeout`、检测 `unattended-upgrade` 工作进程、quickstart 12 分钟预算 |
 | `test-quickstart-email-and-inspect.sh` | `quickstart` 的显式 email 模式（`--without-email` 不使用虚假地址）以及 `inspect --json` 的只读不变量 |
 | `test-quickstart-migration-parity.sh` | `quickstart` 执行与 `main_menu` 相同的关键迁移 |
@@ -100,7 +102,7 @@ npm test              # Vitest 单元测试
 
 三个独立 workflow：
 
-- **ci-linux.yml** — Bash validation：在 ubuntu-24.04 上对所有脚本执行 `bash -n`，并运行全部 26 个
+- **ci-linux.yml** — Bash validation：在 ubuntu-24.04 上对所有脚本执行 `bash -n`，并运行全部 28 个
   `validation/test-*.sh`；在 push 到 `main`、`dev`、`experimental` 以及 pull request 时运行。
 - **release.yml** — Electron 构建（Windows/macOS/Linux）。只在 `v*` tag 和手动触发时运行；先由
   `preflight` 检查发布说明 `docs/releases/<tag>.en.md` 是否存在，以及仓库密钥 `AP3X0`（若已设置）

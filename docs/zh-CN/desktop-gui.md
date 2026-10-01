@@ -44,7 +44,7 @@ GUI 会显示部署日志和步骤状态，但进行中的部署没有 IPC 取�
 向导显示步骤索引和实际执行工作的实时控制台：SSH 连接、`xrayebator inspect --json` 调用、返回的组件状态、订阅探测和最终结果。订阅 URL 是 bearer credential，因此其令牌在进入控制台前会被遮蔽（`…`）；密码和密钥字节完全不会出现在其中。
 ### Server keys
 
-Server keys 会从保存的 `subscription_url` 刷新订阅，并显示返回的 VLESS 线路。每条 VLESS 链接都可以复制或生成二维码；订阅 URL 也可以复制，页面还提供复制全部内容的操作。此页面不会在服务器上创建独立订阅，也不会轮换订阅令牌。
+Server keys 会从保存的 `subscription_url` 刷新订阅，并显示返回的 VLESS 线路。每条 VLESS 链接都可以复制或生成二维码；订阅 URL 也可以复制，页面还提供复制全部内容的操作。此页面不会在服务器上创建独立订阅，也不会轮换订阅令牌（轮换在 Server settings 的配置档卡片上进行）。
 
 ### Server settings
 
@@ -65,7 +65,7 @@ SNI 和端口属于 inbound 级别的设置：修改它们可能影响共享该 
 
 GUI 支持 SSH 密码认证或私钥认证，并支持直接以 `root` 执行或通过 `sudo` 提升权限。私钥通过 Electron 原生文件对话框选择；main process 读取字节并通过 `keytar` 保存到操作系统钥匙串（Windows Credential Manager、macOS Keychain 或 Linux Secret Service），renderer 只收到非敏感 credential id 和显示文件名。之后的 SSH 操作以及应用重启后都可以复用该密钥。
 
-如果系统钥匙串不可用，应用不会在磁盘上创建明文回退副本：密钥只保留在 main process 内存中，直到应用退出；界面会提示重启后需要重新选择。SSH 登录密码在首次成功认证后保存到系统钥匙串，之后的操作和应用重启均可复用；服务器卡片只保存非敏感 credential id。单独的 sudo 密码和加密私钥口令不会持久化，需要时重新输入。私钥字节和密码值都不会越过 preload boundary：renderer 只收到 credential id 和显示名。`electron-store` 会保存服务器卡片、连接偏好、credential id、显示文件名、安装诊断、订阅 URL、已获取的 VLESS 链接（bearer/client credentials）和 SSH host-key SHA-256 pin（TOFU）。请保护本地应用数据；若订阅 URL 或 VLESS 链接泄露，请通过终端 workflow 吊销订阅。删除引用某个 credential 的最后一张服务器卡片时会删除对应钥匙串记录；其他卡片仍引用时会保留。
+如果系统钥匙串不可用，应用不会在磁盘上创建明文回退副本：密钥只保留在 main process 内存中，直到应用退出；界面会提示重启后需要重新选择。SSH 登录密码在首次成功认证后保存到系统钥匙串，之后的操作和应用重启均可复用；服务器卡片只保存非敏感 credential id。单独的 sudo 密码和加密私钥口令不会持久化，需要时重新输入。私钥字节和密码值都不会越过 preload boundary：renderer 只收到 credential id 和显示名。`electron-store` 会保存服务器卡片、连接偏好、credential id、显示文件名、安装诊断、订阅 URL、已获取的 VLESS 链接（bearer/client credentials）和 SSH host-key SHA-256 pin（TOFU）。请保护本地应用数据；若订阅 URL 或 VLESS 链接泄露，请在 Server settings 中吊销订阅（「完全吊销」会同时更换密钥）。删除引用某个 credential 的最后一张服务器卡片时会删除对应钥匙串记录；其他卡片仍引用时会保留。
 
 Electron 边界包含以下保护措施：
 
@@ -81,12 +81,15 @@ GUI 暴露的配置档 API 对应以下 Bash CLI 命令：
 
 ```text
 xrayebator profiles
-xrayebator profile-create --name NAME [--transport T] [--port P] [--count N]
+xrayebator profile-create --name NAME [--transport T] [--port P] [--count N] [--expire DATE]
 xrayebator profile-delete --name NAME
+xrayebator profile-revoke --name NAME [--full]
+xrayebator profile-expire --name NAME --expire DATE|epoch|none
 xrayebator fp-change --name NAME [--route R] --fp FINGERPRINT
 xrayebator sni-change --name NAME [--route R] --sni SNI
 xrayebator sni-list
 xrayebator port-change --name NAME [--route R] --port PORT|random
+xrayebator bypass list|add --domain D|remove --domain D|reset|bundle [--group a,b,c]
 ```
 
 部署流程会调用以下命令之一：
@@ -107,9 +110,7 @@ GUI 使用结果中的 `subscription_url`，随后通过该 URL 获取 VLESS 密
 当前 Electron GUI **不暴露**以下服务器功能：
 
 ```text
-bypass
 probe-test
-revoke
 happ-setup
 cascade
 self-steal
@@ -117,7 +118,13 @@ self-steal
 服务日志/状态
 ```
 
-尤其要注意，Dashboard 的可达性状态点不等于可以使用 `probe-test`，密钥页面也不等于可以使用 `revoke`。
+尤其要注意，Dashboard 的可达性状态点不等于可以使用 `probe-test`。
+
+Server settings 还提供：
+
+- **订阅吊销** —— 每个配置档旁的按钮会打开一个菜单，包含两种模式。「仅更换链接」会重新签发 `sub_token`（旧 URL 立即失效，线路和密钥不变）。「完全吊销」还会更换该配置档所有 inbound 中的 uuid，已经下载过配置的设备会立刻断开——这是真正关闭泄露链接访问权限的唯一方式。
+- **配置档有效期** —— 日期通过订阅响应头下发给客户端，并由服务器强制执行：`xrayebator-expire.timer` 定时器每 10 分钟运行一次 `xrayebator expire-check`，到期后把客户端从 inbound 中移除。只选日期时，在服务器本地时区的当天 `23:59:59`（含）到期。GUI 使用 `expire_date` 中服务器的日历日期，因此桌面与 VPS 时区不同时也不会显示错一天。延长后恢复同一个客户端。配置档标签会显示有效期：到期前 3 天内变为提醒色，到期后变为警示色。创建配置档时也可以直接设置有效期；日期通过内置主题日历选择（过去日期禁用），并提供 +7/+30/+90/+365 天预设。如果所连接的服务器版本过旧、未报告有效期支持，GUI 会明确提示服务器过旧，而不是假装配置档永久有效。
+- **CLI 错误回显** —— 失败原因取自 stderr，必要时回退到 stdout；过旧服务器上的未知命令会附带更新 Xrayebator 的提示，而不是只有空退出码。
 
 ## 部署协议
 
@@ -179,4 +186,4 @@ Electron packaging 使用为 `howdeploy/Xrayebator` 配置的 GitHub provider。
 - 没有 React/Electron runtime integration tests。Electron 具有 unit tests、TypeScript 检查、build 检查和真实服务器手工验证，但没有同时启动完整 packaged renderer 与 main process 流程的测试。
 - 有一个 Vitest 测试使用 POSIX `/bin/sh`（`tests/unit/shell-command.test.ts`）。这是 Windows 上的已知限制；该 shell 专用测试以 Linux 为事实来源。
 - Auto-updater 仅在 packaged build 中运行，使用为 `howdeploy` 配置的 GitHub provider，并采用 auto-download/install-on-quit 行为；`npm run dev` 不会模拟发布更新。
-- GUI 有意只暴露上面记录的命令范围。需要 bypass、probe-test、订阅撤销、HAPP setup、cascade、self-steal、terminal menu 或服务日志/状态时，请使用 Bash `xrayebator` 界面或服务器端命令。
+- GUI 有意只暴露上面记录的命令范围。需要 probe-test、HAPP setup、cascade、self-steal、terminal menu 或服务日志/状态时，请使用 Bash `xrayebator` 界面或服务器端命令。

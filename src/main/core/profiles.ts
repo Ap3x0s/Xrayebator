@@ -1,6 +1,11 @@
 import { SshClient, SshCredentials } from './ssh-client'
 import { shellCommand } from './shell-command'
-import type { ServerProfile } from '@shared/types'
+import { describeFailure, isUnknownCommandFailure, unknownCommandHint } from './cli-failure'
+import type {
+  ProfileExpireResult,
+  ProfileRevokeResult,
+  ServerProfile
+} from '@shared/types'
 
 export interface ProfileListOutput {
   ok: boolean
@@ -118,7 +123,13 @@ export class ProfileManager {
       const command = shellCommand('xrayebator', args)
       const res = await client.exec(command, { elevated: true })
       if (res.code !== 0) {
-        throw new Error(`xrayebator ${args[0] ?? ''} → код ${res.code}: ${res.stderr.trim()}`)
+        // Менеджер печатает причину в stdout (команда неизвестна, профиль не найден),
+        // stderr при этом часто пуст — без разбора ошибка выглядела как «код 1: ».
+        const reason = describeFailure(res)
+        const hint = isUnknownCommandFailure(res) ? ` ${unknownCommandHint()}` : ''
+        throw new Error(
+          `xrayebator ${args[0] ?? ''} → код ${res.code}${reason ? `: ${reason}` : ''}.${hint}`
+        )
       }
       return res.stdout
     } finally {
@@ -139,12 +150,13 @@ export class ProfileManager {
   }
 
   async create(
-    input: { name: string; transport: string; port?: number; count?: number }
+    input: { name: string; transport: string; port?: number; count?: number; expire?: string }
   ): Promise<ProfileCreateOutput> {
     try {
       const args = ['profile-create', '--name', input.name, '--transport', input.transport]
       if (input.port) args.push('--port', String(input.port))
       if (input.count && input.count > 1) args.push('--count', String(input.count))
+      if (input.expire) args.push('--expire', input.expire)
       const stdout = await this.run(args)
       const payload = extractJson(stdout) as {
         ok?: boolean
@@ -301,6 +313,71 @@ export class ProfileManager {
         reconnect: payload.reconnect,
         warning: payload.warning,
         firewall_warning: payload.firewall_warning,
+        error: payload.error
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return { ok: false, error: message }
+    }
+  }
+
+  async revoke(input: { name: string; full: boolean }): Promise<ProfileRevokeResult> {
+    try {
+      const args = ['profile-revoke', '--name', input.name]
+      if (input.full) args.push('--full')
+      const stdout = await this.run(args)
+      const payload = extractJson(stdout) as {
+        ok?: boolean
+        name?: string
+        full?: boolean
+        sub_token?: string
+        uuid?: string
+        subscription_url?: string
+        error?: string
+      }
+      return {
+        ok: payload.ok === true,
+        name: payload.name,
+        full: payload.full,
+        sub_token: payload.sub_token,
+        uuid: payload.uuid,
+        subscription_url: payload.subscription_url,
+        error: payload.error
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return { ok: false, error: message }
+    }
+  }
+
+  async setExpire(input: {
+    name: string
+    expire: string | number | null
+  }): Promise<ProfileExpireResult> {
+    try {
+      const value =
+        input.expire === null || input.expire === undefined || input.expire === ''
+          ? 'none'
+          : String(input.expire)
+      const stdout = await this.run([
+        'profile-expire',
+        '--name',
+        input.name,
+        '--expire',
+        value
+      ])
+      const payload = extractJson(stdout) as {
+        ok?: boolean
+        name?: string
+        expire?: number
+        expired?: boolean
+        error?: string
+      }
+      return {
+        ok: payload.ok === true,
+        name: payload.name,
+        expire: payload.expire,
+        expired: payload.expired,
         error: payload.error
       }
     } catch (err) {

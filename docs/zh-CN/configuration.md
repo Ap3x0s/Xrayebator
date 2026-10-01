@@ -3,7 +3,6 @@
 [← 返回 README](../../README.zh-CN.md) · [English](../configuration.md) · [Русский](../ru/configuration.md)
 
 章节：[前置条件](#前置条件与已测试系统) · [环境变量](#安装脚本的环境变量) · [防火墙与主机网络设置](#防火墙与主机网络设置) ·
-[主菜单](#主菜单) · [命令](#命令) · [桌面图形界面](#桌面图形界面) · [分流路由](#分流路由) ·
 [级联](#级联与上游节点) ·
 [Self-steal](#自有域名与-self-steal-挡板) · [域名与 DNS](#域名与-dns)
 
@@ -82,7 +81,6 @@ Xrayebator 不会更改主机的 TCP 拥塞控制算法，也不会写入或应�
 | `4` | 管理配置档：SNI、指纹、端口、advanced |
 | `5` | 将单个配置档升级到 PQ XHTTP |
 | `6` | HAPP 订阅：7 条线路的配置档、public TLS、链接、二维码、吊销 |
-| `7` | 分流路由：域名直连，绕过 VPN |
 | `8` | 级联与上游节点 |
 | `9` | 自有域名与 self-steal 挡板 |
 | `10` | 部署出站服务器，使本 VPS 成为级联的境外节点 |
@@ -98,15 +96,18 @@ Xrayebator 不会更改主机的 TCP 拥塞控制算法，也不会写入或应�
 |---|---|
 | `sudo xrayebator` | 打开交互菜单 |
 | `sudo xrayebator update` | 仅更新 **Xray-core 内核** |
-| `sudo xrayebator update <branch>` | 从规范 raw 仓库分支 self-update 管理器，继续使用新脚本，然后更新 Xray-core |
+| `sudo xrayebator update <branch>` | 从规范 raw 仓库分支 self-update 管理器，继续使用新脚本，然后更新 Xray-core；分支写入 `.current_branch` 固定，供后续 GUI 更新使用 |
 | `sudo xrayebator probe-test` | 更换 SNI 前，从 VPS 检查其可达性 |
 | `sudo xrayebator quickstart --email <邮箱>` | 桌面 GUI 使用的一次性部署路径：执行广泛设置/迁移，在 `8443` 配置 IP-TLS endpoint，创建带 `schema_version: 3` 和 7 条线路的标准 HAPP 配置档；输出带 `subscription_url` 的 JSON。非交互迁移是 best-effort，请检查最终配置档与服务 |
 | `sudo xrayebator quickstart --without-email` | 相同的一次性部署路径，但不提供 ACME 联系邮箱；Certbot 使用 `--register-unsafely-without-email`，因此没有续期通知或邮箱恢复 |
 | `sudo xrayebator inspect --json` | GUI 导入时使用的只读安装检查：返回 Xray、配置档和订阅标记状态；不会安装、迁移或修改配置 |
 | `sudo xrayebator happ-setup` | 已有安装的精简 HAPP 路径：确保订阅服务和可用的多线路配置档；缺少订阅域或端口标记时，会先验证 `8443` 的产品 IP-TLS endpoint，否则失败 |
-| `sudo xrayebator profiles` | 以 JSON 数组输出服务器全部配置档（供桌面 GUI「服务器设置」页使用） |
-| `sudo xrayebator profile-create --name 名称 [--transport tcp\|tcp-utls\|tcp-xudp\|tcp-mux\|grpc\|xhttp] [--port P] [--count N]` | 非交互式创建单个或多个配置档，打印 `{"ok":true,"names":[...],"errors":[...]}` |
+| `sudo xrayebator profiles` | 以 JSON 数组输出服务器全部配置档（供桌面 GUI「服务器设置」页使用）；有效期同时包含用于服务端执行的 epoch 秒（`expire`）和用于界面显示的服务器本地日历日期（`expire_date`），因此不同时区的客户端也会显示用户选择的日期 |
+| `sudo xrayebator profile-create --name 名称 [--transport tcp\|tcp-utls\|tcp-xudp\|tcp-mux\|grpc\|xhttp] [--port P] [--count N] [--expire 日期]` | 非交互式创建单个或多个配置档；`--expire` 接受 `YYYY-MM-DD[ HH:MM]`、epoch 秒或 13 位毫秒。只选日期时，配置档在服务器本地时区的当天 `23:59:59` 之前（含该秒）有效；指定时间时按同一服务器时区执行。过去的有效期会被拒绝，打印 `{"ok":true,"names":[...],"errors":[...]}` |
 | `sudo xrayebator profile-delete --name 名称` | 非交互式删除配置档，打印 `{"ok":true,"name":"..."}` |
+| `sudo xrayebator profile-revoke --name 名称 [--full]` | 重新签发订阅链接：新的 `sub_token`；带 `--full` 时还会更换该配置档所有 inbound 中的 uuid（已下载的配置立即失效），打印 JSON |
+| `sudo xrayebator profile-expire --name 名称 --expire 日期\|epoch\|none` | 设置、延长或取消配置档有效期；只输入日期时，在服务器本地时区的当天 `23:59:59`（含）到期，显式输入的时间按同一时区原样使用；立即生效（已过期会移除客户端，延长则恢复），打印 JSON |
+| `sudo xrayebator expire-check` | 批量应用所有已到期的有效期；幂等，无变化时不重启 Xray。由 `xrayebator-expire.timer` 每 10 分钟触发 |
 | `sudo xrayebator fp-change --name 名称 [--route R] --fp 指纹` | 修改配置档的指纹，打印 JSON 结果 |
 | `sudo xrayebator sni-change --name 名称 [--route R] --sni SNI` | 修改配置档的 SNI，并同步更新同一端口上的所有配置档，打印 JSON 结果 |
 | `sudo xrayebator sni-list` | 按类别列出 `sni_list.txt` 中的候选 SNI，打印 JSON 结果（供桌面 GUI 的 SNI 对话框使用） |
@@ -154,9 +155,7 @@ npm test             # Vitest 单元测试
 npm run typecheck    # TypeScript 检查
 ```
 
-## 分流路由
 
-分流会在 Xray routing 中加入规则，让选定域名经 `freedom` 直连而不走 VPN。
 `domain -> direct` 规则位于兜底规则之上，因此在启用级联时仍然生效。
 
 默认组合包中的分组：

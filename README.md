@@ -101,7 +101,8 @@ about.
 | HAPP subscription | Serves the `vless://` list, a managed Global Proxy routing profile and token-protected geo databases; nginx publishes it over HTTPS | `subhttp.sh`, `xrayebator-sub.service` |
 | Post-quantum XHTTP | The `xhttp-pq` route runs VLESS encryption `mlkem768x25519plus` | `.vless_encryption`, `.vless_decryption` |
 | v2ray compatibility | `v2rayNG` and `v2rayN` receive a classic base64 body without HAPP metadata | `subhttp.sh` |
-| Subscription revoke | Generates a new 32-character hex token; the old URL stops working | `openssl rand -hex 16` |
+| Subscription revoke | Generates a new 32-character hex token; the old URL stops working. Full revocation (`--full`) also rotates the uuid, so already-downloaded configs stop connecting | `openssl rand -hex 16`, `profile-revoke` |
+| Profile expiry | A profile can carry an expiry date; `xrayebator-expire.timer` switches the client off the inbounds when it passes and restores the same uuid on renewal | `profile-expire`, `expire-check` |
 | Bypass routing | Seven domain groups can be sent straight through `freedom`, skipping the VPN | menu `7` |
 | Cascade | Switches the `tcp,udp` catch-all to a foreign VLESS Reality upstream of type `tcp` or `xhttp` | `upstreams/cascade.json` |
 | Self-steal stub | Puts nginx with a valid certificate on `127.0.0.1:9444` and points a Reality fallback at it | menu `9` |
@@ -153,7 +154,6 @@ vless:// list — HAPP receives 6 of the profile's 7 routes
     ▼
 Reality inbound on a port in 30000-60000   (User=xray, CAP_NET_BIND_SERVICE)
     │
-    ├─ domain in an enabled bypass group ──► freedom  (direct, no VPN)
     │
     └─ all other tcp/udp ─────────────────► direct
                                             OR cascade-upstream ──► foreign VPS
@@ -294,12 +294,13 @@ What the GUI can do:
 | Add server | Deploy a new VPS with an explicit email choice: `quickstart --email` or `quickstart --without-email`; save the server and public subscription |
 | Connect existing | Import a recognized Xrayebator installation over SSH (password or key) using read-only `xrayebator inspect --json`; partial installs are saved with diagnostics, without automatic repair |
 | Server keys | Refresh the public subscription, copy the URL, show `vless://` links and QR codes |
-| Server settings | SSH access by password or private key, direct root or sudo; list/create/delete profiles, change fingerprint, SNI and port, plus update or uninstall Xrayebator on the server |
+| Server settings | SSH access by password or private key, direct root or sudo; list/create/delete profiles, change fingerprint, SNI and port, revoke the subscription, set a profile expiry date, plus update or uninstall Xrayebator on the server. Expiry dates are displayed in the server's timezone even when the desktop uses another one |
 
-Root + password is the one-click default; key authentication and sudo are optional. A selected private key and a successfully used SSH login password are stored in the operating-system keychain via `keytar` and reused across later SSH operations and app restarts; the server card keeps only their non-secret credential ids and display name. A distinct sudo password and an encrypted-key passphrase are never persisted and are requested again when needed. If the OS keychain is unavailable, there is no plaintext fallback: the secret remains in main-process memory for the current app session and the UI warns that it must be entered again after restart. The app also persists the `subscription_url`, fetched `vless://` links and pinned SSH host-key fingerprint. The subscription URL and VLESS links are bearer/client credentials: protect local app data and revoke the subscription through the terminal workflow after a leak.
+Root + password is the one-click default; key authentication and sudo are optional. A selected private key and a successfully used SSH login password are stored in the operating-system keychain via `keytar` and reused across later SSH operations and app restarts; the server card keeps only their non-secret credential ids and display name. A distinct sudo password and an encrypted-key passphrase are never persisted and are requested again when needed. If the OS keychain is unavailable, there is no plaintext fallback: the secret remains in main-process memory for the current app session and the UI warns that it must be entered again after restart. The app also persists the `subscription_url`, fetched `vless://` links and pinned SSH host-key fingerprint. The subscription URL and VLESS links are bearer/client credentials: protect local app data and revoke the subscription from Server settings (full revocation rotates the key as well) after a leak.
 
-The GUI exposes only a subset of the terminal menu. Bypass, `probe-test`, subscription revoke,
-`happ-setup`, cascade, self-steal and service logs/status remain terminal-only. See
+The GUI exposes only a subset of the terminal menu. Bypass, `probe-test`, `happ-setup`, cascade,
+self-steal and service logs/status remain terminal-only; profile expiry dates and subscription
+revocation are available in Server settings. See
 [Electron Desktop GUI](docs/desktop-gui.md) for the complete boundary, security model and packaging details.
 
 Build and run in the development mode:

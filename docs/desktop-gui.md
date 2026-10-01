@@ -43,7 +43,7 @@ The wizard shows a step index and a live console of the work actually performed:
 
 ### Server keys
 
-Server keys refreshes the subscription from the saved `subscription_url` and displays the returned VLESS routes. Each VLESS link can be copied or rendered as a QR code; the subscription URL can also be copied, and the page offers a copy-all action. This page does not create a separate server-side subscription or rotate a subscription token.
+Server keys refreshes the subscription from the saved `subscription_url` and displays the returned VLESS routes. Each VLESS link can be copied or rendered as a QR code; the subscription URL can also be copied, and the page offers a copy-all action. This page does not create a separate server-side subscription or rotate a subscription token (rotation lives on the profile cards in Server settings).
 
 ### Server settings
 
@@ -64,7 +64,7 @@ SNI and port are inbound-level settings: changing them can affect every profile 
 
 The GUI supports SSH password authentication or a private key, with either direct `root` execution or elevated commands through `sudo`. A private key is selected through the native Electron file dialog; the main process reads the bytes, stores them in the operating-system keychain via `keytar` (Windows Credential Manager, macOS Keychain, or Linux Secret Service), and returns to the renderer only a non-secret credential id plus the display file name. The key is reused across later operations and app restarts without re-picking the file. If the OS keychain is unavailable, the key is kept only in main-process memory for the current app session and the UI warns that reuse after restart is unavailable; there is no plaintext fallback on disk.
 
-The SSH login password is persisted to the operating-system keychain after the first successful authentication and reused across later operations and app restarts; the server card stores only its non-secret credential id. A distinct sudo password and an encrypted-key passphrase are never persisted — they are asked again when needed. Private-key bytes and password values never cross the preload boundary: the renderer receives only credential ids and display names. `electron-store` persists the server card and connection preferences, the subscription URL, and the fetched VLESS links (bearer/client credentials), as well as the username, authentication method, privilege mode, credential ids, display key name, installation diagnostics, and the SHA-256 SSH host-key pin. Protect the local application data; if the subscription URL or VLESS links leak, revoke the subscription through the terminal workflow. A later fingerprint mismatch fails closed before commands are executed; an intentional server reinstall requires an explicit host-key reset in Server settings. Removing the last card that references a credential deletes the matching keychain entry; shared references are preserved.
+The SSH login password is persisted to the operating-system keychain after the first successful authentication and reused across later operations and app restarts; the server card stores only its non-secret credential id. A distinct sudo password and an encrypted-key passphrase are never persisted — they are asked again when needed. Private-key bytes and password values never cross the preload boundary: the renderer receives only credential ids and display names. `electron-store` persists the server card and connection preferences, the subscription URL, and the fetched VLESS links (bearer/client credentials), as well as the username, authentication method, privilege mode, credential ids, display key name, installation diagnostics, and the SHA-256 SSH host-key pin. Protect the local application data; if the subscription URL or VLESS links leak, revoke the subscription from Server settings (full revocation rotates the key as well). A later fingerprint mismatch fails closed before commands are executed; an intentional server reinstall requires an explicit host-key reset in Server settings. Removing the last card that references a credential deletes the matching keychain entry; shared references are preserved.
 
 The Electron boundary includes the following protections:
 
@@ -80,12 +80,15 @@ The profile API exposed by the GUI maps to these Bash CLI commands:
 
 ```text
 xrayebator profiles
-xrayebator profile-create --name NAME [--transport T] [--port P] [--count N]
+xrayebator profile-create --name NAME [--transport T] [--port P] [--count N] [--expire DATE]
 xrayebator profile-delete --name NAME
+xrayebator profile-revoke --name NAME [--full]
+xrayebator profile-expire --name NAME --expire DATE|epoch|none
 xrayebator fp-change --name NAME [--route R] --fp FINGERPRINT
 xrayebator sni-change --name NAME [--route R] --sni SNI
 xrayebator sni-list
 xrayebator port-change --name NAME [--route R] --port PORT|random
+xrayebator bypass list|add --domain D|remove --domain D|reset|bundle [--group a,b,c]
 ```
 
 Deployment additionally invokes:
@@ -106,9 +109,7 @@ The result consumed by the GUI uses `subscription_url`; the GUI then fetches tha
 The active Electron GUI does **not** expose the following server features:
 
 ```text
-bypass
 probe-test
-revoke
 happ-setup
 cascade
 self-steal
@@ -116,7 +117,13 @@ interactive terminal menu
 service logs/status
 ```
 
-In particular, the Dashboard reachability dot must not be read as access to `probe-test`, and the keys page must not be read as access to `revoke`.
+In particular, the Dashboard reachability dot must not be read as access to `probe-test`.
+
+Server settings additionally provides:
+
+- **Subscription revocation** — a per-profile button opens a menu with two modes. "New link only" reissues the `sub_token` (the previous URL stops working; routes and keys stay the same). "Full revocation" also rotates the uuid in every inbound of the profile, so devices that already downloaded the config are cut off immediately — the only way to actually close access through a leaked link.
+- **Profile expiry** — the date travels to the client in the subscription header and is enforced server-side: the `xrayebator-expire.timer` systemd timer runs `xrayebator expire-check` every 10 minutes and removes the client from the inbounds once the expiry timestamp passes. A date selected without a time is inclusive through `23:59:59` in the server's local timezone. The GUI displays the server's calendar date from `expire_date`, so it stays correct even when the desktop and VPS use different timezones. Extending the date restores the same client. The profile chip shows the expiry date, turns warning-toned within three days before the cutoff and danger-toned after it passes. An expiry can also be set at profile-creation time; dates are chosen with an in-theme calendar widget (past days disabled) with +7/+30/+90/+365 presets. If the connected server is older and does not report expiry support, the GUI warns about the outdated server instead of pretending profiles are unlimited.
+- **Error surfacing** — CLI failures are shown with a human-readable reason taken from stderr, falling back to stdout; an unknown command on an outdated server comes with an update hint instead of a bare exit code.
 
 ## Deployment protocol
 
@@ -178,4 +185,4 @@ The active desktop implementation is `src/`. A `gui-v*` artifact or a passing `g
 - There are no React/Electron runtime integration tests. The Electron side has unit tests, TypeScript checks, build checks, and manual/live-server validation, but no test that boots the full packaged renderer and main-process flow together.
 - One Vitest test uses POSIX `/bin/sh` (`tests/unit/shell-command.test.ts`). On Windows this is a known caveat; Linux is the source of truth for that shell-specific test.
 - The auto-updater is packaged-only, uses the GitHub provider configured for `howdeploy`, and follows auto-download/install-on-quit behavior; `npm run dev` does not simulate a release update.
-- The GUI intentionally exposes only the command surface documented above. Use the Bash `xrayebator` interface or server-side commands for bypass, probing, subscription revocation, HAPP setup, cascade, self-steal, terminal menu, and service logs/status.
+- The GUI intentionally exposes only the command surface documented above. Use the Bash `xrayebator` interface or server-side commands for probing, HAPP setup, cascade, self-steal, terminal menu, and service logs/status.

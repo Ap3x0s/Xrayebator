@@ -16,7 +16,7 @@ for test_file in validation/*.sh; do bash "$test_file" || exit; done
 
 ## Что покрывают тесты
 
-В `validation/` лежат 26 статических и локальных регрессионных тестов:
+В `validation/` лежат 28 статических и локальных регрессионных тестов:
 
 | Тест | Что проверяет |
 |---|---|
@@ -30,6 +30,7 @@ for test_file in validation/*.sh; do bash "$test_file" || exit; done
 | `test-dead-stealth-route-pruning.sh` | Отсечение мёртвых stealth-маршрутов |
 | `test-cascade-routing.sh` | Cascade routing |
 | `test-cascade-upstream-import.sh` | Импорт upstream каскада из ссылки |
+| `test-update-branch-pinning.sh` | `update <branch>` закрепляет ветку в `.current_branch`; GUI-обновление не откатывает сервер на другую ветку |
 | `test-update-xray-core-sync.sh` | Синхронность обновления Xray-core |
 | `test-vless-url-generation.sh` | Генерацию ссылок `vless://` |
 | `test-installer-network-fallbacks.sh` | Сетевые fallback'и установщика |
@@ -38,8 +39,9 @@ for test_file in validation/*.sh; do bash "$test_file" || exit; done
 | `test-main-menu-numbering.sh` | Нумерацию пунктов меню и их соответствие обработчикам |
 | `test-main-readiness-regressions.sh` | Регрессии readyness после аудита: certbot-manifest, UFW manifest, nginx rollback, привилегии, SSH-порт |
 | `test-sni-change-cli.sh` | CLI `sni-change`: JSON stdout, Reality, XHTTP host, синхронизацию, rollback |
-| `test-port-change-cli.sh` | CLI `port-change`: сценарии unit/shared/move, неверный порт, multi-route `--route` |
 | `test-bypass-cli.sh` | CLI `bypass`: JSON stdout, routing-правила, add с проверкой SNI |
+| `test-port-change-cli.sh` | CLI `port-change`: сценарии unit/shared/move, неверный порт, multi-route `--route` |
+| `test-profile-revoke-expire-cli.sh` | CLI `profile-revoke` (только токен / ротация uuid с сохранением чужих клиентов на общем порту) и сроки профилей (отключение, возврат из снимка, rebuild без снимка, идемпотентный `expire-check`) |
 | `test-apt-lock-race.sh` | Гонка apt-lock: `DPkg::Lock::Timeout` при установках, учёт воркера `unattended-upgrade` и бюджет 12 минут в quickstart |
 | `test-quickstart-email-and-inspect.sh` | Явный email-режим `quickstart` (`--without-email` без фиктивного адреса) и read-only инварианты `inspect --json` |
 | `test-quickstart-migration-parity.sh` | `quickstart` гоняет те же критичные миграции, что и `main_menu` |
@@ -103,7 +105,7 @@ npm test              # Vitest unit-тесты
 
 Три независимых workflow:
 
-- **ci-linux.yml** — Bash validation: `bash -n` всех скриптов + все 26 `validation/test-*.sh` на
+- **ci-linux.yml** — Bash validation: `bash -n` всех скриптов + все 28 `validation/test-*.sh` на
   ubuntu-24.04. Запускается на push в `main`, `dev`, `experimental` и на pull request.
 - **release.yml** — Electron сборка (Windows/macOS/Linux). Запускается только на теги `v*` и manual
   dispatch. Сначала `preflight`: проверяет наличие текста релиза `docs/releases/<tag>.en.md` и

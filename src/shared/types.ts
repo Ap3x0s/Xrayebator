@@ -129,6 +129,18 @@ export interface ServerProfile {
   routes: number
   pq_enabled: boolean
   subscription_url: string
+  /** epoch-секунды истечения; 0 = бессрочный. Принуждается серверным таймером. */
+  expire: number
+  /** Календарная дата истечения в локальной временной зоне сервера (YYYY-MM-DD). */
+  expire_date?: string
+  /** true — профиль сейчас отключён по сроку (клиент снят с inbound'ов). */
+  expire_disabled: boolean
+  /**
+   * false — сервер старой версии и вообще не отдаёт expire (поля нет в JSON).
+   * Отличает «профиль бессрочный» от «сервер не умеет сроки»: иначе GUI
+   * показывал бы бессрочность там, где управление сроком недоступно.
+   */
+  expire_supported?: boolean
 }
 
 export interface ProfileCreateInput {
@@ -136,6 +148,8 @@ export interface ProfileCreateInput {
   transport: string
   port?: number
   count?: number
+  /** ISO-дата 'ГГГГ-ММ-ДД' или epoch-секунды; undefined = бессрочный. */
+  expire?: string
 }
 
 export interface ProfileCreateResult {
@@ -200,6 +214,36 @@ export interface ProfilePortResult {
   reconnect?: boolean
   warning?: string
   firewall_warning?: boolean
+  error?: string
+}
+
+export interface ProfileRevokeInput {
+  name: string
+  /** true — новый uuid тоже (старые клиенты отваливаются немедленно). */
+  full: boolean
+}
+
+export interface ProfileRevokeResult {
+  ok: boolean
+  name?: string
+  full?: boolean
+  sub_token?: string
+  uuid?: string
+  subscription_url?: string
+  error?: string
+}
+
+export interface ProfileExpireInput {
+  name: string
+  /** ISO 'ГГГГ-ММ-ДД' или epoch-секунды; null/undefined → 'none' (снять срок). */
+  expire: string | number | null
+}
+
+export interface ProfileExpireResult {
+  ok: boolean
+  name?: string
+  expire?: number
+  expired?: boolean
   error?: string
 }
 
@@ -309,6 +353,16 @@ export interface ElectronAPI {
       access: SshAccessInput,
       input: ProfilePortInput
     ) => Promise<ProfilePortResult>
+    revoke: (
+      serverId: string,
+      access: SshAccessInput,
+      input: ProfileRevokeInput
+    ) => Promise<ProfileRevokeResult>
+    setExpire: (
+      serverId: string,
+      access: SshAccessInput,
+      input: ProfileExpireInput
+    ) => Promise<ProfileExpireResult>
   }
   server: {
     update: (

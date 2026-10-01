@@ -5,7 +5,6 @@
 Разделы: [Требования и проверенные системы](#требования-и-проверенные-системы) ·
 [Переменные окружения установщика](#переменные-окружения-установщика) ·
 [Firewall и параметры хоста](#firewall-и-параметры-хоста) · [Главное меню](#главное-меню) ·
-[Команды](#команды) · [Десктоп-GUI](#десктоп-gui) · [Bypass routing](#bypass-routing) ·
 [Каскад](#каскад-и-upstream-ноды) ·
 [Self-steal](#собственный-домен-и-self-steal-заглушка) · [Домен и DNS](#домен-и-dns)
 
@@ -96,7 +95,6 @@ legacy-файлы и блоки, ранее созданные Xrayebator, и с
 | `4` | Управление профилем: SNI, клиентский fingerprint, порт и продвинутые настройки |
 | `5` | Обновить отдельный профиль до post-quantum XHTTP + Reality |
 | `6` | Подписка HAPP: настройка публичного/локального publishing, URL/QR, revoke и HAPP-настройки; managed профиль имеет 7 маршрутов, публикуемый список — 6 |
-| `7` | Bypass routing: выбранные домены напрямую, не через VPN |
 | `8` | Каскад и upstream-ноды |
 | `9` | Собственный домен и self-steal заглушка |
 | `10` | Поднять outbound-сервер, чтобы другой VPS мог использовать этот как зарубежную ноду каскада |
@@ -113,15 +111,18 @@ legacy-файлы и блоки, ранее созданные Xrayebator, и с
 |---|---|
 | `sudo xrayebator` | Открыть интерактивное меню |
 | `sudo xrayebator update` | Обновить только бинарник Xray-core |
-| `sudo xrayebator update <branch>` | Self-update менеджера из canonical raw-репозитория (ветка branch), продолжить новым скриптом, затем обновить Xray-core |
+| `sudo xrayebator update <branch>` | Self-update менеджера из canonical raw-репозитория (ветка branch), продолжить новым скриптом, затем обновить Xray-core; ветка закрепляется в `.current_branch` для последующих обновлений из GUI |
 | `sudo xrayebator probe-test` | Проверить SNI reachability с VPS |
 | `sudo xrayebator quickstart --email <адрес>` | Путь одноразового деплоя (используется GUI): broad setup/migration, IP-TLS endpoint на `8443` и стандартный schema-v3 HAPP-профиль из 7 маршрутов; выводит JSON с `subscription_url`. Migration calls best-effort, проверяйте итоговый профиль и сервисы |
 | `sudo xrayebator quickstart --without-email` | Тот же путь развёртывания без ACME email; Certbot регистрирует аккаунт с `--register-unsafely-without-email`, поэтому уведомления и восстановление аккаунта по email недоступны |
 | `sudo xrayebator inspect --json` | Read-only проверка установки для GUI-импорта: возвращает состояние Xray, профилей и маркеров подписки; не запускает установку, миграции или изменения конфигурации |
 | `sudo xrayebator happ-setup` | Сокращённый re-entry на существующей установке: проверяет subscription service и usable multi-route profile; при отсутствии markers проверяет IP-TLS endpoint на `8443`, но не фабрикует markers |
-| `sudo xrayebator profiles` | Вывести все профили сервера JSON-массивом (для «Настроек сервера» GUI) |
-| `sudo xrayebator profile-create --name ИМЯ [--transport tcp\|tcp-utls\|tcp-xudp\|tcp-mux\|grpc\|xhttp] [--port P] [--count N]` | Создать профили без интерактива; `{"ok":true,"names":[...],"errors":[...]}` |
+| `sudo xrayebator profiles` | Вывести все профили сервера JSON-массивом (для «Настроек сервера» GUI); срок содержит epoch-секунды (`expire`) для принуждения и календарную дату в зоне сервера (`expire_date`) для отображения, поэтому клиент с другой временной зоной видит выбранную дату |
+| `sudo xrayebator profile-create --name ИМЯ [--transport tcp\|tcp-utls\|tcp-xudp\|tcp-mux\|grpc\|xhttp] [--port P] [--count N] [--expire ДАТА]` | Создать профили без интерактива; `--expire` принимает `ГГГГ-ММ-ДД[ ЧЧ:ММ]`, epoch-секунды или 13-значные миллисекунды. Дата без времени действует включительно до `23:59:59` по локальным часам сервера; указанное время трактуется в той же зоне. Уже прошедший срок отклоняется; `{"ok":true,"names":[...],"errors":[...]}` |
 | `sudo xrayebator profile-delete --name ИМЯ` | Удалить профиль без интерактива; `{"ok":true,"name":"..."}` |
+| `sudo xrayebator profile-revoke --name ИМЯ [--full]` | Перевыпустить ссылку подписки: новый `sub_token`; с `--full` — ещё и новый uuid во всех inbound'ах профиля (уже скачанные конфиги отваливаются); JSON |
+| `sudo xrayebator profile-expire --name ИМЯ --expire ДАТА\|epoch\|none` | Задать, продлить или снять срок действия профиля; дата без времени действует включительно до `23:59:59` по локальным часам сервера, указанное время используется как есть в той же зоне; применение немедленное (истёкший срок сразу снимает клиента, продление возвращает); JSON |
+| `sudo xrayebator expire-check` | Применить все наступившие сроки пакетно; идемпотентно, без изменений не перезапускает Xray. Вызывается таймером `xrayebator-expire.timer` каждые 10 минут |
 | `sudo xrayebator fp-change --name ИМЯ [--route R] --fp ОТПЕЧАТОК` | Сменить клиентский fingerprint для одного маршрута профиля; JSON |
 | `sudo xrayebator sni-change --name ИМЯ [--route R] --sni SNI` | Сменить общий inbound SNI и синхронизировать профили на этом порту; JSON |
 | `sudo xrayebator sni-list` | Вывести SNI-кандидаты по категориям для GUI; JSON |
@@ -150,8 +151,8 @@ legacy-файлы и блоки, ранее созданные Xrayebator, и с
 
 Активное Electron-приложение — это CLI-фронтенд поверх SSH, а не полная замена терминальному меню.
 Оно выполняет деплой через `quickstart`, обновляет сохранённый `subscription_url` и предоставляет
-операции списка/создания/удаления профилей плюс выбранные SNI, fingerprint, port, update и uninstall.
-Bypass, probe, revoke, HAPP setup, cascade, self-steal, интерактивное меню и диагностика сервиса
+и группы, а также выбранные SNI, fingerprint, port, update и uninstall.
+`probe-test`, HAPP setup, cascade, self-steal, интерактивное меню и диагностика сервиса
 остаются серверными операциями.
 
 См. [Electron Desktop GUI](desktop-gui.md) для полного описания команд, границы безопасности, сборки
@@ -167,9 +168,7 @@ npm test
 npm run typecheck
 ```
 
-## Bypass routing
 
-Bypass добавляет правила в Xray routing, чтобы выбранные домены шли через `freedom` напрямую, не
 через VPN. Правила `domain -> direct` стоят выше catch-all, поэтому продолжают работать и при
 включённом каскаде.
 

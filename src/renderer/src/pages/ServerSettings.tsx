@@ -12,11 +12,17 @@ import {
   EthernetPort,
   Copy,
   Download,
-  Check
+  Check,
+  ShieldOff,
+  CalendarClock,
+  CalendarX
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { Server, ServerProfile, SniEntry, SshAccessInput } from '@shared/types'
+import { describeExpire, isFutureDate, presetDate } from '@shared/expire'
+import { todayIso } from '@shared/calendar'
 import { isSshAccessReady, SshAccessForm } from '../components/SshAccessForm'
+import { CalendarPicker } from '../components/CalendarPicker'
 import { shouldAutoConnectServer } from './server-access'
 import styles from './ServerSettings.module.css'
 
@@ -89,6 +95,8 @@ export function ServerSettings({
   const [transport, setTransport] = useState('xhttp')
   const [count, setCount] = useState('1')
   const [creating, setCreating] = useState(false)
+  const [createExpire, setCreateExpire] = useState('')
+  const [createExpireOpen, setCreateExpireOpen] = useState(false)
 
   const [updating, setUpdating] = useState(false)
   const [uninstalling, setUninstalling] = useState(false)
@@ -114,6 +122,17 @@ export function ServerSettings({
   const [portValue, setPortValue] = useState('')
   const [portBusy, setPortBusy] = useState(false)
   const [portDone, setPortDone] = useState(false)
+
+  // Revoke: выбор «только ссылка» / «полный отзыв» → подтверждение → выполнение.
+  const [revokeTarget, setRevokeTarget] = useState<ServerProfile | null>(null)
+  const [revokeStep, setRevokeStep] = useState<'choose' | 'confirm' | 'done'>('choose')
+  const [revokeBusy, setRevokeBusy] = useState(false)
+  const [revokeUrl, setRevokeUrl] = useState<string | null>(null)
+
+  const [expireTarget, setExpireTarget] = useState<ServerProfile | null>(null)
+  const [expireDate, setExpireDate] = useState('')
+  const [expireBusy, setExpireBusy] = useState(false)
+  const [expireDone, setExpireDone] = useState(false)
 
   const connected = profiles !== null
   const accessReady = isSshAccessReady(access)
@@ -187,7 +206,10 @@ export function ServerSettings({
       const result = await window.api.profiles.create(server.id, access, {
         name: name.trim(),
         transport,
-        count: Math.min(Math.max(Number(count) || 1, 1), 50)
+        count: Math.min(Math.max(Number(count) || 1, 1), 50),
+        ...(createExpire && isFutureDate(createExpire, Date.now())
+          ? { expire: createExpire }
+          : {})
       })
       if (result.ok && result.names.length > 0) {
         createdCount = result.names.length
@@ -353,6 +375,123 @@ export function ServerSettings({
     await navigator.clipboard.writeText(profile.subscription_url)
     toastText(t('settings.copied'))
   }
+
+  const openRevoke = (profile: ServerProfile): void => {
+    setRevokeTarget(profile)
+    setRevokeStep('choose')
+    setRevokeUrl(null)
+  }
+
+  const runRevoke = async (mode: 'token' | 'full'): Promise<void> => {
+    if (!revokeTarget || !accessReady) return
+    setRevokeBusy(true)
+    setError(null)
+    try {
+      const result = await window.api.profiles.revoke(server.id, access, {
+        name: revokeTarget.name,
+        full: mode === 'full'
+      })
+      if (result.ok) {
+        setRevokeUrl(result.subscription_url ?? null)
+        setRevokeStep('done')
+        toastText(
+          t(mode === 'full' ? 'settings.revokedFull' : 'settings.revoked', {
+            name: revokeTarget.name
+          })
+        )
+        const fresh = await window.api.profiles.list(server.id, access)
+        setProfiles(fresh.profiles ?? [])
+      } else {
+        setError(result.error ?? t('settings.revokeFailed'))
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setRevokeBusy(false)
+    }
+  }
+
+  const openExpire = (profile: ServerProfile): void => {
+    setExpireTarget(profile)
+    setExpireDate(
+      profile.expire
+        ? describeExpire(profile.expire, false, Date.now(), profile.expire_date).date
+        : ''
+    )
+    setExpireDone(false)
+  }
+
+  const applyExpire = async (value: string | null): Promise<void> => {
+    if (!expireTarget || !accessReady) return
+    setExpireBusy(true)
+    setError(null)
+    try {
+      const result = await window.api.profiles.setExpire(server.id, access, {
+        name: expireTarget.name,
+        expire: value
+      })
+      if (result.ok) {
+        toastText(
+          value
+            ? t('settings.expireChanged', { name: expireTarget.name, date: value })
+            : t('settings.expireCleared', { name: expireTarget.name })
+        )
+        const fresh = await window.api.profiles.list(server.id, access)
+        setProfiles(fresh.profiles ?? [])
+        setExpireDone(true)
+        setTimeout(() => {
+          setExpireTarget(null)
+          setExpireDone(false)
+        }, 400)
+      } else {
+        setError(result.error ?? t('settings.expireFailed'))
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setExpireBusy(false)
+    }
+  }
+
+  /** Чип срока в карточке профиля: дата, «истёк», «скоро истекает» или ничего. */
+  const expireChip = (profile: ServerProfile): React.JSX.Element | null => {
+    const now = Date.now()
+    const info = describeExpire(
+      profile.expire ?? 0,
+      profile.expire_disabled === true,
+      now,
+      profile.expire_date
+    )
+    if (info.status === 'none') return null
+    const expired = info.status === 'expired'
+    // Предупреждаем за 3 дня: время продлить срок до автоотключения сервером.
+    const soon = !expired && profile.expire * 1000 - now < 3 * 24 * 60 * 60 * 1000
+    const tone = expired ? styles.expireChipDanger : soon ? styles.expireChipWarn : ''
+    return (
+      <Chip
+        size="sm"
+        color="default"
+        className={`${styles.expireChip} ${tone}`}
+        title={t(
+          expired
+            ? 'settings.expireHintExpired'
+            : soon
+              ? 'settings.expireHintSoon'
+              : 'settings.expireHint'
+        )}
+      >
+        {expired
+          ? t('settings.expireExpired')
+          : t('settings.expireUntil', { date: info.date })}
+      </Chip>
+    )
+  }
+
+  /**
+   * Сервер старой версии не отдаёт поле expire: управление сроками недоступно.
+   * Без этой проверки GUI молча показывал «бессрочно» — как будто срока нет.
+   */
+  const expireSupported = (profiles ?? []).some((p) => p.expire_supported === true)
 
   const updateServer = async (): Promise<void> => {
     if (!accessReady) return
@@ -524,6 +663,18 @@ export function ServerSettings({
                   />
                 </TextField>
                 <Button
+                  variant="secondary"
+                  size="lg"
+                  className={styles.createExpireBtn}
+                  isDisabled={busy}
+                  onPress={() => setCreateExpireOpen(true)}
+                >
+                  <CalendarClock size={16} />
+                  {createExpire
+                    ? t('settings.createExpireSet', { date: createExpire })
+                    : t('settings.createExpire')}
+                </Button>
+                <Button
                   variant="primary"
                   size="lg"
                   className={styles.createBtn}
@@ -586,6 +737,9 @@ export function ServerSettings({
 
             <section className={styles.listCard}>
               <h2 className={styles.sectionTitle}>{t('settings.listTitle')}</h2>
+              {profiles!.length > 0 && !expireSupported && (
+                <p className={styles.serverTooOld}>{t('settings.serverTooOld')}</p>
+              )}
               {profiles!.length === 0 && <div className={styles.empty}>{t('settings.empty')}</div>}
               {profiles!.map((profile) => (
                 <div key={profile.name} className={styles.profileCard}>
@@ -599,6 +753,7 @@ export function ServerSettings({
                       <Chip size="sm" color="default">{transportLabel(profile)}</Chip>
                       <Chip size="sm" color="default">:{profile.port}</Chip>
                       <span className={styles.profileSni}>{profile.sni}</span>
+                      {expireChip(profile)}
                     </div>
                     {profile.subscription_url && (
                       <div className={styles.profileUrl} title={profile.subscription_url}>
@@ -652,6 +807,26 @@ export function ServerSettings({
                       <Button size="sm" variant="secondary" onPress={() => copyUrl(profile)}>
                         <Copy size={13} />
                         {t('settings.copy')}
+                      </Button>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      isDisabled={busy}
+                      onPress={() => openExpire(profile)}
+                    >
+                      <CalendarClock size={14} />
+                      {t('settings.expireBtn')}
+                    </Button>
+                    {profile.subscription_url && (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        isDisabled={busy}
+                        onPress={() => openRevoke(profile)}
+                      >
+                        <ShieldOff size={14} />
+                        {t('settings.revokeBtn')}
                       </Button>
                     )}
                     {profile.multi_route ? (
@@ -713,6 +888,275 @@ export function ServerSettings({
                   }}
                 >
                   {t('settings.deleteKey')}
+                </Button>
+              </AlertDialog.Footer>
+            </AlertDialog.Dialog>
+          </AlertDialog.Container>
+        </AlertDialog.Backdrop>
+      </AlertDialog.Root>
+
+      <AlertDialog.Root
+        isOpen={revokeTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !revokeBusy) setRevokeTarget(null)
+        }}
+      >
+        <AlertDialog.Backdrop className={styles.blurBackdrop}>
+          <AlertDialog.Container>
+            <AlertDialog.Dialog className={`${styles.confirmDialog} ${styles.revokeWide}`}>
+              <AlertDialog.Header>
+                <AlertDialog.Icon status="danger">
+                  <ShieldOff size={20} />
+                </AlertDialog.Icon>
+                <AlertDialog.Heading>
+                  {t('settings.revokeTitle')} — {revokeTarget?.name ?? ''}
+                </AlertDialog.Heading>
+              </AlertDialog.Header>
+              <AlertDialog.Body>
+                {revokeStep === 'choose' && (
+                  <>
+                    <p className={styles.fpHint}>{t('settings.revokeHint')}</p>
+                    <div className={styles.revokeOptions}>
+                      <button
+                        type="button"
+                        className={styles.revokeOption}
+                        disabled={revokeBusy}
+                        onClick={() => void runRevoke('token')}
+                      >
+                        <span className={styles.revokeOptionTitle}>
+                          <CalendarClock size={14} />
+                          {t('settings.revokeTokenTitle')}
+                        </span>
+                        <span className={styles.revokeOptionDesc}>
+                          {t('settings.revokeTokenDesc')}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        className={`${styles.revokeOption} ${styles.revokeOptionDanger}`}
+                        disabled={revokeBusy}
+                        onClick={() => {
+                          setRevokeStep('confirm')
+                        }}
+                      >
+                        <span className={styles.revokeOptionTitle}>
+                          <ShieldOff size={14} />
+                          {t('settings.revokeFullTitle')}
+                        </span>
+                        <span className={styles.revokeOptionDesc}>
+                          {t('settings.revokeFullDesc')}
+                        </span>
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {revokeStep === 'confirm' && (
+                  <>
+                    <p className={styles.sniWarning}>{t('settings.revokeFullWarning')}</p>
+                    <p className={styles.fpNote}>{t('settings.revokeFullSecondConfirm')}</p>
+                  </>
+                )}
+
+                {revokeStep === 'done' && (
+                  <>
+                    <p className={styles.fpCurrent}>
+                      {t('settings.revokeDone', { name: revokeTarget?.name ?? '' })}
+                    </p>
+                    {revokeUrl && <p className={styles.revokeNewUrl}>{revokeUrl}</p>}
+                    {revokeUrl && (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onPress={() => void navigator.clipboard.writeText(revokeUrl)}
+                      >
+                        <Copy size={13} />
+                        {t('settings.revokeCopyNew')}
+                      </Button>
+                    )}
+                  </>
+                )}
+              </AlertDialog.Body>
+              <AlertDialog.Footer>
+                {revokeStep === 'done' ? (
+                  <Button variant="primary" onPress={() => setRevokeTarget(null)}>
+                    {t('settings.done')}
+                  </Button>
+                ) : (
+                  <>
+                    <Button
+                      variant="secondary"
+                      isDisabled={revokeBusy}
+                      onPress={() =>
+                        revokeStep === 'confirm' ? setRevokeStep('choose') : setRevokeTarget(null)
+                      }
+                    >
+                      {t('dashboard.cancel')}
+                    </Button>
+                    {revokeStep === 'confirm' && (
+                      <Button
+                        variant="danger"
+                        isDisabled={revokeBusy}
+                        onPress={() => void runRevoke('full')}
+                      >
+                        {revokeBusy
+                          ? t('settings.revoking')
+                          : t('settings.revokeFullConfirm')}
+                      </Button>
+                    )}
+                  </>
+                )}
+              </AlertDialog.Footer>
+            </AlertDialog.Dialog>
+          </AlertDialog.Container>
+        </AlertDialog.Backdrop>
+      </AlertDialog.Root>
+
+      <AlertDialog.Root
+        isOpen={expireTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !expireBusy) setExpireTarget(null)
+        }}
+      >
+        <AlertDialog.Backdrop className={styles.blurBackdrop}>
+          {/* placement="top": диалог прижат к верху. Иначе при центрировании
+              шапка календаря уезжает вверх/вниз при смене месяца (5 недель ↔ 6),
+              и стрелки «прыгают» под курсором. */}
+          <AlertDialog.Container placement="top">
+            <AlertDialog.Dialog className={styles.confirmDialog}>
+              <AlertDialog.Header>
+                <AlertDialog.Heading>
+                  {t('settings.expireTitle')} — {expireTarget?.name ?? ''}
+                </AlertDialog.Heading>
+              </AlertDialog.Header>
+              <AlertDialog.Body>
+                <p className={styles.fpHint}>{t('settings.expireHintBody')}</p>
+                {expireTarget && (
+                  <p className={styles.fpCurrent}>
+                    {t('settings.expireCurrent', {
+                      value: expireTarget.expire
+                        ? describeExpire(
+                            expireTarget.expire,
+                            false,
+                            Date.now(),
+                            expireTarget.expire_date
+                          ).date
+                        : t('settings.expireNever')
+                    })}
+                  </p>
+                )}
+                <div className={styles.fpField}>
+                  <span className={styles.fieldLabel}>{t('settings.expireSelect')}</span>
+                  <div className={styles.inlineRow}>
+                    {[7, 30, 90, 365].map((d) => (
+                      <Button
+                        key={d}
+                        size="sm"
+                        variant="secondary"
+                        isDisabled={expireBusy}
+                        onPress={() => setExpireDate(presetDate(d, Date.now()))}
+                      >
+                        {t('settings.expirePreset', { count: d })}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+                <div className={styles.fpField}>
+                  <CalendarPicker
+                    value={expireDate}
+                    disabled={expireBusy}
+                    onChange={setExpireDate}
+                  />
+                  {expireDate && (
+                    <p className={styles.fpCurrent}>
+                      {t('settings.expirePicked', { date: expireDate })}
+                    </p>
+                  )}
+                </div>
+                <p className={styles.fpNote}>{t('settings.expireEnforced')}</p>
+                {/* Снятие срока — отдельное осознанное действие в теле диалога:
+                    раньше оно жило в футере рядом с «Сохранить» и требовало
+                    второй кнопки «Готово», что путало (одно действие — два клика). */}
+                {expireTarget?.expire ? (
+                  <div className={styles.expireClearRow}>
+                    <Button
+                      variant="danger-soft"
+                      size="sm"
+                      isDisabled={expireBusy}
+                      onPress={() => void applyExpire(null)}
+                    >
+                      <CalendarX size={14} />
+                      {t('settings.expireClear')}
+                    </Button>
+                    <span className={styles.expireClearHint}>
+                      {t('settings.expireClearHint')}
+                    </span>
+                  </div>
+                ) : null}
+              </AlertDialog.Body>
+              <AlertDialog.Footer>
+                {/* Отмена — слева и всегда только закрывает диалог, без действий. */}
+                <Button
+                  variant="secondary"
+                  isDisabled={expireBusy}
+                  onPress={() => setExpireTarget(null)}
+                >
+                  {t('dashboard.cancel')}
+                </Button>
+                <Button
+                  variant="primary"
+                  className={
+                    expireDone ? styles.btnSuccess : expireBusy ? styles.glowPulse : undefined
+                  }
+                  isDisabled={
+                    expireBusy ||
+                    expireDone ||
+                    !isFutureDate(expireDate, Date.now())
+                  }
+                  onPress={() => void applyExpire(expireDate)}
+                >
+                  {expireDone ? <Check size={16} /> : null}
+                  {expireDone
+                    ? t('settings.done')
+                    : t(expireBusy ? 'settings.expireSaving' : 'settings.expireSave')}
+                </Button>
+              </AlertDialog.Footer>
+            </AlertDialog.Dialog>
+          </AlertDialog.Container>
+        </AlertDialog.Backdrop>
+      </AlertDialog.Root>
+
+      <AlertDialog.Root
+        isOpen={createExpireOpen}
+        onOpenChange={(open) => {
+          if (!open) setCreateExpireOpen(false)
+        }}
+      >
+        <AlertDialog.Backdrop className={styles.blurBackdrop}>
+          {/* placement="top": диалог прижат к верху, поэтому шестая неделя
+              календаря раскрывается ВНИЗ и не сдвигает шапку со стрелками. */}
+          <AlertDialog.Container placement="top">
+            <AlertDialog.Dialog className={styles.confirmDialog}>
+              <AlertDialog.Header>
+                <AlertDialog.Heading>{t('settings.createExpire')}</AlertDialog.Heading>
+              </AlertDialog.Header>
+              <AlertDialog.Body>
+                <p className={styles.fpHint}>{t('settings.createExpireHint')}</p>
+                <CalendarPicker
+                  value={createExpire}
+                  onChange={setCreateExpire}
+                  min={todayIso()}
+                />
+              </AlertDialog.Body>
+              <AlertDialog.Footer>
+                {createExpire ? (
+                  <Button variant="danger-soft" onPress={() => setCreateExpire('')}>
+                    <CalendarX size={14} />
+                    {t('settings.expireClear')}
+                  </Button>
+                ) : null}
+                <Button variant="secondary" onPress={() => setCreateExpireOpen(false)}>
+                  {t('settings.done')}
                 </Button>
               </AlertDialog.Footer>
             </AlertDialog.Dialog>
@@ -863,7 +1307,7 @@ export function ServerSettings({
                         ))}
                       </div>
                     ) : (
-                      <div className={styles.bypassLoadRow}>
+                      <div className={styles.loadRow}>
                         <Button
                           variant="secondary"
                           size="sm"
@@ -922,7 +1366,7 @@ export function ServerSettings({
                   )}
                 </div>
                 <div className={styles.fpField}>
-                  <TextField variant="secondary" className={styles.bypassDomainField}>
+                  <TextField variant="secondary" className={styles.fieldWide}>
                     <Input
                       value={sniValue}
                       disabled={sniBusy}
@@ -1035,7 +1479,7 @@ export function ServerSettings({
                   </div>
                 </div>
                 <div className={styles.fpField}>
-                  <TextField variant="secondary" className={styles.bypassDomainField}>
+                  <TextField variant="secondary" className={styles.fieldWide}>
                     <Input
                       type="number"
                       min={1}

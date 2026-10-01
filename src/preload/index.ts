@@ -10,10 +10,14 @@ import type {
   ProfileCreateInput,
   ProfileCreateResult,
   ProfileDeleteResult,
+  ProfileExpireInput,
+  ProfileExpireResult,
   ProfileFingerprintInput,
   ProfileFingerprintResult,
   ProfilePortInput,
   ProfilePortResult,
+  ProfileRevokeInput,
+  ProfileRevokeResult,
   ProfileSniInput,
   ProfileSniResult,
   SniListResult,
@@ -101,7 +105,19 @@ const api: ElectronAPI = {
       access: SshAccessInput,
       input: ProfilePortInput
     ): Promise<ProfilePortResult> =>
-      ipcRenderer.invoke('profiles:changePort', serverId, access, input)
+      ipcRenderer.invoke('profiles:changePort', serverId, access, input),
+    revoke: (
+      serverId: string,
+      access: SshAccessInput,
+      input: ProfileRevokeInput
+    ): Promise<ProfileRevokeResult> =>
+      ipcRenderer.invoke('profiles:revoke', serverId, access, input),
+    setExpire: (
+      serverId: string,
+      access: SshAccessInput,
+      input: ProfileExpireInput
+    ): Promise<ProfileExpireResult> =>
+      ipcRenderer.invoke('profiles:setExpire', serverId, access, input)
   },
 
   server: {
