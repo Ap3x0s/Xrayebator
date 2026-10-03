@@ -2700,6 +2700,67 @@ hysteria2_status_command() {
   echo "$full" | jq --arg bin "$bin_state" '{ok: .ok, binary: $bin, backend: .backends.hysteria2}'
 }
 
+# Меню 13: сводный статус всех бэкендов.
+backend_status_menu() {
+  while true; do
+    show_ascii
+    echo -e "${BLUE}╔═══════════════════════════════════════════════╗${NC}"
+    echo -e "${BLUE}║         СТАТУС МУЛЬТИПРОТОКОЛЬНЫХ БЭКЕНДОВ    ║${NC}"
+    echo -e "${BLUE}╚═══════════════════════════════════════════════╝${NC}"
+    echo ""
+    _backend_status_json | jq . 2>/dev/null
+    echo ""
+    echo -n -e "${YELLOW}Нажмите Enter для возврата...${NC}"
+    read -r || return 0
+    return 0
+  done
+}
+
+# Меню 12: AmneziaWG 2.0 (системный VPN).
+awg_menu() {
+  while true; do
+    show_ascii
+    echo -e "${BLUE}╔═══════════════════════════════════════════════╗${NC}"
+    echo -e "${BLUE}║         AMNEZIAWG 2.0 (СИСТЕМНЫЙ VPN)         ║${NC}"
+    echo -e "${BLUE}╚═══════════════════════════════════════════════╝${NC}"
+    echo ""
+    if _backend_installed awg; then
+      echo -e "${GREEN}Установлен:${NC} интерфейс $AWG_IFACE, порт UDP $(_backend_field awg port), подсеть $(_backend_field awg subnet)"
+      echo -e "${GREEN}Юнит:${NC} $AWG_UNIT — $(_backend_unit_state "$AWG_UNIT")"
+    else
+      echo -e "${YELLOW}Не установлен.${NC}"
+    fi
+    echo ""
+    echo -e "${CYAN} 1)${NC} Установить (kernel DKMS, случайный высокий UDP-порт)"
+    echo -e "${CYAN} 2)${NC} Статус"
+    echo -e "${CYAN} 3)${NC} Удалить"
+    echo -e "${RED} 0)${NC} Назад"
+    echo ""
+    echo -n -e "${YELLOW}Выберите действие: ${NC}"
+    local choice
+    read -r choice || return 0
+    case $choice in
+      1)
+        _awg_install
+        echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
+        read -r
+        ;;
+      2)
+        awg_status_command | jq .
+        echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
+        read -r
+        ;;
+      3)
+        _awg_uninstall
+        echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
+        read -r
+        ;;
+      0) return 0 ;;
+      *) echo -e "${RED}Неверный выбор${NC}"; sleep 1 ;;
+    esac
+  done
+}
+
 # Меню 11: Hysteria 2 (быстрый UDP).
 hysteria2_menu() {
   while true; do
@@ -2756,6 +2817,331 @@ hysteria2_menu() {
 }
 # ═══════════════════════════════════════════════════════════
 # END BACKEND: HYSTERIA 2
+# ═══════════════════════════════════════════════════════════
+
+# ═══════════════════════════════════════════════════════════
+# BACKEND: AMNEZIAWG 2.0 (системный VPN) — срезы 4–5
+# ═══════════════════════════════════════════════════════════
+# Решение 2026-10-04: kernel-модуль DKMS, не userspace. Официальный путь —
+# PPA amnezia/ppa (README amneziawg-linux-kernel-module); фолбэк — сборка
+# из исходников (для ядра ≥5.6 нужен ПОЛНЫЙ linux-source, не только headers).
+# Junk-параметры по спецификации AWG 2.0: Jc 1..128, Jmin<Jmax≤1280,
+# S1/S2 15..150 (S1+56≠S2), H1-H4 уникальные 5..2147483647.
+# Правило: неудаляемо-половинных состояний нет — неудача = чистый откат.
+
+AWG_DIR="$BACKENDS_DIR/awg"
+AWG_IFACE="awg0"
+AWG_CONF_FILE="$AWG_DIR/awg0.conf"
+AWG_PARAMS_FILE="$AWG_DIR/server-params.json"
+AWG_UNIT="awg-quick@awg0.service"
+AWG_USER_NAME="hysteria"          # отдельного пользователя не заводим: awg-quick
+                                  # выполняется root-ом (сеть/маршруты), конфиг 0600 root
+AWG_SUBNET_PREFIX="10.8.1"
+AWG_SUBNET="${AWG_SUBNET_PREFIX}.0/24"
+AWG_MTU=1280
+AWG_SYSCTL_FILE="/etc/sysctl.d/99-xrayebator-awg.conf"
+AWG_REPO_MODULE="amnezia-vpn/amneziawg-linux-kernel-module"
+AWG_REPO_TOOLS="amnezia-vpn/amneziawg-tools"
+
+# Случайные junk-параметры в пределах спеки AWG 2.0 (см. шапку секции).
+_awg_gen_junk() {
+  local jc jmin jmax s1 s2 h1 h2 h3 h4
+  jc=$((RANDOM % 9 + 4))                              # 4..12 (рек. диапазон)
+  jmin=$((RANDOM % 400 + 8))                          # 8..407
+  jmax=$((jmin + RANDOM % 300 + 40))                  # jmin<jmax≤~747<1280
+  s1=$((RANDOM % 136 + 15))                           # 15..150
+  s2=$((RANDOM % 136 + 15))                           # 15..150
+  while (( s2 == s1 + 56 )); do s2=$((RANDOM % 136 + 15)); done
+  _awg_rand_h() { echo $(( (RANDOM * 32768 + RANDOM) % 2147483643 + 5 )); }
+  h1=$(_awg_rand_h)
+  h2=$(_awg_rand_h); while [[ "$h2" == "$h1" ]]; do h2=$(_awg_rand_h); done
+  h3=$(_awg_rand_h); while [[ "$h3" == "$h1" || "$h3" == "$h2" ]]; do h3=$(_awg_rand_h); done
+  h4=$(_awg_rand_h); while [[ "$h4" == "$h1" || "$h4" == "$h2" || "$h4" == "$h3" ]]; do h4=$(_awg_rand_h); done
+  jq -n --argjson jc "$jc" --argjson jmin "$jmin" --argjson jmax "$jmax" \
+    --argjson s1 "$s1" --argjson s2 "$s2" \
+    --argjson h1 "$h1" --argjson h2 "$h2" --argjson h3 "$h3" --argjson h4 "$h4" \
+    '{Jc:$jc, Jmin:$jmin, Jmax:$jmax, S1:$s1, S2:$s2, H1:$h1, H2:$h2, H3:$h3, H4:$h4}'
+}
+
+# Свободный высокий UDP-порт под интерфейс (не как у hysteria).
+_awg_pick_port() {
+  local port
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    port=$((RANDOM % 40000 + 20000))                  # 20000..59999
+    if ! _backend_port_busy_udp "$port" && [[ "$port" != "$(_backend_field hysteria2 port)" ]]; then
+      echo "$port"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Ключевая тройка: stdout "priv pub psk" (base64).
+_awg_gen_keys() {
+  local priv pub psk
+  priv=$(awg genkey 2>/dev/null) || return 1
+  pub=$(printf '%s' "$priv" | awg pubkey 2>/dev/null) || return 1
+  psk=$(awg genpsk 2>/dev/null) || return 1
+  [[ -n "$priv" && -n "$pub" && -n "$psk" ]] || return 1
+  printf '%s %s %s\n' "$priv" "$pub" "$psk"
+}
+
+# Публичный интерфейс default-route (для MASQUERADE).
+_awg_public_iface() {
+  ip route show default 2>/dev/null | awk '{print $5; exit}'
+}
+
+# Рендер серверного интерфейсного конфига (чистая функция — тестируется в CI).
+# $1=out $2=port $3=privkey $4=params_json $5=pub_iface; [Peer] добавляет реген.
+_awg_render_server_conf() {
+  local out_file=$1 port=$2 privkey=$3 params=$4 iface=$5
+  local jc jmin jmax s1 s2 h1 h2 h3 h4
+  jc=$(jq -r '.Jc' <<<"$params");   jmin=$(jq -r '.Jmin' <<<"$params")
+  jmax=$(jq -r '.Jmax' <<<"$params"); s1=$(jq -r '.S1' <<<"$params")
+  s2=$(jq -r '.S2' <<<"$params")
+  h1=$(jq -r '.H1' <<<"$params");   h2=$(jq -r '.H2' <<<"$params")
+  h3=$(jq -r '.H3' <<<"$params");   h4=$(jq -r '.H4' <<<"$params")
+  cat > "$out_file" <<EOF
+[Interface]
+Address = ${AWG_SUBNET_PREFIX}.1/24
+ListenPort = ${port}
+PrivateKey = ${privkey}
+MTU = ${AWG_MTU}
+Jc = ${jc}
+Jmin = ${jmin}
+Jmax = ${jmax}
+S1 = ${s1}
+S2 = ${s2}
+H1 = ${h1}
+H2 = ${h2}
+H3 = ${h3}
+H4 = ${h4}
+# Managed by xrayebator — peer-секции добавляет _awg_regen_config.
+PostUp = iptables -A FORWARD -i ${AWG_IFACE} -j ACCEPT; iptables -t nat -A POSTROUTING -o ${iface} -j MASQUERADE
+PostDown = iptables -D FORWARD -i ${AWG_IFACE} -j ACCEPT; iptables -t nat -D POSTROUTING -o ${iface} -j MASQUERADE
+EOF
+}
+
+# Установка модуля+tools: PPA (официальный путь) → apt amneziawg.
+# Возвращает 0 только если awg-бинарник на месте.
+_awg_install_packages() {
+  echo -e "${CYAN}  → Ставлю amneziawg из PPA amnezia/ppa (может занять несколько минут: DKMS)...${NC}"
+  _apt_wait_lock
+  if command -v add-apt-repository >/dev/null 2>&1; then
+    add-apt-repository -y ppa:amnezia/ppa >/dev/null 2>&1 || true
+  else
+    echo "deb https://ppa.launchpadcontent.net/amnezia/ppa/ubuntu focal main" > /etc/apt/sources.list.d/amneziawg.list
+  fi
+  apt-get update -qq >/dev/null 2>&1 || true
+  apt-get install -y --no-install-recommends amneziawg >/dev/null 2>&1
+  command -v awg >/dev/null 2>&1
+}
+
+# Ручная сборка (фолбэк, когда PPA недоступен). Требует ПОЛНЫЙ linux-source
+# для ядер ≥5.6 — ставим linux-source текущей серии и линкуем в дерево модуля.
+_awg_install_packages_manual() {
+  echo -e "${CYAN}  → PPA недоступен — ручная сборка amneziawg из исходников...${NC}"
+  _apt_wait_lock
+  apt-get install -y --no-install-recommends \
+    build-essential dkms git "linux-headers-$(uname -r)" linux-source >/dev/null 2>&1 || true
+  local work
+  work=$(mktemp -d) || return 1
+  git clone --depth 1 "https://github.com/${AWG_REPO_MODULE}.git" "$work/module" >/dev/null 2>&1 || { rm -rf "$work"; return 1; }
+  git clone --depth 1 "https://github.com/${AWG_REPO_TOOLS}.git" "$work/tools" >/dev/null 2>&1 || { rm -rf "$work"; return 1; }
+  # Полное дерево исходников ядра для ядер ≥5.6 (README: нужны именно sources).
+  local ks
+  ks=$(ls -d /usr/src/linux-source-* 2>/dev/null | head -1)
+  if [[ -n "$ks" ]]; then
+    ln -sfn "$(readlink -f "$ks")" "$work/module/src/kernel"
+  else
+    echo -e "${YELLOW}  ⚠ linux-source не найден — сборка модуля на ядре ≥5.6 может упасть${NC}"
+  fi
+  ( cd "$work/module/src" && make >/dev/null 2>&1 && make install >/dev/null 2>&1 ) || { rm -rf "$work"; return 1; }
+  ( cd "$work/tools/src" && WITH_WGQUICK=yes WITH_SYSTEMDUNITS=yes make >/dev/null 2>&1 && make install >/dev/null 2>&1 ) || { rm -rf "$work"; return 1; }
+  depmod -a >/dev/null 2>&1 || true
+  rm -rf "$work"
+  command -v awg >/dev/null 2>&1
+}
+
+# Проверка живого модуля: modprobe + lsmod. Без него backend не регистрируем.
+_awg_verify_module() {
+  modprobe amneziawg 2>/dev/null || true
+  lsmod 2>/dev/null | grep -q '^amneziawg '
+}
+
+# Установка AWG. Возвращает: 0=ok, 1=ошибка, 2=уже установлена.
+_awg_install() {
+  if _backend_installed awg; then
+    echo -e "${YELLOW}ℹ AmneziaWG уже установлен.${NC}"
+    echo -e "${YELLOW}  Для переустановки: сначала 'awg-uninstall'.${NC}"
+    return 2
+  fi
+  command -v iptables >/dev/null 2>&1 || {
+    echo -e "${RED}✗ iptables не найден (нужен для MASQUERADE)${NC}"
+    return 1
+  }
+
+  # 1) Пакеты: PPA → ручная сборка. Оба шага честно логируются.
+  if ! _awg_install_packages; then
+    if ! _awg_install_packages_manual; then
+      echo -e "${RED}✗ Не удалось установить amneziawg (PPA и ручная сборка)${NC}"
+      echo -e "${YELLOW}  Проверьте ядро/headers: uname -r; dpkg -l | grep linux-headers${NC}"
+      return 1
+    fi
+  fi
+  if ! _awg_verify_module; then
+    echo -e "${RED}✗ Модуль amneziawg не загрузился (modprobe/lsmod)${NC}"
+    echo -e "${YELLOW}  Ядро может быть новее поддерживаемого — см. троблшутинг README amneziawg.${NC}"
+    return 1
+  fi
+
+  # 2) Параметры сервера
+  local keys port iface junk
+  keys=$(_awg_gen_keys) || { echo -e "${RED}✗ awg genkey не сработал${NC}"; return 1; }
+  port=$(_awg_pick_port) || { echo -e "${RED}✗ Не найден свободный UDP-порт${NC}"; return 1; }
+  iface=$(_awg_public_iface)
+  [[ -n "$iface" ]] || { echo -e "${RED}✗ Не определён публичный интерфейс (default route)${NC}"; return 1; }
+  junk=$(_awg_gen_junk)
+
+  local priv pub psk
+  read -r priv pub psk <<< "$keys"
+
+  mkdir -p "$AWG_DIR"
+  chmod 700 "$AWG_DIR" 2>/dev/null
+  jq -n --arg priv "$priv" --arg pub "$pub" \
+    --argjson port "$port" --arg iface "$iface" --argjson junk "$junk" \
+    --arg subnet "$AWG_SUBNET" --argjson mtu "$AWG_MTU" \
+    '{private_key: $priv, public_key: $pub, port: $port, iface: $iface,
+      junk: $junk, subnet: $subnet, mtu: $mtu}' > "$AWG_PARAMS_FILE" || {
+    echo -e "${RED}✗ Не удалось записать server-params.json${NC}"
+    return 1
+  }
+  chmod 600 "$AWG_PARAMS_FILE" 2>/dev/null
+
+  # 3) Конфиг интерфейса (без peer-ов — их добавляет реген среза 5)
+  _awg_render_server_conf "$AWG_CONF_FILE" "$port" "$priv" "$junk" "$iface"
+  chmod 600 "$AWG_CONF_FILE" 2>/dev/null
+
+  # 4) ip_forward (системный VPN обязан маршрутизировать)
+  cat > "$AWG_SYSCTL_FILE" <<'EOF'
+# Managed by xrayebator (AmneziaWG forwarding)
+net.ipv4.ip_forward=1
+EOF
+  chmod 644 "$AWG_SYSCTL_FILE"
+  sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
+
+  # 5) Интерфейс
+  systemctl daemon-reload 2>/dev/null
+  if ! systemctl enable --now "$AWG_UNIT" 2>/dev/null; then
+    echo -e "${RED}✗ systemctl enable --now ${AWG_UNIT} не удался${NC}"
+    echo -e "${YELLOW}  Проверьте: awg-quick strip ${AWG_CONF_FILE}; journalctl -u ${AWG_UNIT}${NC}"
+    systemctl disable --now "$AWG_UNIT" 2>/dev/null
+    rm -rf "$AWG_DIR" "$AWG_SYSCTL_FILE"
+    return 1
+  fi
+  sleep 1
+  if ! awg show "$AWG_IFACE" >/dev/null 2>&1; then
+    echo -e "${RED}✗ Интерфейс ${AWG_IFACE} не поднялся${NC}"
+    systemctl disable --now "$AWG_UNIT" 2>/dev/null
+    rm -rf "$AWG_DIR" "$AWG_SYSCTL_FILE"
+    return 1
+  fi
+
+  open_firewall_port "$port" udp
+
+  # 6) Реестр — последним шагом
+  _backend_set awg '(.awg.installed) = true' &&
+    _backend_set awg '(.awg.version) = $v' --arg v "kernel-dkms" &&
+    _backend_set awg '(.awg.port) = $p' --argjson port "$port" &&
+    _backend_set awg '(.awg.unit) = $u' --arg u "$AWG_UNIT" &&
+    _backend_set awg '(.awg.subnet) = $s' --arg s "$AWG_SUBNET" &&
+    _backend_set awg '(.awg.mtu) = $m' --argjson mtu "$AWG_MTU" &&
+    _backend_set awg '(.awg.junk) = $j' --argjson junk "$junk" &&
+    _backend_set awg '(.awg.iface) = $i' --arg i "$iface" &&
+    _backend_set awg '(.awg.sub_body) = false' || {
+    echo -e "${RED}✗ Не удалось записать реестр бэкендов${NC}"
+    systemctl disable --now "$AWG_UNIT" 2>/dev/null
+    rm -rf "$AWG_DIR" "$AWG_SYSCTL_FILE"
+    return 1
+  }
+
+  echo ""
+  echo -e "${GREEN}╔═══════════════════════════════════════════════╗${NC}"
+  echo -e "${GREEN}║      ✓ AMNEZIAWG 2.0 УСТАНОВЛЕН               ║${NC}"
+  echo -e "${GREEN}╚═══════════════════════════════════════════════╝${NC}"
+  echo ""
+  echo -e "${BLUE}Интерфейс:${NC} $AWG_IFACE, порт UDP $port, подсеть $AWG_SUBNET"
+  echo -e "${BLUE}Junk-параметры:${NC} $(jq -c '.junk' "$AWG_PARAMS_FILE")"
+  echo -e "${YELLOW}ℹ Выдача peer-конфигов профилям — следующий срез.${NC}"
+  return 0
+}
+
+# Удаление AWG. Возвращает: 0=ok, 2=не установлен.
+_awg_uninstall() {
+  if ! _backend_installed awg && [[ ! -f "$AWG_CONF_FILE" ]]; then
+    echo -e "${YELLOW}ℹ AmneziaWG не установлен.${NC}"
+    return 2
+  fi
+  local port
+  port=$(_backend_field awg port)
+
+  echo -e "${CYAN}  → Гашу интерфейс и убираю артефакты...${NC}"
+  systemctl disable --now "$AWG_UNIT" 2>/dev/null
+  ip link del "$AWG_IFACE" 2>/dev/null || true
+  rm -rf "$AWG_DIR"
+  rm -f "$AWG_SYSCTL_FILE"
+
+  if [[ "$port" =~ ^[0-9]+$ ]]; then
+    close_firewall_port "$port" udp
+  fi
+
+  safe_jq_write --arg t awg 'del(.[$t])' "$BACKENDS_REGISTRY_FILE" 2>/dev/null
+
+  echo -e "${GREEN}  ✓ AmneziaWG удалён (модуль/пакеты оставлены в системе)${NC}"
+  return 0
+}
+
+# CLI: awg-install / awg-uninstall / awg-status. Только JSON на stdout.
+awg_install_command() {
+  local rc=0
+  exec 3>&1; exec 1>&2
+  _awg_install || rc=$?
+  exec 1>&3
+  if [[ $rc == 0 ]]; then
+    jq -n '{ok: true}'
+  elif [[ $rc == 2 ]]; then
+    jq -n '{ok: true, already: true}'
+    rc=0
+  else
+    jq -n --argjson code "$rc" '{ok: false, code: $code}'
+  fi
+  return "$rc"
+}
+
+awg_uninstall_command() {
+  local rc=0
+  exec 3>&1; exec 1>&2
+  _awg_uninstall || rc=$?
+  exec 1>&3
+  if [[ $rc == 0 ]]; then
+    jq -n '{ok: true}'
+  elif [[ $rc == 2 ]]; then
+    jq -n '{ok: true, already: true}'
+    rc=0
+  else
+    jq -n --argjson code "$rc" '{ok: false, code: $code}'
+  fi
+  return "$rc"
+}
+
+awg_status_command() {
+  local full
+  full=$(_backend_status_json) || { echo '{"ok":false,"error":"registry"}'; return 1; }
+  echo "$full" | jq '{ok: .ok, backend: .backends.awg}'
+}
+
+# ═══════════════════════════════════════════════════════════
+# END BACKEND: AMNEZIAWG
 # ═══════════════════════════════════════════════════════════
 
 # Check whether a profile has route array
@@ -7979,6 +8365,8 @@ main_menu() {
     echo ""
     echo -e "${MAGENTA} MULTI-PROTOCOL BACKENDS:${NC}"
     echo -e "${CYAN}11)${NC} Hysteria 2 (быстрый UDP)"
+    echo -e "${CYAN}12)${NC} AmneziaWG 2.0 (системный VPN)"
+    echo -e "${CYAN}13)${NC} Статус бэкендов"
     echo ""
     echo -e "${RED} 0)${NC} Выход"
     echo ""
@@ -7997,6 +8385,8 @@ main_menu() {
       9) install_selfsteal_stub_menu ;;
       10) setup_outbound_server_menu ;;
       11) hysteria2_menu ;;
+      12) awg_menu ;;
+      13) backend_status_menu ;;
       0) exit 0 ;;
       *) echo -e "${RED}Неверный выбор${NC}"; sleep 1 ;;
     esac
@@ -13571,6 +13961,15 @@ if [[ "$XRAYEBATOR_SOURCED" -eq 0 ]]; then
       shift
       hysteria2_grant_command "$@"
       ;;
+    awg-install)
+      awg_install_command
+      ;;
+    awg-uninstall)
+      awg_uninstall_command
+      ;;
+    awg-status)
+      awg_status_command
+      ;;
     ""|menu)
       main_menu
       ;;
@@ -13606,6 +14005,9 @@ if [[ "$XRAYEBATOR_SOURCED" -eq 0 ]]; then
       echo -e "  ${CYAN}sudo xrayebator hysteria2-uninstall${NC} — удалить Hysteria 2 (JSON)"
       echo -e "  ${CYAN}sudo xrayebator hysteria2-status${NC} — статус Hysteria 2 (JSON)"
       echo -e "  ${CYAN}sudo xrayebator hysteria2-grant --name N${NC} — выдать грант профилю (JSON)"
+      echo -e "  ${CYAN}sudo xrayebator awg-install${NC} — установить AmneziaWG 2.0 (JSON)"
+      echo -e "  ${CYAN}sudo xrayebator awg-uninstall${NC} — удалить AmneziaWG (JSON)"
+      echo -e "  ${CYAN}sudo xrayebator awg-status${NC} — статус AmneziaWG (JSON)"
       echo ""
       echo -e "${YELLOW}Файлы:${NC}"
       echo -e "  config:    /usr/local/etc/xray/config.json"
