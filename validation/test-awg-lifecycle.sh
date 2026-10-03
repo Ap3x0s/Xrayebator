@@ -41,6 +41,7 @@ exit 0
 EOF
 chmod 755 "$FAKEBIN"/systemctl "$FAKEBIN"/awg "$FAKEBIN"/awg-quick
 export PATH="$FAKEBIN:$PATH"
+export XRAYEBATOR_SERVER_ADDR_OVERRIDE="203.0.113.10"
 
 # shellcheck disable=SC1091
 source ./xrayebator || fail "source ./xrayebator failed"
@@ -91,8 +92,74 @@ jq -e '.ok == true and .backend.installed == true and .backend.port == 51820 and
   || fail "awg status shape: $status"
 pass "awg-status JSON shape correct"
 
-# 5) uninstall при отсутствии установки → rc 2 (safe no-op)
+# ── Срез 5: peers, адреса, клиентский .conf, события жизненного цикла ──
+# Каталог и server-params в реальном цикле пишет _awg_install — собираем вручную.
+mkdir -p "$AWG_DIR"
+jq -n --arg priv "$priv" --arg pub "$pub" --argjson port 51820 --arg iface "eth0" \
+  --argjson junk "$junk" --arg subnet "10.8.1.0/24" --argjson mtu 1280 \
+  '{private_key:$priv, public_key:$pub, port:$port, iface:$iface, junk:$junk, subnet:$subnet, mtu:$mtu}' \
+  > "$AWG_PARAMS_FILE" || fail "fixture server-params"
+
+jq -n '{name:"carol", uuid:"u-carol", transport:"tcp", port:443}' > "$PROFILES_DIR/carol.json" || fail "fixture carol"
+_awg_grant_profile carol || fail "awg grant carol"
+addr1=$(jq -r '.backends.awg.address' "$PROFILES_DIR/carol.json")
+[[ "$addr1" == "10.8.1.2" ]] || fail "first address expected 10.8.1.2, got $addr1"
+cpub1=$(jq -r '.backends.awg.client_public_key' "$PROFILES_DIR/carol.json")
+grep -qF "AllowedIPs = 10.8.1.2/32" "$AWG_CONF_FILE" || fail "peer AllowedIPs missing in awg0.conf"
+grep -qF "PublicKey = $cpub1" "$AWG_CONF_FILE" || fail "peer pubkey missing in awg0.conf"
+pass "awg grant allocates first free address (.2) and regenerates [Peer] section"
+
+conf="$(awg_conf_command --name carol)" || fail "awg-conf command"
+jq -e '.ok == true and .name == "carol" and
+       (.conf | contains("[Interface]")) and (.conf | contains("[Peer]")) and
+       (.conf | contains("AllowedIPs = 0.0.0.0/0, ::/0")) and
+       (.conf | contains("Endpoint = 203.0.113.10:51820")) and
+       (.conf | contains("PersistentKeepalive = 25")) and
+       (.conf | contains("PresharedKey = "))' <<<"$conf" >/dev/null \
+  || fail "client conf shape: $conf"
+jq -r '.conf' <<<"$conf" > "$TMP_ROOT/carol-client.conf"
+grep -qF "H1 = $(jq -r '.junk.H1' "$AWG_PARAMS_FILE")" "$TMP_ROOT/carol-client.conf" \
+  || fail "client conf junk params mismatch with server"
+grep -qF "PublicKey = $(jq -r '.public_key' "$AWG_PARAMS_FILE")" "$TMP_ROOT/carol-client.conf" \
+  || fail "client conf server pubkey mismatch"
+pass "client .conf carries keys, junk params, server peer and endpoint"
+
+# второй профиль → следующий адрес .3
+jq -n '{name:"dave", uuid:"u-dave", transport:"tcp", port:443}' > "$PROFILES_DIR/dave.json" || fail "fixture dave"
+_awg_grant_profile dave || fail "awg grant dave"
+addr2=$(jq -r '.backends.awg.address' "$PROFILES_DIR/dave.json")
+[[ "$addr2" == "10.8.1.3" ]] || fail "second address expected 10.8.1.3, got $addr2"
+pass "address allocation advances (.2 -> .3)"
+
+# revoked: ротация ключей peer-а
+k1=$(jq -r '.backends.awg.client_private_key' "$PROFILES_DIR/carol.json")
+_awg_on_profile_event carol revoked || fail "awg event revoked"
+k2=$(jq -r '.backends.awg.client_private_key' "$PROFILES_DIR/carol.json")
+[[ "$k2" != "$k1" ]] || fail "awg revoke did not rotate keys"
+grep -qF "PublicKey = $(jq -r '.backends.awg.client_public_key' "$PROFILES_DIR/carol.json")" "$AWG_CONF_FILE" \
+  || fail "awg revoke: conf not updated"
+[[ "$(jq -r '.backends.awg.address' "$PROFILES_DIR/carol.json")" == "10.8.1.2" ]] \
+  || fail "awg revoke must keep the address"
+pass "event revoked rotates peer keys, keeps address, regenerates conf"
+
+# expired: expire_disabled=true убирает peer из конфига
+safe_jq_write '.expire_disabled = true' "$PROFILES_DIR/carol.json" || fail "fixture expire"
+_awg_on_profile_event carol expired || fail "awg event expired"
+grep -qF "10.8.1.2/32" "$AWG_CONF_FILE" && fail "expired peer still in conf"
+grep -qF "10.8.1.3/32" "$AWG_CONF_FILE" || fail "active peer lost on expired event"
+pass "event expired removes disabled peer, keeps active ones"
+
+# restored: возврат peer-а
+safe_jq_write '.expire_disabled = false' "$PROFILES_DIR/carol.json" || fail "fixture restore"
+_awg_on_profile_event carol restored || fail "awg event restored"
+grep -qF "10.8.1.2/32" "$AWG_CONF_FILE" || fail "restored peer missing in conf"
+pass "event restored returns peer to conf"
+
+# grant без backend — безопасный no-op проверяется ниже вместе с uninstall
+
+# ── Отсутствие установки: безопасные no-op ──
 safe_jq_write --arg t awg 'del(.[$t])' "$BACKENDS_REGISTRY_FILE" || fail "registry del"
+rm -f "$AWG_CONF_FILE"
 rc=0; _awg_uninstall >/dev/null 2>&1 || rc=$?
 [[ "$rc" == "2" ]] || fail "uninstall rc=$rc on not-installed (expected 2)"
 pass "awg uninstall is a safe no-op (rc 2) when not installed"
@@ -101,11 +168,16 @@ pass "awg uninstall is a safe no-op (rc 2) when not installed"
 grep -Fq '    awg-install)' xrayebator || fail "dispatch awg-install missing"
 grep -Fq '    awg-uninstall)' xrayebator || fail "dispatch awg-uninstall missing"
 grep -Fq '    awg-status)' xrayebator || fail "dispatch awg-status missing"
+grep -Fq '    awg-grant)' xrayebator || fail "dispatch awg-grant missing"
+grep -Fq '    awg-conf)' xrayebator || fail "dispatch awg-conf missing"
 grep -Fq '      12) awg_menu ;;' xrayebator || fail "menu dispatch 12 missing"
 grep -Fq '      13) backend_status_menu ;;' xrayebator || fail "menu dispatch 13 missing"
 grep -Fq 'awg_menu() {' xrayebator || fail "awg_menu definition missing"
+grep -Fq 'awg_conf_menu() {' xrayebator || fail "awg_conf_menu definition missing"
 grep -Fq 'backend_status_menu() {' xrayebator || fail "backend_status_menu definition missing"
-pass "CLI dispatch and menu wiring present (12/13)"
+grep -Fq '_backend_apply_profile_lifecycle "$name" revoked' xrayebator || fail "revoke lifecycle wiring missing"
+grep -Fq '"$(basename "$profile_file" .json)" expired' xrayebator || fail "expire lifecycle wiring missing"
+pass "CLI dispatch, menu, lifecycle wiring present (12/13)"
 
 echo ""
 pass "amneziawg backend (slice 4): all checks green"
