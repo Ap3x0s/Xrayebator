@@ -42,6 +42,12 @@ TCP_CC_AVAILABLE_FILE="/proc/sys/net/ipv4/tcp_available_congestion_control"
 HOST_TUNING_MIGRATION_MARKER="/usr/local/etc/xray/.host_tcp_tuning_removed_v3"
 SYSCTL_SCAN_PATHS="/etc/sysctl.conf:/etc/sysctl.d:/usr/lib/sysctl.d:/lib/sysctl.d"
 LOCK_FILE="${LOCK_FILE:-/usr/local/etc/xray/.xrayebator.lock}"
+# Мультипротокольные бэкенды (этап 1): нейтральный корень ВНЕ /usr/local/etc/xray.
+# Решение 2026-10-04: hysteria2/awg не притворяются Xray-путями; реестр один —
+# backends.json. BACKENDS_ROOT переопределяем для функциональных тестов (P2-fix паттерн).
+BACKENDS_ROOT="${BACKENDS_ROOT:-/usr/local/etc/xrayebator}"
+BACKENDS_DIR="$BACKENDS_ROOT/backends"
+BACKENDS_REGISTRY_FILE="$BACKENDS_ROOT/backends.json"
 # P2-fix: пути nginx-сайтов переопределяемы для тестов реальной последовательности
 # (quickstart rollback). В проде — системные каталоги; в функциональном тесте —
 # временная ФС. Совпадает с существующим паттерном CONFIG_FILE/PROFILES_DIR override.
@@ -1887,6 +1893,141 @@ close_firewall_port() {
 
   return 0
 }
+
+# ═══════════════════════════════════════════════════════════
+# MULTI-PROTOCOL BACKEND REGISTRY (этап 1)
+# ═══════════════════════════════════════════════════════════
+# Нейтральный слой для не-Xray бэкендов (Hysteria 2, AmneziaWG 2.0).
+# Дизайн: .superpowers/sdd/2026-10-04-multi-protocol-backends-design.md
+# Клиентские креденшелы бэкендов живут в профилях (.backends) — профиль
+# единственный источник правды; серверные конфиги бэкендов регенерируются
+# из профилей. Реестр — плоский JSON: {"<type>": {"installed": bool, ...}}.
+
+# Готовит корень/каталог бэкендов и пустой реестр. Идемпотентен.
+_backend_ensure_registry() {
+  if [[ ! -d "$BACKENDS_ROOT" ]]; then
+    mkdir -p "$BACKENDS_ROOT" || return 1
+    chmod 700 "$BACKENDS_ROOT" 2>/dev/null
+  fi
+  if [[ ! -d "$BACKENDS_DIR" ]]; then
+    mkdir -p "$BACKENDS_DIR" || return 1
+    chmod 700 "$BACKENDS_DIR" 2>/dev/null
+  fi
+  if [[ ! -s "$BACKENDS_REGISTRY_FILE" ]]; then
+    if ! jq -n '{}' > "${BACKENDS_REGISTRY_FILE}.tmp.$$" 2>/dev/null; then
+      rm -f "${BACKENDS_REGISTRY_FILE}.tmp.$$"
+      return 1
+    fi
+    if [[ ! -s "${BACKENDS_REGISTRY_FILE}.tmp.$$" ]]; then
+      rm -f "${BACKENDS_REGISTRY_FILE}.tmp.$$"
+      return 1
+    fi
+    mv "${BACKENDS_REGISTRY_FILE}.tmp.$$" "$BACKENDS_REGISTRY_FILE" || return 1
+    chmod 600 "$BACKENDS_REGISTRY_FILE" 2>/dev/null
+  fi
+  return 0
+}
+
+# Установлен ли бэкенд (по реестру). Аргументы: $1 = тип бэкенда.
+_backend_installed() {
+  local type=$1
+  [[ -s "$BACKENDS_REGISTRY_FILE" ]] || return 1
+  jq -e --arg t "$type" '.[$t].installed == true' "$BACKENDS_REGISTRY_FILE" >/dev/null 2>&1
+}
+
+# Значение поля реестра бэкенда (пусто, если поля/бэкенда нет).
+_backend_field() {
+  local type=$1 field=$2
+  [[ -s "$BACKENDS_REGISTRY_FILE" ]] || { echo ""; return 0; }
+  jq -r --arg t "$type" --arg f "$field" '.[$t][$f] // empty' "$BACKENDS_REGISTRY_FILE" 2>/dev/null
+}
+
+# Мутация реестра через safe_jq_write (валидация + tmp+mv, in-place).
+# Usage: _backend_set hysteria2 '(.hysteria2.port) = $port' --argjson port 443
+# Контракт safe_jq_write: jq-опции ДО фильтра, файл — последний аргумент.
+_backend_set() {
+  local type=$1 expr=$2
+  shift 2
+  _backend_ensure_registry || return 1
+  # Гарантируем существование объекта бэкенда (if-форма: совместимость со старым jq).
+  safe_jq_write --arg t "$type" \
+    'if .[$t] == null then .[$t] = {} else . end' \
+    "$BACKENDS_REGISTRY_FILE" || return 1
+  if [[ $# -gt 0 ]]; then
+    safe_jq_write "$@" "$expr" "$BACKENDS_REGISTRY_FILE"
+  else
+    safe_jq_write "$expr" "$BACKENDS_REGISTRY_FILE"
+  fi
+}
+
+# Занят ли UDP-порт системными слушателями. Порты других бэкендов НЕ
+# вычитаются здесь — их вызывающий сверяет по реестру.
+_backend_port_busy_udp() {
+  local port=$1
+  ss -uln 2>/dev/null | grep -qE "[:.]${port}[[:space:]]"
+}
+
+# active|inactive для systemd-юнита бэкенда; unknown — если юнит не задан.
+_backend_unit_state() {
+  local unit=$1
+  [[ -n "$unit" ]] || { echo "unknown"; return 0; }
+  if systemctl is-active --quiet "$unit" 2>/dev/null; then
+    echo "active"
+  else
+    echo "inactive"
+  fi
+}
+
+# Машиночитаемый статус реестра бэкендов. ТОЛЬКО JSON на stdout
+# (JSON-гигиена CLI как у profile-*).
+_backend_status_json() {
+  if ! _backend_ensure_registry; then
+    echo '{"ok":false,"error":"registry_init_failed","backends":{}}'
+    return 1
+  fi
+  local out="{}"
+  local prev="$out"
+  local type installed port unit state
+  for type in hysteria2 awg; do
+    prev="$out"
+    if _backend_installed "$type"; then installed="true"; else installed="false"; fi
+    port=$(_backend_field "$type" "port")
+    [[ "$port" =~ ^[0-9]+$ ]] || port=""
+    unit=$(_backend_field "$type" "unit")
+    state=$(_backend_unit_state "$unit")
+    out=$(jq -n \
+      --argjson base "$prev" \
+      --arg t "$type" \
+      --argjson installed "$installed" \
+      --argjson port "${port:-null}" \
+      --arg unit "$unit" \
+      --arg state "$state" \
+      '$base + {($t): ({installed: $installed, state: $state} + (if $port != null then {port: $port} else {} end) + (if $unit != "" then {unit: $unit} else {} end))}' 2>/dev/null)
+    [[ -n "$out" ]] || out="$prev"
+  done
+  echo "{\"ok\":true,\"backends\":$out}"
+}
+
+# Единая точка жизненного цикла профиля для всех бэкендов.
+# Вызывается ПОСЛЕ успешной Xray-части операции (create/delete/revoke/expire).
+# Идемпотентна; для неустановленных бэкендов — no-op. События:
+#   created | deleted | revoked | expired | restored
+# Обработчики добавляются срезами бэкендов: _hysteria2_on_profile_event и т.п.
+_backend_apply_profile_lifecycle() {
+  local name=$1 event=$2
+  local type handler
+  for type in hysteria2 awg; do
+    _backend_installed "$type" || continue
+    handler="_${type}_on_profile_event"
+    declare -F "$handler" >/dev/null 2>&1 || continue
+    "$handler" "$name" "$event" || \
+      echo -e "${YELLOW}  ⚠ backend ${type}: событие ${event} для профиля ${name} обработано с ошибкой${NC}" >&2
+  done
+  return 0
+}
+# ═══════════════════════════════════════════════════════════
+# END MULTI-PROTOCOL BACKEND REGISTRY
+# ═══════════════════════════════════════════════════════════
 
 # Check whether a profile has route array
 profile_has_routes() {
@@ -12634,6 +12775,9 @@ if [[ "$XRAYEBATOR_SOURCED" -eq 0 ]]; then
       shift
       bypass_command "$@"
       ;;
+    backend-status)
+      _backend_status_json
+      ;;
     ""|menu)
       main_menu
       ;;
@@ -12664,11 +12808,13 @@ if [[ "$XRAYEBATOR_SOURCED" -eq 0 ]]; then
       echo -e "  ${CYAN}sudo xrayebator bypass remove --domain D${NC} — убрать домен из обхода (JSON)"
       echo -e "  ${CYAN}sudo xrayebator bypass reset${NC} — сбросить все bypass-правила (JSON)"
       echo -e "  ${CYAN}sudo xrayebator bypass bundle [--group a,b,c]${NC} — применить группы доменов (JSON)"
+      echo -e "  ${CYAN}sudo xrayebator backend-status${NC} — статус мультипротокольных бэкендов (JSON)"
       echo ""
       echo -e "${YELLOW}Файлы:${NC}"
       echo -e "  config:    /usr/local/etc/xray/config.json"
       echo -e "  profiles:  /usr/local/etc/xray/profiles/"
       echo -e "  backups:   /usr/local/etc/xray/backups/"
+      echo -e "  backends:  /usr/local/etc/xrayebator/backends.json"
       echo -e "  docs:      https://github.com/howdeploy/Xrayebator"
       exit 0
       ;;
