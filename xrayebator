@@ -12110,6 +12110,17 @@ inspect_command() {
     flag=$(_geo_flag_emoji "$(_geo_country_code)")
   fi
 
+  # Мультибэкенд: сводка реестра. STRICT read-only: inspect ничего не создаёт —
+  # при отсутствии файла реестра просто пустой объект; секреты не включаем.
+  local backends_json="{}"
+  if [[ -s "$BACKENDS_REGISTRY_FILE" ]]; then
+    backends_json=$(jq -c \
+      'with_entries(.value |= {installed: (.value.installed // false),
+        version: (.value.version // null), port: (.value.port // null)})' \
+      "$BACKENDS_REGISTRY_FILE" 2>/dev/null) || backends_json="{}"
+    [[ -n "$backends_json" ]] || backends_json="{}"
+  fi
+
   jq -n \
     --argjson ok true --argjson recognized true \
     --arg os "$os" --arg manager "$manager" --arg xray "$xray" \
@@ -12122,12 +12133,13 @@ inspect_command() {
     --arg subscription_service "$sub_service" \
     --arg subscription_url "$sub_url" \
     --arg country "$geo_country" --arg city "$geo_city" --arg flag "$flag" \
+    --argjson backends "$backends_json" \
     '{ok:$ok, recognized:$recognized, os:$os, manager:$manager, xray:$xray,
       profiles:$profiles, profile_count:$profile_count, route_count:$route_count,
       subscription_installed:$subscription_installed, subscription_mode:$subscription_mode,
       subscription_domain:$subscription_domain, subscription_port:$subscription_port,
       subscription_service:$subscription_service, subscription_url:$subscription_url,
-      country:$country, city:$city, flag:$flag}'
+      country:$country, city:$city, flag:$flag, backends:$backends}'
   return 0
 }
 
@@ -12728,6 +12740,11 @@ profiles_command() {
     fi
     [[ "$rcount" =~ ^[0-9]+$ ]] || rcount=0
 
+    # Мультибэкенд: аддитивный объект .backends профиля (гранты hysteria2/awg).
+    local backends
+    backends=$(jq -c '.backends // {}' "$file" 2>/dev/null)
+    [[ -n "$backends" ]] || backends="{}"
+
     local sub_url=""
     if _profile_cli_subscription_url "$sub_token" >/dev/null 2>&1; then
       sub_url="$base/sub/$sub_token"
@@ -12741,12 +12758,13 @@ profiles_command() {
       --argjson pq "$pq" --arg subscription_url "$sub_url" \
       --argjson expire "$expire" --arg expire_date "$expire_date" \
       --argjson expire_disabled "$expire_disabled" \
+      --argjson backends "$backends" \
       '{name: $name, uuid: $uuid, transport: $transport, port: $port,
         fingerprint: $fingerprint, sni: $sni, created: $created,
         sub_token: $sub_token, multi_route: $multi_route, routes: $routes,
         pq_enabled: $pq, subscription_url: $subscription_url,
         expire: $expire, expire_date: $expire_date, expire_disabled: $expire_disabled,
-        expire_supported: true}'
+        expire_supported: true, backends: $backends}'
   done
   printf ']\n'
   return 0
