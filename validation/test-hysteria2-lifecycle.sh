@@ -46,12 +46,12 @@ grep -q '^listen: :443$' "$yaml" || fail "yaml listen"
 grep -q '^  cert: /opt/c.pem$' "$yaml" || fail "yaml cert"
 grep -q '^  key: /opt/k.pem$' "$yaml" || fail "yaml key"
 grep -q '^  type: userpass$' "$yaml" || fail "yaml auth type"
-grep -q '^  users: {}$' "$yaml" || fail "yaml users empty map"
+grep -q '^  userpass: {}$' "$yaml" || fail "yaml userpass empty map"
 grep -q '^  type: 404$' "$yaml" || fail "yaml masquerade 404"
 pass "server.yaml rendered with expected structure"
 
 _hysteria2_render_server_yaml "$yaml" 8443 "/c" "/k" '{"alice":"pw1"}' || fail "render yaml users"
-grep -q '^  users: {"alice":"pw1"}$' "$yaml" || fail "yaml users map inline"
+grep -q '^  userpass: {"alice":"pw1"}$' "$yaml" || fail "yaml userpass map inline"
 pass "server.yaml accepts users map parameter"
 
 unit="$TMP_ROOT/hysteria-server.service"
@@ -123,8 +123,11 @@ pass "event revoked rotates password and regenerates config"
 # expired: expire_disabled=true выкидывает грант из users-карты
 safe_jq_write '.expire_disabled = true' "$PROFILES_DIR/alice.json" || fail "fixture expire"
 _hysteria2_on_profile_event alice expired || fail "event expired"
-grep -q '^  users: {}$' "$HYSTERIA2_DIR/server.yaml" || fail "expired: alice still in users map"
-pass "event expired removes disabled profile grant from users map"
+users_line=$(grep '^  userpass: ' "$HYSTERIA2_DIR/server.yaml")
+[[ "$users_line" != *"alice"* ]] || fail "expired: alice still in users map: $users_line"
+grep -q '_xrayebator_placeholder' <<<"$users_line" \
+  || fail "expired: empty map must fall back to placeholder: $users_line"
+pass "event expired removes disabled profile grant (placeholder keeps config valid)"
 
 # restored: возврат гранта
 safe_jq_write '.expire_disabled = false' "$PROFILES_DIR/alice.json" || fail "fixture restore"

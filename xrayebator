@@ -2106,9 +2106,11 @@ tls:
   key: ${key}
 
 # Per-profile гранты: карта собрана из .backends.hysteria2 живых профилей.
+# ВАЖНО: поле называется userpass (не users!) — с "users" hysteria падает
+# с "empty auth userpass" (живой тест 2.26.125.147).
 auth:
   type: userpass
-  users: ${users}
+  userpass: ${users}
 
 masquerade:
   type: 404
@@ -2183,6 +2185,20 @@ _hysteria2_grants_count() {
   echo "$n"
 }
 
+# Placeholder-пользователь: Hysteria отвергает ПУСТУЮ userpass-карту
+# ("empty auth userpass", живой тест 2.26.125.147). Пока нет грантов —
+# в карте висит _xrayebator_placeholder со случайным паролем (0600 root).
+_hysteria2_ensure_placeholder() {
+  local pfile="$HYSTERIA2_DIR/.placeholder_pass"
+  if [[ -s "$pfile" ]]; then
+    tr -d '\r\n' < "$pfile"
+    return 0
+  fi
+  openssl rand -hex 16 > "$pfile" 2>/dev/null || return 1
+  chmod 600 "$pfile" 2>/dev/null
+  tr -d '\r\n' < "$pfile"
+}
+
 # Применение нового server.yaml с откатом при неудачном рестарте.
 # $1 = путь к готовому yaml; при неудаче на месте остаётся прежний.
 _hysteria2_apply_config() {
@@ -2231,6 +2247,12 @@ _hysteria2_regen_config() {
     from_entries
   ' "$PROFILES_DIR"/*.json 2>/dev/null) || users="{}"
   [[ -n "$users" ]] || users="{}"
+  if [[ "$users" == "{}" ]]; then
+    # Пустая userpass-карта невалидна для Hysteria — placeholder-пользователь.
+    local placeholder_pass
+    placeholder_pass=$(_hysteria2_ensure_placeholder) || return 1
+    users=$(jq -cn --arg p "$placeholder_pass" '{_xrayebator_placeholder: $p}')
+  fi
   local tmp="$HYSTERIA2_DIR/.server.yaml.new"
   _hysteria2_render_server_yaml "$tmp" "$port" \
     "$HYSTERIA2_DIR/cert.pem" "$HYSTERIA2_DIR/key.pem" "$users" || return 1
@@ -2537,8 +2559,17 @@ EOF
     echo -e "${CYAN}  ✓ TLS: self-signed (клиенты с insecure=1)${NC}"
   fi
 
+  # Стартовый конфиг: Hysteria не принимает пустую userpass-карту —
+  # рендерим с placeholder-пользователем; реген при грантах его заменит.
+  local placeholder_pass
+  placeholder_pass=$(_hysteria2_ensure_placeholder) || {
+    echo -e "${RED}✗ Не удалось создать placeholder-пароль${NC}"
+    rm -f "$tmp"
+    return 1
+  }
   _hysteria2_render_server_yaml "$HYSTERIA2_DIR/server.yaml" "$port" \
-    "$HYSTERIA2_DIR/cert.pem" "$HYSTERIA2_DIR/key.pem"
+    "$HYSTERIA2_DIR/cert.pem" "$HYSTERIA2_DIR/key.pem" \
+    "$(jq -cn --arg p "$placeholder_pass" '{_xrayebator_placeholder: $p}')"
   _hysteria2_apply_sysctl
 
   echo -e "${CYAN}  → Устанавливаю бинарник и юнит...${NC}"
@@ -2549,6 +2580,9 @@ EOF
   _hysteria2_render_unit "$HYSTERIA2_UNIT_FILE"
   chown root:"$HYSTERIA2_USER" "$HYSTERIA2_DIR/server.yaml" "$HYSTERIA2_DIR/cert.pem" "$HYSTERIA2_DIR/key.pem" 2>/dev/null
   chmod 750 "$HYSTERIA2_DIR"
+  # Каталог должен быть читаем сервисом: без chown он остаётся root:root
+  # и CHDIR юнита падает с Permission denied (живой тест 2.26.125.147).
+  chown root:"$HYSTERIA2_USER" "$HYSTERIA2_DIR" 2>/dev/null
   chmod 640 "$HYSTERIA2_DIR/server.yaml" "$HYSTERIA2_DIR/cert.pem" "$HYSTERIA2_DIR/key.pem" 2>/dev/null
 
   systemctl daemon-reload
@@ -7242,7 +7276,9 @@ else
   # only vless:// rows by default; metadata stays in HTTP headers.
   happ_vless_urls=$(printf '%s' "$vless_urls" | prepare_happ_vless_urls)
   {
-    printf '%s' "$happ_vless_urls"
+    # %s\n обязателен: command substitution съедает trailing newline, и
+    # hysteria2-строка слипается с последним vless:// (живой тест 2.26).
+    printf '%s\n' "$happ_vless_urls"
     # Мультибэкенд: hysteria2-строка в HAPP-теле (флаг sub_body в реестре —
     # выключатель, если парсер HAPP споткнётся; проверка — живой спайк).
     if [[ -n "$hysteria2_uri" ]]; then
