@@ -3,7 +3,6 @@ import QRCode from 'qrcode'
 import { Button, Chip, Spinner } from '@heroui/react'
 import { useTranslation } from 'react-i18next'
 import type {
-  BackendStatusResult,
   Server,
   ServerProfile,
   SshAccessInput,
@@ -33,7 +32,6 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
 
   // Мультипротокольные бэкенды: hysteria2 приходит из подписки, AWG — по SSH.
   const [profiles, setProfiles] = useState<ServerProfile[]>([])
-  const [backends, setBackends] = useState<BackendStatusResult | null>(null)
   const [beBusy, setBeBusy] = useState(false)
 
   // Доступ из сохранённой карточки сервера (секрет — в keychain).
@@ -87,17 +85,15 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
     const backendP = (async (): Promise<void> => {
       if (!beReady) return
       try {
-        const [pl, bs] = await Promise.all([
-          window.api.profiles.list(server.id, storedAccess),
-          window.api.backends.status(server.id, storedAccess)
+        const [pl] = await Promise.all([
+          window.api.profiles.list(server.id, storedAccess)
         ])
         if (cancelled) return
         const list = pl.profiles ?? []
         setProfiles(list)
-        setBackends(bs)
-        const awgActive = bs.backends.awg?.state === 'active'
-        const targets = awgActive ? list.filter((p) => p.backends?.awg) : []
-        // Конфы — тоже параллельно (кэш в сторе делает повторные открытия мгновенными).
+        // Конфы granted-профилей — параллельно; кэш в сторе делает повторные
+        // открытия мгновенными. backends.status здесь не нужен — он тормозит.
+        const targets = list.filter((p) => p.backends?.awg)
         const confEntries = await Promise.all(
           targets.map(async (p) => {
             const conf = await window.api.backends
@@ -119,10 +115,7 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
         const fresh = await window.api.servers.get(server.id)
         if (!cancelled && fresh?.awgConfs) setAwgConfs(fresh.awgConfs)
       } catch {
-        if (!cancelled) {
-          setProfiles([])
-          setBackends(null)
-        }
+        if (!cancelled) setProfiles([])
       }
     })()
 
@@ -174,8 +167,14 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
     return m ? m[1] : ''
   }
 
-  const awgProfiles = profiles.filter((p) => p.backends?.awg)
-  const awgActive = backends?.backends.awg?.state === 'active'
+  // Карточки AWG: из стора (мгновенно, до ответа SSH) + granted-профили, у
+  // которых конфига ещё нет (для них — спиннер внутри карточки).
+  const awgNames = [
+    ...new Set([
+      ...Object.keys(awgConfs),
+      ...profiles.filter((p) => p.backends?.awg).map((p) => p.name)
+    ])
+  ]
 
   return (
     <div className={styles.root}>
@@ -239,18 +238,20 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
           </div>
         ))}
 
-        {awgProfiles.map((profile) => {
-          const conf = awgConfs[profile.name]
+        {awgNames.map((name) => {
+          const conf = awgConfs[name]
           const fields = conf ? parseAwgClientConf(conf) : null
+          const profile = profiles.find((p) => p.name === name)
+          const granted = Boolean(profile?.backends?.awg) || Boolean(conf)
           return (
-            <div key={profile.name} className={styles.keyCard}>
+            <div key={name} className={styles.keyCard}>
               <div className={styles.keyHeader}>
                 <Chip size="sm" color="default">
-                  AMNEZIAWG 3.1 · {profile.name}
+                  AMNEZIAWG 3.1 · {name}
                 </Chip>
               </div>
               <p className={styles.keyNote}>{t('keys.backendsAwgNote')}</p>
-              {awgActive && fields ? (
+              {fields ? (
                 <>
                   <div className={styles.keysFields}>
                     <div className={styles.keysField}>
@@ -283,7 +284,7 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
                     </Button>
                   </div>
                 </>
-              ) : beBusy ? (
+              ) : granted && beBusy ? (
                 <Spinner size="sm" />
               ) : (
                 <div className={styles.empty}>{t('keys.backendsNotReady')}</div>
