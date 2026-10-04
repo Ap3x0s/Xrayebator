@@ -231,6 +231,69 @@ count and provider limits. Grow the user count gradually and watch the load.
 Multiple profiles can be used at once: different subscriptions, SNIs, ports and routes give more
 options for bypassing blocks, but they share the same VPS resources.
 
+## Hysteria 2 service does not start
+
+Read the reason first — the install rolls its artifacts back, so reproduce the state:
+
+```bash
+journalctl -u hysteria-server.service --no-pager | tail -20
+```
+
+Known failure modes, all fixed in the generator but relevant when hand-editing configs:
+
+- `invalid config: auth.userpass: empty auth userpass` — the auth map key is `userpass`, **not**
+  `users`, and an empty map is rejected. The generator always renders at least the
+  `_xrayebator_placeholder` user while no profile has a grant; if you hand-edit `server.yaml`, keep
+  a non-empty map under `userpass:`.
+- `Changing to the requested working directory failed: Permission denied` — the backend directory
+  must be `root:hysteria 0750`; a `chmod` without the matching `chown` keeps it `root:root` and the
+  unit cannot enter it.
+- Certificate unreadable — in `le` mode the certificates are copies owned `root:hysteria 0640`; the
+  renewal deploy-hook refreshes them.
+
+After fixing, the clean path is `hysteria2-uninstall` followed by a fresh `hysteria2-install`.
+
+## AWG: interface is up but there is no `latest handshake`
+
+AmneziaWG reports parameter mismatches by silence: the peer simply never appears with a handshake.
+Check the must-match group — these must be identical on the server and in every client `.conf`:
+
+- `S1`–`S4` (≥ 12 for 3.x engines), `H1`–`H4`;
+- any 3.x keys present on the other side: `HeaderProtectionKey` (3.0) and `RandomTrailers` (3.1)
+  must match byte-for-byte — Xrayebator does not emit them, so a mismatch means a config was mixed
+  with a hand-made or third-party one;
+- the client application version: `RandomTrailers`-era configs need AmneziaVPN ≥ 5.0.1.5; older
+  clients may refuse to import the config entirely.
+
+Then split the debug zones: `awg show awg0` on the server — if the peer is listed with a handshake
+but no traffic passes, the problem is in the `awg-quick`/routing/firewall zone (`ip_forward`,
+MASQUERADE interface), not in the protocol parameters.
+
+## AWG install fails
+
+- The primary path is the `amnezia/ppa` PPA; on distribution series without PPA builds Xrayebator
+  falls back to a source build. For kernels ≥ 5.6 that build needs the **full** `linux-source`
+  package — kernel headers alone are not enough (the module build links the whole source tree).
+- Verify after install: `lsmod | grep amneziawg` shows the module, `awg --version` answers.
+- The `awg-quick@awg0` unit reads `/etc/amnezia/amneziawg/awg0.conf` — Xrayebator maintains it as a
+  symlink to `/usr/local/etc/xrayebator/backends/awg/awg0.conf`. Deleting the symlink breaks the
+  unit while the backend config remains valid.
+- On uninstall the packages and the kernel module deliberately stay in the system; only the
+  interface, config, symlink and firewall rule are removed.
+
+## The subscription has no `hysteria2://` line
+
+`hysteria2://` links are appended to both subscription bodies only when all of these hold:
+
+1. the Hysteria 2 backend is installed (`xrayebator hysteria2-status`);
+2. the profile has a grant (`profiles` JSON → `.backends.hysteria2.password`);
+3. the registry flag `sub_body` is `true` (the kill switch — flip it in `backends.json`, the
+   handler re-reads the registry on every request, no service restart needed).
+
+An expired or disabled profile never gets the line; a revoked profile gets a new credential on the
+next subscription fetch. A `404` on a previously working token URL after a revoke is expected — the
+token itself was rotated.
+
 ## Quickstart fails with `apt-get install nginx failed`
 
 On a freshly provisioned Ubuntu VPS, `unattended-upgrades` may hold the apt/dpkg lock for ~10 minutes and invoke `dpkg` separately for every package, so a plain flock check slips into the gap between packages. The quickstart path now also waits for an active `unattended-upgrade` worker (12-minute budget) and passes `-o DPkg::Lock::Timeout=180` to `apt-get install`. Rerun the deployment when it reports the lock is still busy, or wait for the queue to finish. `validation/test-apt-lock-race.sh` locks these behaviors.

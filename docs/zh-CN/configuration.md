@@ -81,12 +81,16 @@ Xrayebator 不会更改主机的 TCP 拥塞控制算法，也不会写入或应�
 | `4` | 管理配置档：SNI、指纹、端口、advanced |
 | `5` | 将单个配置档升级到 PQ XHTTP |
 | `6` | HAPP 订阅：7 条线路的配置档、public TLS、链接、二维码、吊销 |
+| `7` | 分流路由（Bypass）：选中域名（银行、电商、Steam 等）直连，不走隧道 |
 | `8` | 级联与上游节点 |
 | `9` | 自有域名与 self-steal 挡板 |
 | `10` | 部署出站服务器，使本 VPS 成为级联的境外节点 |
+| `11` | Hysteria 2 后端：安装/状态/客户端链接/卸载（高速 UDP 传输） |
+| `12` | AmneziaWG 2.0 后端：安装/状态/客户端配置/卸载（系统级 VPN） |
+| `13` | 所有后端的统一状态 |
 | `0` | 退出 |
 
-操作项从 `1` 到 `10` 连续编号；`0` 用于退出程序。
+操作项从 `1` 到 `13` 连续编号；`0` 用于退出程序。
 
 端口和 SNI 是共享入站的设置，修改它们可能影响同一端口上的其他配置档。指纹是配置档/线路级别的客户端参数，修改它不会重启 Xray，也不会影响其他线路。任何修改之后，请在客户端强制刷新订阅，或通过 `3) Подключиться по профилю` 重新获取原始线路。
 
@@ -117,6 +121,16 @@ Xrayebator 不会更改主机的 TCP 拥塞控制算法，也不会写入或应�
 | `sudo xrayebator bypass remove --domain D` | 从分流规则移除一个域名（JSON） |
 | `sudo xrayebator bypass reset` | 清空所有自定义分流规则（JSON） |
 | `sudo xrayebator bypass bundle [--group a,b,c]` | 应用默认分流分组；不带 `--group` 时重新应用全部分组（JSON） |
+| `sudo xrayebator backend-status` | 以 JSON 输出多协议后端注册表状态（`{"ok":true,"backends":{…}}`） |
+| `sudo xrayebator hysteria2-install [--port P] [--grant-all]` | 安装 Hysteria 2 UDP 后端：从 `HyNetworks/hysteria` 官方 release 下载二进制（SHA-256 校验）、专用 `hysteria` 服务账户、独立 systemd 单元（`CAP_NET_BIND_SERVICE`）、QUIC sysctl 缓冲、自适应 TLS（优先复用订阅的 Let's Encrypt 证书并附续期 deploy-hook，否则自签）；UDP 端口默认 443；输出 JSON（已安装时 `already: true`） |
+| `sudo xrayebator hysteria2-uninstall` | 移除 Hysteria 2 后端（服务、配置、证书、防火墙规则）；JSON |
+| `sudo xrayebator hysteria2-status` | Hysteria 2 后端状态（JSON） |
+| `sudo xrayebator hysteria2-grant --name N` | 为配置档签发 Hysteria 2 凭据（存入配置档的 `.backends.hysteria2`）；服务端配置按全部配置档重新生成；JSON |
+| `sudo xrayebator awg-install [--grant-all]` | 安装 AmneziaWG 2.0 系统级 VPN 后端：DKMS 内核模块（首选 `amnezia/ppa` PPA，回退源码编译）、`awg0` 接口与随机高位 UDP 端口、符合 AWG 规范的 junk 参数、`ip_forward` + MASQUERADE；JSON |
+| `sudo xrayebator awg-uninstall` | 移除 AmneziaWG 后端（接口、配置、symlink、防火墙规则；软件包与模块保留在系统中）；JSON |
+| `sudo xrayebator awg-status` | AmneziaWG 后端状态（JSON） |
+| `sudo xrayebator awg-grant --name N` | 为配置档签发 peer（密钥对 + 预共享密钥 + `10.8.1.x` 地址，存入 `.backends.awg`）；重新生成 `awg0.conf`；JSON |
+| `sudo xrayebator awg-conf --name N` | 输出配置档 peer 的客户端 `.conf`（JSON `{ok, name, conf}`）——全隧道 AllowedIPs、服务端 junk 参数、endpoint；导入 AmneziaWG/AmneziaVPN 客户端 |
 | `sudo xrayebator-update [branch]` | 运行完整的 `update.sh` 生命周期更新；无参数时显示 `.current_branch` 并打开交互式分支选择，有参数时使用该分支 |
 | `sudo xrayebator-uninstall` | 移除服务与配置 |
 
@@ -155,7 +169,9 @@ npm test             # Vitest 单元测试
 npm run typecheck    # TypeScript 检查
 ```
 
+## 分流路由（Bypass）
 
+分流路由让选中的域名绕过隧道：匹配的流量直连（direct），其余流量继续走 VPN。
 `domain -> direct` 规则位于兜底规则之上，因此在启用级联时仍然生效。
 
 默认组合包中的分组：
@@ -171,6 +187,70 @@ npm run typecheck    # TypeScript 检查
 | `mailru` | VK Group 与 Mail.ru |
 
 菜单是交互式的：方向键移动光标，空格切换分组，回车应用。
+
+## 多协议后端
+
+除 Xray Reality 外，同一台 VPS 还可以运行由同一 CLI/菜单管理的其他传输。所有后端状态位于
+中性根目录（不触碰 `/usr/local/etc/xray/`）：
+
+```text
+/usr/local/etc/xrayebator/
+├── backends.json                 # 注册表：各后端的 installed/version/port/开关（644，无机密）
+└── backends/
+    ├── hysteria2/                # server.yaml、证书、占位凭据
+    └── awg/                      # awg0.conf、server-params.json（0600）
+```
+
+每个配置档的后端凭据保存在配置档 JSON 自身（`.backends.hysteria2`、`.backends.awg`）——配置档
+是唯一事实来源，后端服务端配置始终由配置档重新生成。配置档生命周期事件（创建/删除/吊销/过期/
+恢复）会自动传播到每个已安装的后端：吊销会轮换 Hysteria 密码与 AWG peer 密钥；过期会从两个
+服务端配置中移除授权；续期则恢复两者。
+
+### Hysteria 2（高速 UDP）
+
+`hysteria2-install` 从官方 `HyNetworks/hysteria` release 下载二进制（SHA-256 校验），创建
+`hysteria` 服务账户与独立 systemd 单元，默认监听 UDP 443（与 TCP 443 的 Reality 入站并存）。
+TLS 自适应：订阅 endpoint 已有 Let's Encrypt 证书时直接复用（客户端 `insecure=0`），否则生成
+自签证书（`insecure=1`）。尚无配置档授权时，auth 映射携带 `_xrayebator_placeholder` 用户——
+Hysteria 拒绝空的 userpass 映射。客户端链接形如
+`hysteria2://user:pass@host:port/?sni=…&insecure=0|1#name`，会追加到两个订阅主体（HAPP 与通用）；
+注册表标志 `sub_body` 是客户端解析器出问题时的总开关。
+
+### AmneziaWG 2.0（系统级 VPN）
+
+`awg-install` 通过 DKMS 编译内核模块（首选 `amnezia/ppa` PPA；回退为源码编译，内核 ≥ 5.6 需要
+完整 `linux-source`），并通过 `awg-quick@awg0` 拉起 `awg0` 接口：随机高位 UDP 端口、网段
+`10.8.1.0/24`、`ip_forward` 与默认路由接口上的 MASQUERADE。junk 参数按 AWG 规范生成：`Jc`
+1..128、`Jmin < Jmax ≤ 1280`、`S1`/`S2` 15..150 且 `S1+56 ≠ S2`、`H1`–`H4` 在 5..2147483647 内
+互不相同。每个配置档 peer 获得密钥对、预共享密钥与首个空闲地址；客户端 `.conf`（菜单项 12 或
+`awg-conf --name N`）携带全隧道 `AllowedIPs` 与服务端 junk 参数。peer 变更会带回滚地重启接口
+——所有 peer 的隧道会短暂中断；授权与吊销是低频操作，第一阶段可接受。
+
+### AWG 2.0 与 3.x 的差异——以及 3.1 为何对 DPI/ТСПУ 更重要
+
+按上游协议的划分，AmneziaWG 参数分为两组：
+
+| 服务端与客户端必须逐字节一致 | 各端本地设置 |
+|---|---|
+| `S1`–`S4`、`H1`–`H4` | `PersistentKeepalive`（建议 22–30） |
+| 3.0：`HeaderProtectionKey` | 3.0：`ContentPaddingAddition`、`Rekey*`、`Reject*`、`Keepalive*`、`MaxHandshakeAttempts`（整数或 `"a-b"` 区间） |
+| 3.1：`RandomTrailers` | 3.1：`DisableCookies` |
+
+Xrayebator 生成 2.0 时代的参数集，不输出 3.x 专属键；3.x 引擎读取此类配置时视 3.x 特性为
+关闭——栈对升级是安全的。之后启用 3.x 是一次有意的迁移，也正是对抗俄罗斯 DPI/ТСПУ 分析的
+关键：普通 WireGuard 握手具有固定的包长和明文头部类型字节，被动分类无需检查载荷即可完成。
+AWG 3.0 加密头部（`HeaderProtectionKey`）；3.1 增加 `RandomTrailers`（消除固定长度握手签名）
+与可选 `DisableCookies`（消除 cookie 应答模式，代价是失去内建的防放大防御）。上游文档给出的
+迁移规则：
+
+1. 先升二进制——3.1 引擎按「缺键即关闭」读取 2.0/3.0 时代的配置；
+2. 3.x 要求 `S1`–`S4` ≥ 12（Xrayebator 生成 15–150，已经合法）；
+3. `HeaderProtectionKey` 与 `RandomTrailers` 必须逐字节一致；在运行中的服务器上启用它们会
+   立即打断所有已发出的客户端配置——预留窗口并重新签发；
+4. 客户端需要 AmneziaVPN ≥ 5.0.1.5 才支持 3.1 键，更旧的客户端可能直接拒绝导入——为它们
+   保留一台未启用 3.1 的服务器；
+5. 用 `awg show` 验证：没有 `latest handshake` 说明「必须一致」组不一致；有握手无流量则去查
+   `awg-quick`/路由/防火墙。
 
 ## 级联与上游节点
 

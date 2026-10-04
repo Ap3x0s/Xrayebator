@@ -16,7 +16,7 @@ for test_file in validation/*.sh; do bash "$test_file" || exit; done
 
 ## Что покрывают тесты
 
-В `validation/` лежат 28 статических и локальных регрессионных тестов:
+В `validation/` лежат 31 статический и локальный регрессионный тест:
 
 | Тест | Что проверяет |
 |---|---|
@@ -36,7 +36,10 @@ for test_file in validation/*.sh; do bash "$test_file" || exit; done
 | `test-installer-network-fallbacks.sh` | Сетевые fallback'и установщика |
 | `test-bbr-removal-migration.sh` | Безопасное удаление удалённого BBR/TCP tuning на всех путях |
 | `test-legacy-udp443-migration.sh` | Одноразовое удаление legacy правила блокировки UDP/443 |
-| `test-main-menu-numbering.sh` | Нумерацию пунктов меню и их соответствие обработчикам |
+| `test-main-menu-numbering.sh` | Нумерацию пунктов меню и их соответствие обработчикам (1..13 с бэкенд-пунктами) |
+| `test-backend-registry.sh` | Реестр бэкендов (мультипротокольный этап): source-mode CRUD через `safe_jq_write`, чтение installed/field, lifecycle-точка как безопасный no-op, форма JSON `backend-status` |
+| `test-hysteria2-lifecycle.sh` | Бэкенд Hysteria 2: рендер `server.yaml` (userpass-карта, placeholder-fallback), модель безопасности юнита, arch-маппинг, TLS-детект, события грантов/revoke/expire-restore, pure-строитель `hysteria2://`, проводка диспетчера и подписки |
+| `test-awg-lifecycle.sh` | Бэкенд AmneziaWG: диапазоны junk-параметров по спеке, генерация ключей, рендер серверного конфига (PostUp MASQUERADE, без peer-ов при установке), аллокация адресов, содержимое клиентского `.conf`, события revoke/expire/restore, диспетчер CLI |
 | `test-main-readiness-regressions.sh` | Регрессии readyness после аудита: certbot-manifest, UFW manifest, nginx rollback, привилегии, SSH-порт |
 | `test-sni-change-cli.sh` | CLI `sni-change`: JSON stdout, Reality, XHTTP host, синхронизацию, rollback |
 | `test-bypass-cli.sh` | CLI `bypass`: JSON stdout, routing-правила, add с проверкой SNI |
@@ -105,7 +108,7 @@ npm test              # Vitest unit-тесты
 
 Три независимых workflow:
 
-- **ci-linux.yml** — Bash validation: `bash -n` всех скриптов + все 28 `validation/test-*.sh` на
+- **ci-linux.yml** — Bash validation: `bash -n` всех скриптов + все 31 `validation/test-*.sh` на
   ubuntu-24.04. Запускается на push в `main`, `dev`, `experimental` и на pull request.
 - **release.yml** — Electron сборка (Windows/macOS/Linux). Запускается только на теги `v*` и manual
   dispatch. Сначала `preflight`: проверяет наличие текста релиза `docs/releases/<tag>.en.md` и
