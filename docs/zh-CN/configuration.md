@@ -236,21 +236,13 @@ Hysteria 拒绝空的 userpass 映射。客户端链接形如
 | 3.0：`HeaderProtectionKey` | 3.0：`ContentPaddingAddition`、`Rekey*`、`Reject*`、`Keepalive*`、`MaxHandshakeAttempts`（整数或 `"a-b"` 区间） |
 | 3.1：`RandomTrailers` | 3.1：`DisableCookies` |
 
-Xrayebator 生成 2.0 时代的参数集，不输出 3.x 专属键；3.x 引擎读取此类配置时视 3.x 特性为
-关闭——栈对升级是安全的。之后启用 3.x 是一次有意的迁移，也正是对抗俄罗斯 DPI/ТСПУ 分析的
-关键：普通 WireGuard 握手具有固定的包长和明文头部类型字节，被动分类无需检查载荷即可完成。
-AWG 3.0 加密头部（`HeaderProtectionKey`）；3.1 增加 `RandomTrailers`（消除固定长度握手签名）
-与可选 `DisableCookies`（消除 cookie 应答模式，代价是失去内建的防放大防御）。上游文档给出的
-迁移规则：
-
-1. 先升二进制——3.1 引擎按「缺键即关闭」读取 2.0/3.0 时代的配置；
-2. 3.x 要求 `S1`–`S4` ≥ 12（Xrayebator 生成 15–150，已经合法）；
-3. `HeaderProtectionKey` 与 `RandomTrailers` 必须逐字节一致；在运行中的服务器上启用它们会
-   立即打断所有已发出的客户端配置——预留窗口并重新签发；
-4. 客户端需要 AmneziaVPN ≥ 5.0.1.5 才支持 3.1 键，更旧的客户端可能直接拒绝导入——为它们
-   保留一台未启用 3.1 的服务器；
-5. 用 `awg show` 验证：没有 `latest handshake` 说明「必须一致」组不一致；有握手无流量则去查
-   `awg-quick`/路由/防火墙。
+Xrayebator 实现了 AWG 3.1 特性集：junk 参数加 `S1`–`S4`（≥ 12）、随机生成的 `HeaderProtectionKey`
+（服务器与每个客户端 `.conf` 共享），以及 `RandomTrailers = on`。`DisableCookies` 可用但默认关闭
+（代价是失去内建的防放大防御）。新安装直接获得 3.1；3.1 阶段之前的安装可通过菜单项 12 →
+「Режим AWG 3.1」或 `awg-31 --on|--off` 补齐缺失密钥、切换配置格式并重新生成接口。迁移警示依然
+成立：3.1 键位于「必须一致」组，切换后**所有先前发出的客户端 `.conf` 必须重新下载**，且客户端
+需要 AmneziaVPN ≥ 5.0.1.5——旧版本会直接拒绝导入。用 `awg show` 验证：没有 `latest handshake`
+说明「必须一致」组不一致；有握手无流量则去查 `awg-quick`/路由/防火墙。
 
 ## 级联与上游节点
 

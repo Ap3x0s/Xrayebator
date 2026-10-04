@@ -260,8 +260,9 @@ Check the must-match group — these must be identical on the server and in ever
 
 - `S1`–`S4` (≥ 12 for 3.x engines), `H1`–`H4`;
 - any 3.x keys present on the other side: `HeaderProtectionKey` (3.0) and `RandomTrailers` (3.1)
-  must match byte-for-byte — Xrayebator does not emit them, so a mismatch means a config was mixed
-  with a hand-made or third-party one;
+  must match byte-for-byte. Xrayebator emits them only in 3.1 mode (`awg-31 --on`, on by default
+  for new installs); a mismatch usually means the client `.conf` predates a 3.1 switch —
+  re-download it — or was mixed with a hand-made or third-party one;
 - the client application version: `RandomTrailers`-era configs need AmneziaVPN ≥ 5.0.1.5; older
   clients may refuse to import the config entirely.
 
