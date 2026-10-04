@@ -67,15 +67,10 @@ const AWG_PROTOCOL_KEYS = [
 ] as const
 
 /**
- * Версия протокола AWG по содержимому конфига (значения из protocolConstants
- * AmneziaVPN: awgV1_5/awgV2/awgV3). Приложение без явной версии считает конфиг
- * legacy («старая версия») и запускает туннель не тем поколением параметров.
+ * Версия протокола в vpn:// — всегда 3.1: Xrayebator ставит 3.1 по умолчанию
+ * и выдаёт ключи только в этом режиме (значение из protocolConstants Amnezia).
  */
-export function detectAwgVersion(map: Record<string, string>): string {
-  if (map['HeaderProtectionKey'] || map['RandomTrailers']) return '3.1'
-  if (['I1', 'I2', 'I3', 'I4', 'I5', 'ContentPaddingAddition'].some((k) => map[k])) return '2'
-  return '1.5'
-}
+const AWG_PROTOCOL_VERSION = '3.1'
 
 /**
  * Строит JSON-объект в родном для AmneziaVPN формате — 1-в-1 с их экспортом
@@ -92,7 +87,7 @@ export function buildAwgVpnConfig(
   const map = parseAwgConfMap(stripAwgComments(conf))
   const endpoint = map['Endpoint'] ?? ''
   const [host = '', port = ''] = endpoint.split(':')
-  const version = detectAwgVersion(map)
+  const version = AWG_PROTOCOL_VERSION
   const clientIp = (map['Address'] ?? '').split('/')[0]
 
   const clientPub = opts?.clientPubKey ?? ''
@@ -121,16 +116,14 @@ export function buildAwgVpnConfig(
     if (key === 'RandomTrailers') lastConfig[key] = map[key] ?? 'on'
     else if (map[key]) lastConfig[key] = map[key]
   }
-  // range-таймеры go-туннеля — дефолты Amnezia (не влияют на handshake)
+  // range-таймеры go-туннеля — дефолты Amnezia (параметры их туннеля, не wire-формат)
   lastConfig['persistent_keep_alive'] = map['PersistentKeepalive'] ?? '25'
-  if (version === '3.1') {
-    lastConfig['RekeyAfterTime'] = '100-120'
-    lastConfig['RekeyTimeout'] = '3-7'
-    lastConfig['RejectAfterTime'] = '150-180'
-    lastConfig['KeepaliveTimeout'] = '5-15'
-    lastConfig['MaxHandshakeAttempts'] = '15-20'
-    lastConfig['ContentPaddingAddition'] = '10-100'
-  }
+  lastConfig['RekeyAfterTime'] = '100-120'
+  lastConfig['RekeyTimeout'] = '3-7'
+  lastConfig['RejectAfterTime'] = '150-180'
+  lastConfig['KeepaliveTimeout'] = '5-15'
+  lastConfig['MaxHandshakeAttempts'] = '15-20'
+  lastConfig['ContentPaddingAddition'] = '10-100'
   lastConfig['mtu'] = opts?.mtu ?? map['MTU'] ?? '1280'
   lastConfig['protocol_version'] = version
 
@@ -154,14 +147,12 @@ export function buildAwgVpnConfig(
   if (map['HeaderProtectionKey']) serverLevel['HeaderProtectionKey'] = map['HeaderProtectionKey']
   if (map['RandomTrailers']) serverLevel['RandomTrailers'] = map['RandomTrailers']
   if (map['DisableCookies']) serverLevel['DisableCookies'] = map['DisableCookies']
-  if (version === '3.1') {
-    serverLevel['RekeyAfterTime'] = '100-120'
-    serverLevel['RekeyTimeout'] = '3-7'
-    serverLevel['RejectAfterTime'] = '150-180'
-    serverLevel['KeepaliveTimeout'] = '5-15'
-    serverLevel['MaxHandshakeAttempts'] = '15-20'
-    serverLevel['ContentPaddingAddition'] = '10-100'
-  }
+  serverLevel['RekeyAfterTime'] = '100-120'
+  serverLevel['RekeyTimeout'] = '3-7'
+  serverLevel['RejectAfterTime'] = '150-180'
+  serverLevel['KeepaliveTimeout'] = '5-15'
+  serverLevel['MaxHandshakeAttempts'] = '15-20'
+  serverLevel['ContentPaddingAddition'] = '10-100'
   serverLevel['subnet_address'] = '10.8.1.0'
   serverLevel['isThirdPartyConfig'] = true
   serverLevel['last_config'] = JSON.stringify(lastConfig)
@@ -186,27 +177,37 @@ export function buildAwgVpnConfig(
   return root
 }
 
-function toBase64Url(json: string): string {
+/**
+ * qCompress в форме AmneziaVPN: 4 байта BE-размера + zlib-поток.
+ * CompressionStream('deflate') — тот же zlib-контейнер (RFC 1950), что
+ * создаёт их Qt-экспорт; доступен в Electron-renderer и Node 18+.
+ */
+async function qCompressBase64Url(json: string): Promise<string> {
   const bytes = new TextEncoder().encode(json)
+  const head = new Uint8Array(4)
+  new DataView(head.buffer).setUint32(0, bytes.length)
+  const body = new Uint8Array(
+    await new Response(
+      new Blob([bytes]).stream().pipeThrough(new CompressionStream('deflate'))
+    ).arrayBuffer()
+  )
+  const payload = new Uint8Array(4 + body.length)
+  payload.set(head, 0)
+  payload.set(body, 4)
   let bin = ''
-  for (const b of bytes) bin += String.fromCharCode(b)
+  for (const b of payload) bin += String.fromCharCode(b)
   return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 
 /**
- * Родная ссылка-импорт для AmneziaVPN: vpn:// + base64url(JSON).
- * GUI строит несжатый payload — импортёр принимает и его (фоллбек
- * extractConfigFromData при неудачном qUncompress). Сжатый вариант
- * (qCompress: 4 байта BE-размера + zlib) выдаёт build-vpn-url.mjs.
+ * Родная ссылка-импорт для AmneziaVPN: vpn:// + base64url(qCompress(JSON)) —
+ * ровно та же форма, что их собственный «Поделиться».
  */
-export function buildAwgVpnUrl(
+export async function buildAwgVpnUrl(
   conf: string,
   description?: string,
   opts?: { clientPubKey?: string; mtu?: string }
-): string {
+): Promise<string> {
   const json = JSON.stringify(buildAwgVpnConfig(conf, description, opts))
-  const bytes = new TextEncoder().encode(json)
-  let bin = ''
-  for (const b of bytes) bin += String.fromCharCode(b)
-  return 'vpn://' + btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+  return 'vpn://' + (await qCompressBase64Url(json))
 }
