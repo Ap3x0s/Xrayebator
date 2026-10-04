@@ -550,6 +550,17 @@ export function registerIpcHandlers({ store }: IpcContext): void {
     }
   )
 
+  ipcMain.handle(
+    'backends:hysteria2Link',
+    async (_e, serverId: string, access: SshAccessInput, name: string) => {
+      if (!name) throw new Error('Не указано имя профиля')
+      const manager = await backendManagerFor(serverId, access)
+      const result = await manager.hysteria2Link(name)
+      if (!result.ok) throw new Error(result.error ?? 'Не удалось получить hysteria2-ссылку')
+      return result
+    }
+  )
+
   const serverManagerFor = async (
     serverId: string,
     access: SshAccessInput

@@ -298,6 +298,11 @@
     "backendsConfirmHyst": "Remove Hysteria 2? The service, config and certificates are torn down; hysteria2 lines disappear from subscriptions; issued grants stop working.",
     "backendsConfirmAwg": "Remove AmneziaWG? Interface, config and firewall rule are removed (packages and module stay in the system). All peer connections stop.",
     "backendsConfirm31On": "Enable AWG 3.1 mode (HeaderProtectionKey + RandomTrailers)? Every issued client .conf must be re-downloaded. Clients need AmneziaVPN ≥ 5.0.1.5.",
-    "backendsConfirm31Off": "Disable AWG 3.1 mode? Configs return to the 2.0 format; every client .conf must be re-downloaded."
+    "backendsConfirm31Off": "Disable AWG 3.1 mode? Configs return to the 2.0 format; every client .conf must be re-downloaded.",
+    "beKeysBtn": "Keys",
+    "beKeysTitle": "Backend keys",
+    "beKeysHystNote": "UDP transport: works in HAPP, Hiddify, v2rayN. The line is already in the subscription — this key is for direct import.",
+    "beKeysAwgNote": "AmneziaVPN — NOT V2Ray/HAPP: import the config into the AmneziaWG/AmneziaVPN app. Full tunnel, clients AmneziaVPN ≥ 5.0.1.5.",
+    "beKeysGrant": "Issue grant"
   }
 }

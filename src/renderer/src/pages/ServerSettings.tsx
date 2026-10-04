@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import QRCode from 'qrcode'
 import { Button, TextField, Label, Input, Chip, Spinner, AlertDialog } from '@heroui/react'
 import {
   Settings2,
@@ -97,6 +98,15 @@ export function ServerSettings({
   const [confirmBackend, setConfirmBackend] = useState<
     'hysteria2-uninstall' | 'awg-uninstall' | 'awg31-on' | 'awg31-off' | null
   >(null)
+  // Срез C: диалог ключей бэкендов у профиля.
+  const [keysTarget, setKeysTarget] = useState<ServerProfile | null>(null)
+  const [keysHystLink, setKeysHystLink] = useState<string | null>(null)
+  const [keysHystErr, setKeysHystErr] = useState<string | null>(null)
+  const [keysAwgConf, setKeysAwgConf] = useState<string | null>(null)
+  const [keysAwgErr, setKeysAwgErr] = useState<string | null>(null)
+  const [keysBusy, setKeysBusy] = useState(false)
+  const [keysQrUrl, setKeysQrUrl] = useState<string | null>(null)
+  const [keysQrData, setKeysQrData] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [hostKeyFingerprint, setHostKeyFingerprint] = useState<string | null>(
@@ -209,6 +219,15 @@ export function ServerSettings({
     if (editingAccess) return
     if (shouldAutoConnectServer(server)) void load()
   }, [server.id])
+
+  useEffect(() => {
+    if (!keysQrUrl) return
+    const onEsc = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setKeysQrUrl(null)
+    }
+    document.addEventListener('keydown', onEsc)
+    return () => document.removeEventListener('keydown', onEsc)
+  }, [keysQrUrl])
 
   const create = async (): Promise<void> => {
     if (!accessReady) {
@@ -603,6 +622,63 @@ export function ServerSettings({
     return runBackendAction('awg31', () => window.api.backends.awg31(server.id, access, on))
   }
 
+  // ─── Срез C: диалог ключей бэкендов ───
+  const fetchBackendKeys = async (name: string): Promise<void> => {
+    setKeysHystLink(null)
+    setKeysHystErr(null)
+    setKeysAwgConf(null)
+    setKeysAwgErr(null)
+    const hyst = await window.api.backends.hysteria2Link(server.id, access, name).catch(
+      (err: unknown): string => (err instanceof Error ? err.message : String(err))
+    )
+    if (typeof hyst === 'string') setKeysHystErr(hyst)
+    else setKeysHystLink(hyst.link ?? null)
+    const conf = await window.api.backends.awgConf(server.id, access, name).catch(
+      (err: unknown): string => (err instanceof Error ? err.message : String(err))
+    )
+    if (typeof conf === 'string') setKeysAwgErr(conf)
+    else setKeysAwgConf(conf.conf ?? null)
+  }
+
+  const openBackendKeys = (profile: ServerProfile): void => {
+    setKeysTarget(profile)
+    setKeysBusy(true)
+    void fetchBackendKeys(profile.name).finally(() => setKeysBusy(false))
+  }
+
+  const closeBackendKeys = (): void => {
+    setKeysTarget(null)
+    setKeysHystLink(null)
+    setKeysAwgConf(null)
+    setKeysQrUrl(null)
+  }
+
+  const grantBackend = async (kind: 'hysteria2' | 'awg'): Promise<void> => {
+    if (!keysTarget) return
+    setKeysBusy(true)
+    try {
+      if (kind === 'hysteria2') await window.api.backends.hysteria2Grant(server.id, access, keysTarget.name)
+      else await window.api.backends.awgGrant(server.id, access, keysTarget.name)
+      await fetchBackendKeys(keysTarget.name)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setKeysBusy(false)
+    }
+  }
+
+  const copyKeysText = async (text: string): Promise<void> => {
+    await navigator.clipboard.writeText(text)
+    toastText(t('settings.copied'))
+  }
+
+  const showKeysQr = async (data: string): Promise<void> => {
+    setKeysQrUrl(data)
+    setKeysQrData(null)
+    const dataUrl = await QRCode.toDataURL(data, { width: 320, margin: 2 })
+    setKeysQrData(dataUrl)
+  }
+
   const forgetHostKey = async (): Promise<void> => {
     setHostKeyResetBusy(true)
     setError(null)
@@ -720,6 +796,18 @@ export function ServerSettings({
 
         {error && <div className={styles.error}>{t('settings.error')}: {error}</div>}
         {toast && <div className={styles.toast}>{toast}</div>}
+
+        {keysQrUrl && (
+          <div
+            className={styles.keysQrModal}
+            role="dialog"
+            aria-modal="true"
+            aria-label="QR"
+            onClick={() => setKeysQrUrl(null)}
+          >
+            {keysQrData ? <img src={keysQrData} alt="QR" /> : null}
+          </div>
+        )}
 
         {connected && (
           <>
@@ -906,6 +994,15 @@ export function ServerSettings({
                       size="sm"
                       variant="secondary"
                       isDisabled={busy}
+                      onPress={() => openBackendKeys(profile)}
+                    >
+                      <Zap size={14} />
+                      {t('settings.beKeysBtn')}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      isDisabled={busy}
                       onPress={() => openExpire(profile)}
                     >
                       <CalendarClock size={14} />
@@ -1067,6 +1164,122 @@ export function ServerSettings({
           </>
         )}
       </div>
+
+      <AlertDialog.Root
+        isOpen={keysTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) closeBackendKeys()
+        }}
+      >
+        <AlertDialog.Backdrop className={styles.blurBackdrop}>
+          <AlertDialog.Container>
+            <AlertDialog.Dialog className={`${styles.confirmDialog} ${styles.revokeWide}`}>
+              <AlertDialog.Header>
+                <AlertDialog.Icon status="success">
+                  <Zap size={20} />
+                </AlertDialog.Icon>
+                <AlertDialog.Heading>
+                  {t('settings.beKeysTitle')} — {keysTarget?.name ?? ''}
+                </AlertDialog.Heading>
+              </AlertDialog.Header>
+              <AlertDialog.Body>
+                {keysBusy ? <Spinner size="sm" /> : null}
+
+                <div className={styles.keysBlock}>
+                  <div className={styles.keysChipRow}>
+                    <Chip size="sm" color="accent">
+                      HYSTERIA2 · UDP
+                    </Chip>
+                  </div>
+                  <p className={styles.keysNote}>{t('settings.beKeysHystNote')}</p>
+                  {keysHystLink ? (
+                    <>
+                      <div className={styles.keysConfPre}>{keysHystLink}</div>
+                      <div className={styles.backendActions}>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onPress={() => void copyKeysText(keysHystLink)}
+                        >
+                          <Copy size={13} />
+                          {t('settings.copy')}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onPress={() => void showKeysQr(keysHystLink)}
+                        >
+                          {t('keys.qr')}
+                        </Button>
+                      </div>
+                    </>
+                  ) : keysHystErr ? (
+                    <>
+                      <p className={styles.keysNote}>{keysHystErr}</p>
+                      <Button
+                        size="sm"
+                        variant="primary"
+                        isDisabled={keysBusy}
+                        onPress={() => void grantBackend('hysteria2')}
+                      >
+                        {t('settings.beKeysGrant')}
+                      </Button>
+                    </>
+                  ) : null}
+                </div>
+
+                <div className={styles.keysBlock}>
+                  <div className={styles.keysChipRow}>
+                    <Chip size="sm" color="default">
+                      AMNEZIAWG 3.1 · UDP
+                    </Chip>
+                  </div>
+                  <p className={styles.keysNote}>{t('settings.beKeysAwgNote')}</p>
+                  {keysAwgConf ? (
+                    <>
+                      <pre className={styles.keysConfPre}>{keysAwgConf}</pre>
+                      <div className={styles.backendActions}>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onPress={() => void copyKeysText(keysAwgConf ?? '')}
+                        >
+                          <Copy size={13} />
+                          {t('settings.copy')}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onPress={() => void showKeysQr(keysAwgConf ?? '')}
+                        >
+                          {t('keys.qr')}
+                        </Button>
+                      </div>
+                    </>
+                  ) : keysAwgErr ? (
+                    <>
+                      <p className={styles.keysNote}>{keysAwgErr}</p>
+                      <Button
+                        size="sm"
+                        variant="primary"
+                        isDisabled={keysBusy}
+                        onPress={() => void grantBackend('awg')}
+                      >
+                        {t('settings.beKeysGrant')}
+                      </Button>
+                    </>
+                  ) : null}
+                </div>
+              </AlertDialog.Body>
+              <AlertDialog.Footer>
+                <Button variant="secondary" onPress={closeBackendKeys}>
+                  {t('settings.done')}
+                </Button>
+              </AlertDialog.Footer>
+            </AlertDialog.Dialog>
+          </AlertDialog.Container>
+        </AlertDialog.Backdrop>
+      </AlertDialog.Root>
 
       <AlertDialog.Root
         isOpen={confirmBackend !== null}

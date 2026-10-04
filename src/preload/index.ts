@@ -6,6 +6,7 @@ import type {
   BackendStatusResult,
   BackendToggleResult,
   DeployEvent,
+  Hysteria2LinkResult,
   Hysteria2SubbodyResult,
   DeployStartPayload,
   ElectronAPI,
@@ -152,6 +153,12 @@ const api: ElectronAPI = {
       on: boolean
     ): Promise<Hysteria2SubbodyResult> =>
       ipcRenderer.invoke('backends:hysteria2Subbody', serverId, access, on),
+    hysteria2Link: (
+      serverId: string,
+      access: SshAccessInput,
+      name: string
+    ): Promise<Hysteria2LinkResult> =>
+      ipcRenderer.invoke('backends:hysteria2Link', serverId, access, name),
     awgGrant: (
       serverId: string,
       access: SshAccessInput,
