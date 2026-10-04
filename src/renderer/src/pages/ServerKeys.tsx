@@ -247,7 +247,7 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
             <div key={name} className={styles.keyCard}>
               <div className={styles.keyHeader}>
                 <Chip size="sm" color="default">
-                  AMNEZIAWG · {name}
+                  AMNEZIAWG 3.1 · {name}
                 </Chip>
               </div>
               <p className={styles.keyNote}>{t('keys.backendsAwgNote')}</p>
@@ -285,7 +285,13 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
                     <Button
                       size="sm"
                       variant="secondary"
-                      onPress={() => showQr(buildAwgVpnUrl(conf, name))}
+                      onPress={async () =>
+                        showQr(
+                          await buildAwgVpnUrl(conf, name, {
+                            clientPubKey: profile?.backends?.awg?.client_public_key,
+                          })
+                        )
+                      }
                     >
                       {t('keys.backendsQrVpn')}
                     </Button>

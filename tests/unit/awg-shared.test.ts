@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
+import { inflateSync } from 'node:zlib'
 import {
   buildAwgVpnConfig,
   buildAwgVpnUrl,
-  detectAwgVersion,
   parseAwgClientConf,
   parseAwgConfMap,
   stripAwgComments
@@ -52,15 +52,19 @@ const FULL_CONF = [
   'Address = 10.8.1.2/32',
   'DNS = 1.1.1.1, 1.0.0.1',
   'MTU = 1280',
-  'Jc = 10',
-  'Jmin = 130',
-  'Jmax = 452',
-  'S1 = 103',
-  'S2 = 72',
-  'H1 = 464563321',
-  'H2 = 722945769',
-  'H3 = 789953666',
-  'H4 = 191492462',
+  'Jc = 5',
+  'Jmin = 10',
+  'Jmax = 50',
+  'S1 = 146',
+  'S2 = 120',
+  'S3 = 49',
+  'S4 = 12',
+  'H1 = 1',
+  'H2 = 2',
+  'H3 = 3',
+  'H4 = 4',
+  'HeaderProtectionKey = HPKBASE64=',
+  'RandomTrailers = on',
   '',
   '[Peer]',
   'PublicKey = SERVERPUB=',
@@ -73,7 +77,7 @@ const FULL_CONF = [
 describe('parseAwgConfMap', () => {
   it('разбирает key=value и пропускает секции', () => {
     const map = parseAwgConfMap(FULL_CONF)
-    expect(map['Jc']).toBe('10')
+    expect(map['Jc']).toBe('5')
     expect(map['Endpoint']).toBe('2.26.125.147:45467')
     expect(map['PresharedKey']).toBe('PSKBASE64=')
     expect(Object.keys(map).some((k) => k.startsWith('['))).toBe(false)
@@ -81,16 +85,21 @@ describe('parseAwgConfMap', () => {
 })
 
 describe('buildAwgVpnUrl', () => {
-  it('строит vpn:// с контейнером amnezia-awg и полным last_config', () => {
-    const url = buildAwgVpnUrl(FULL_CONF, 'happ')
+  it('строит сжатый vpn:// с контейнером amnezia-awg2 и полным last_config', async () => {
+    const url = await buildAwgVpnUrl(FULL_CONF, 'happ', {
+      clientPubKey: 'CLIENTPUB='
+    })
     expect(url.startsWith('vpn://')).toBe(true)
     const payload64 = url.slice('vpn://'.length)
     expect(payload64).not.toContain('+')
     expect(payload64).not.toContain('/')
     expect(payload64.endsWith('=')).toBe(false)
 
+    // qCompress: 4 байта BE-размера + zlib
+    const raw = Buffer.from(payload64, 'base64')
+    expect(raw.readUInt32BE(0)).toBeGreaterThan(0)
     const payload = JSON.parse(
-      Buffer.from(payload64, 'base64').toString('utf8')
+      inflateSync(raw.subarray(4)).toString('utf8')
     ) as Record<string, unknown>
     expect(payload['defaultContainer']).toBe('amnezia-awg2')
     expect(payload['hostName']).toBe('2.26.125.147')
@@ -100,46 +109,42 @@ describe('buildAwgVpnUrl', () => {
     expect(containers[0]['container']).toBe('amnezia-awg2')
     const awg = containers[0]['awg'] as Record<string, unknown>
     // серверные junk-поля дублируются на уровне awg-объекта (AwgServerConfig::toJson)
-    expect(awg['Jc']).toBe('10')
-    expect(awg['S1']).toBe('103')
+    expect(awg['Jc']).toBe('5')
+    expect(awg['S1']).toBe('146')
+    expect(awg['H1']).toBe('1')
     expect(awg['I1']).toBe('')
+    expect(awg['protocol_version']).toBe('3.1')
+    expect(awg['subnet_address']).toBe('10.8.1.0')
+    expect(awg['RekeyAfterTime']).toBe('100-120')
+    expect(awg['ContentPaddingAddition']).toBe('10-100')
     expect(awg['isThirdPartyConfig']).toBe(true)
     expect(awg['transport_proto']).toBe('udp')
 
     const last = JSON.parse(awg['last_config'] as string) as Record<string, unknown>
-    expect(last['Jc']).toBe('10')
+    expect(last['protocol_version']).toBe('3.1')
+    expect(last['client_ip']).toBe('10.8.1.2')
     expect(last['client_priv_key']).toBe('PRIVKEYBASE64=')
+    expect(last['client_pub_key']).toBe('CLIENTPUB=')
+    expect(last['clientId']).toBe('CLIENTPUB=')
     expect(last['psk_key']).toBe('PSKBASE64=')
     expect(last['server_pub_key']).toBe('SERVERPUB=')
     expect(last['port']).toBe(45467)
     expect(last['allowed_ips']).toEqual(['0.0.0.0/0', '::/0'])
     expect(last['config']).not.toContain('#')
-    expect(last['protocol_version']).toBe('1.5')
+    expect(last['RekeyAfterTime']).toBe('100-120')
+    expect(last['RandomTrailers']).toBe('on')
   })
 
-  it('определяет версию 3.1 по HPK/RandomTrailers и 2 по I1', () => {
-    expect(detectAwgVersion({ HeaderProtectionKey: 'x=', RandomTrailers: 'on' })).toBe('3.1')
-    expect(detectAwgVersion({ I1: '<r 2>' })).toBe('2')
-    expect(detectAwgVersion({ Jc: '10' })).toBe('1.5')
-    const conf31 = FULL_CONF + '\nHeaderProtectionKey = HPK=\nRandomTrailers = on'
-    const cfg = buildAwgVpnConfig(conf31)
-    const awg = (cfg['containers'] as Array<Record<string, unknown>>)[0]['awg'] as Record<
-      string,
-      unknown
-    >
-    expect(awg['protocol_version']).toBe('3.1')
-    expect(JSON.parse(awg['last_config'] as string)['protocol_version']).toBe('3.1')
-  })
-
-  it('выживает кириллицу в имени профиля (UTF-8 → base64url)', () => {
-    const url = buildAwgVpnUrl(FULL_CONF, 'Тест-профиля')
+  it('выживает кириллицу в имени профиля (UTF-8 → qCompress → base64url)', async () => {
+    const url = await buildAwgVpnUrl(FULL_CONF, 'Тест-профиля')
+    const raw = Buffer.from(url.slice(6), 'base64')
     const payload = JSON.parse(
-      Buffer.from(url.slice(6), 'base64').toString('utf8')
+      inflateSync(raw.subarray(4)).toString('utf8')
     ) as Record<string, unknown>
     expect(payload['description']).toBe('Тест-профиля')
   })
 
-  it('возводит структуру без AWG-ключей (чистый conf)', () => {
+  it('всегда ставит protocol_version 3.1 и добавляет range-поля даже без HPK', async () => {
     const minimal = [
       '[Interface]',
       'PrivateKey = P=',
@@ -150,6 +155,14 @@ describe('buildAwgVpnUrl', () => {
     ].join('\n')
     const cfg = buildAwgVpnConfig(minimal)
     expect(cfg['defaultContainer']).toBe('amnezia-awg2')
-    expect('HeaderProtectionKey' in JSON.parse(((cfg['containers'] as Array<Record<string, unknown>>)[0]['awg'] as Record<string, unknown>)['last_config'] as string)).toBe(false)
+    const awg = (cfg['containers'] as Array<Record<string, unknown>>)[0]['awg'] as Record<
+      string,
+      unknown
+    >
+    expect(awg['protocol_version']).toBe('3.1')
+    expect(awg['RekeyAfterTime']).toBe('100-120')
+    const last = JSON.parse(awg['last_config'] as string) as Record<string, unknown>
+    expect(last['protocol_version']).toBe('3.1')
+    expect('HeaderProtectionKey' in last).toBe(false)
   })
 })

@@ -1252,7 +1252,7 @@ export function ServerSettings({
                 <div className={styles.keysBlock}>
                   <div className={styles.keysChipRow}>
                     <Chip size="sm" color="default">
-                      AMNEZIAWG · UDP
+                      AMNEZIAWG 3.1 · UDP
                     </Chip>
                   </div>
                   <p className={styles.keysNote}>{t('settings.beKeysAwgNote')}</p>
@@ -1291,8 +1291,12 @@ export function ServerSettings({
                         <Button
                           size="sm"
                           variant="secondary"
-                          onPress={() =>
-                            void showKeysQr(buildAwgVpnUrl(keysAwgConf ?? '', keysTarget?.name))
+                          onPress={async () =>
+                            void showKeysQr(
+                              await buildAwgVpnUrl(keysAwgConf ?? '', keysTarget?.name, {
+                                clientPubKey: keysTarget?.backends?.awg?.client_public_key,
+                              })
+                            )
                           }
                         >
                           {t('keys.backendsQrVpn')}
