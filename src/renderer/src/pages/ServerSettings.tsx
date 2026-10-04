@@ -30,6 +30,7 @@ import type {
 } from '@shared/types'
 import { describeExpire, isFutureDate, presetDate } from '@shared/expire'
 import { todayIso } from '@shared/calendar'
+import { parseAwgClientConf, stripAwgComments } from '@shared/awg'
 import { isSshAccessReady, SshAccessForm } from '../components/SshAccessForm'
 import { CalendarPicker } from '../components/CalendarPicker'
 import { shouldAutoConnectServer } from './server-access'
@@ -93,6 +94,7 @@ export function ServerSettings({
   const autoConnectStarted = useRef(false)
   const [profiles, setProfiles] = useState<ServerProfile[] | null>(null)
   const [backends, setBackends] = useState<BackendStatusResult | null>(null)
+  const [backendsLoading, setBackendsLoading] = useState(false)
   const [backendsError, setBackendsError] = useState<string | null>(null)
   const [backendBusy, setBackendBusy] = useState<string | null>(null)
   const [confirmBackend, setConfirmBackend] = useState<
@@ -184,17 +186,22 @@ export function ServerSettings({
     setBusy(true)
     setError(null)
     try {
+      // Бэкенды грузятся ПАРАЛЛЕЛЬНО с профилями (фидбек: не заставлять ждать).
+      setBackendsLoading(true)
+      const backendsP = window.api.backends
+        .status(server.id, access)
+        .then((b) => {
+          setBackends(b)
+          setBackendsError(null)
+        })
+        .catch((err: unknown) => {
+          setBackends(null)
+          setBackendsError(err instanceof Error ? err.message : String(err))
+        })
+        .finally(() => setBackendsLoading(false))
       const result = await window.api.profiles.list(server.id, access)
       setProfiles(result.profiles ?? [])
-      // Мультипротокольные бэкенды: необязательная секция. На сервере старой
-      // версии backend-status неизвестен — показываем «не поддерживается».
-      try {
-        setBackends(await window.api.backends.status(server.id, access))
-        setBackendsError(null)
-      } catch (err) {
-        setBackends(null)
-        setBackendsError(err instanceof Error ? err.message : String(err))
-      }
+      await backendsP
       const refreshed = await window.api.servers.get(server.id)
       setHostKeyFingerprint(refreshed?.hostKeyFingerprint ?? null)
       if (refreshed) {
@@ -679,17 +686,6 @@ export function ServerSettings({
     setKeysQrData(dataUrl)
   }
 
-  /**
-   * QR для импорта в AmneziaWG-клиент: без комментариев-шапки — часть
-   * приложений спотыкается о строки перед [Interface] при импорте с камеры.
-   */
-  const awgQrPayload = (conf: string): string =>
-    conf
-      .split('\n')
-      .filter((line) => !line.trim().startsWith('#'))
-      .join('\n')
-      .trim()
-
   const forgetHostKey = async (): Promise<void> => {
     setHostKeyResetBusy(true)
     setError(null)
@@ -728,6 +724,7 @@ export function ServerSettings({
 
   const hyst = backends?.backends.hysteria2
   const awgEntry = backends?.backends.awg
+  const keysAwgFields = keysAwgConf ? parseAwgClientConf(keysAwgConf) : null
 
   const transportLabel = (profile: ServerProfile): string =>
     profile.multi_route ? `${profile.transport} · ${profile.routes} ${t('settings.routes')}` : profile.transport
@@ -1055,16 +1052,17 @@ export function ServerSettings({
               <h2 className={styles.sectionTitle}>{t('settings.backendsTitle')}</h2>
               <p className={styles.sectionHint}>{t('settings.backendsHint')}</p>
               {backendsError !== null ? (
-                <div className={styles.backendCard}>
+                <div className={styles.listCard}>
                   <p className={styles.hint}>{t('settings.backendsUnsupported')}</p>
                 </div>
-              ) : backends === null ? (
-                <div className={styles.backendCard}>
-                  <Spinner size="sm" />
+              ) : backendsLoading || backends === null ? (
+                <div className={styles.listCard}>
+                  <div className={styles.backendSkeleton} />
+                  <div className={styles.backendSkeleton} />
                 </div>
               ) : (
-                <div className={styles.backendsGrid}>
-                  <div className={styles.backendCard}>
+                <div className={styles.listCard}>
+                  <div className={styles.backendBlock}>
                     <div className={styles.backendHead}>
                       <div className={`${styles.backendIcon} ${styles.backendIconHyst}`}>
                         <Zap size={18} />
@@ -1120,7 +1118,7 @@ export function ServerSettings({
                     </div>
                   </div>
 
-                  <div className={styles.backendCard}>
+                  <div className={styles.backendBlock}>
                     <div className={styles.backendHead}>
                       <div className={`${styles.backendIcon} ${styles.backendIconAwg}`}>
                         <Shield size={18} />
@@ -1256,14 +1254,27 @@ export function ServerSettings({
                     </Chip>
                   </div>
                   <p className={styles.keysNote}>{t('settings.beKeysAwgNote')}</p>
-                  {keysAwgConf ? (
+                  {keysAwgFields ? (
                     <>
-                      <pre className={styles.keysConfPre}>{keysAwgConf}</pre>
+                      <div className={styles.keysFields}>
+                        <div className={styles.keysField}>
+                          <span className={styles.keysFieldLabel}>
+                            {t('settings.beKeysEndpoint')}
+                          </span>
+                          <span className={styles.keysFieldValue}>{keysAwgFields.endpoint}</span>
+                        </div>
+                        <div className={styles.keysField}>
+                          <span className={styles.keysFieldLabel}>
+                            {t('settings.beKeysAddress')}
+                          </span>
+                          <span className={styles.keysFieldValue}>{keysAwgFields.address}</span>
+                        </div>
+                      </div>
                       <div className={styles.backendActions}>
                         <Button
                           size="sm"
                           variant="secondary"
-                          onPress={() => void copyKeysText(keysAwgConf ?? '')}
+                          onPress={() => void copyKeysText(stripAwgComments(keysAwgConf ?? ''))}
                         >
                           <Copy size={13} />
                           {t('settings.copy')}
@@ -1271,7 +1282,7 @@ export function ServerSettings({
                         <Button
                           size="sm"
                           variant="secondary"
-                          onPress={() => void showKeysQr(awgQrPayload(keysAwgConf ?? ''))}
+                          onPress={() => void showKeysQr(stripAwgComments(keysAwgConf ?? ''))}
                         >
                           {t('keys.qr')}
                         </Button>

@@ -102,6 +102,31 @@
   user-select: text;
 }
 
+.keysFields {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.keysField {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.keysFieldLabel {
+  color: var(--text-2);
+  min-width: 76px;
+  flex: none;
+}
+
+.keysFieldValue {
+  font-family: var(--font-mono);
+  user-select: text;
+  word-break: break-all;
+}
+
 .copyAllBtn {
   margin-top: 8px;
   font-weight: 600;

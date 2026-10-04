@@ -131,7 +131,9 @@
     "backendsHystNote": "UDP 传输：该行已在订阅中。客户端：HAPP、Hiddify、v2rayN。",
     "backendsAwgNote": "AmneziaWG 3.1 —— 非 V2Ray/HAPP：请将配置导入 AmneziaWG/AmneziaVPN 应用。全隧道，AmneziaVPN ≥ 5.0.1.5。",
     "backendsNotReady": "后端尚未激活或配置不可用——请在服务器设置中检查状态。",
-    "backendsNoAccess": "AmneziaWG 密钥需要已保存的服务器访问凭据（keychain 中的密码/密钥）——请先打开 Server Settings。"
+    "backendsNoAccess": "AmneziaWG 密钥需要已保存的服务器访问凭据（keychain 中的密码/密钥）——请先打开 Server Settings。",
+    "backendsEndpoint": "Endpoint",
+    "backendsAddress": "地址"
   },
   "settings": {
     "title": "服务器配置文件",
@@ -308,6 +310,8 @@
     "beKeysTitle": "后端密钥",
     "beKeysHystNote": "UDP 传输：适用于 HAPP、Hiddify、v2rayN。该行已在订阅中——此密钥用于直接导入。",
     "beKeysAwgNote": "AmneziaVPN —— 非 V2Ray/HAPP：请将配置导入 AmneziaWG/AmneziaVPN 应用。全隧道，客户端需 AmneziaVPN ≥ 5.0.1.5。",
-    "beKeysGrant": "签发授权"
+    "beKeysGrant": "签发授权",
+    "beKeysEndpoint": "Endpoint",
+    "beKeysAddress": "地址"
   }
 }

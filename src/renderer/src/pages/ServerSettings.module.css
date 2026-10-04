@@ -113,27 +113,20 @@
 }
 
 /* --- Мультипротокольные бэкенды (этап 2) --- */
-.backendsGrid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 14px;
+/* Один общий бокс, внутри — блоки протоколов один под другим. */
+.backendBlock {
+  padding: 6px 0 14px;
 }
 
-/* Каждый бэкенд — в собственном боксе, стилистически как остальные карточки. */
-.backendCard {
-  background: var(--bg-2);
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  padding: 16px 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+.backendBlock + .backendBlock {
+  margin-top: 10px;
 }
 
 .backendHead {
   display: flex;
   align-items: center;
   gap: 10px;
+  margin-bottom: 8px;
 }
 
 .backendIcon {
@@ -176,6 +169,7 @@
 .backendState {
   font-size: 12px;
   color: var(--text-2);
+  margin-bottom: 6px;
 }
 
 .backendStateOk {
@@ -183,7 +177,7 @@
 }
 
 .backendNote {
-  margin: 0;
+  margin: 0 0 10px;
   font-size: 12px;
   color: var(--text-2);
   line-height: 1.5;
@@ -194,7 +188,54 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  margin-top: auto;
+}
+
+.backendSkeleton {
+  height: 76px;
+  border-radius: 12px;
+  margin-bottom: 10px;
+  background: linear-gradient(
+    90deg,
+    var(--bg-2) 25%,
+    var(--bg-1, rgba(127, 127, 127, 0.14)) 50%,
+    var(--bg-2) 75%
+  );
+  background-size: 200% 100%;
+  animation: backendSkeleton 1.4s ease infinite;
+}
+
+@keyframes backendSkeleton {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.keysFields {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.keysField {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.keysFieldLabel {
+  color: var(--text-2);
+  min-width: 76px;
+  flex: none;
+}
+
+.keysFieldValue {
+  font-family: var(--font-mono);
+  user-select: text;
+  word-break: break-all;
 }
 
 /* --- Диалог ключей бэкендов (срез C) --- */

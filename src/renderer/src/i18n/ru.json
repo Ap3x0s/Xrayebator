@@ -133,7 +133,9 @@
     "backendsHystNote": "UDP-транспорт: строка уже в подписке. Клиенты: HAPP, Hiddify, v2rayN.",
     "backendsAwgNote": "AmneziaWG 3.1 — НЕ V2Ray/HAPP: импортируйте конфиг в приложение AmneziaWG/AmneziaVPN. Full-tunnel, AmneziaVPN ≥ 5.0.1.5.",
     "backendsNotReady": "Бэкенд ещё не активен или конфиг недоступен — проверьте статус в настройках сервера.",
-    "backendsNoAccess": "Для ключей AmneziaWG нужен сохранённый доступ к серверу (пароль/ключ в keychain) — зайдите в Server Settings один раз."
+    "backendsNoAccess": "Для ключей AmneziaWG нужен сохранённый доступ к серверу (пароль/ключ в keychain) — зайдите в Server Settings один раз.",
+    "backendsEndpoint": "Endpoint",
+    "backendsAddress": "Адрес"
   },
   "settings": {
     "title": "Профили сервера",
@@ -310,6 +312,8 @@
     "beKeysTitle": "Ключи бэкендов",
     "beKeysHystNote": "UDP-транспорт: работает в HAPP, Hiddify, v2rayN. Строка уже добавлена в подписку — этот ключ для прямого импорта.",
     "beKeysAwgNote": "AmneziaVPN — НЕ V2Ray/HAPP: импортируйте конфиг в приложение AmneziaWG/AmneziaVPN. Full-tunnel, клиенты AmneziaVPN ≥ 5.0.1.5.",
-    "beKeysGrant": "Выдать грант"
+    "beKeysGrant": "Выдать грант",
+    "beKeysEndpoint": "Endpoint",
+    "beKeysAddress": "Адрес"
   }
 }
