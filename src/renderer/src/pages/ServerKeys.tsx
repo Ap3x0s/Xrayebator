@@ -46,38 +46,47 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
     privateKeyPersisted: server.privateKeyPersisted ?? false,
     privilegeMode: server.privilegeMode ?? 'root'
   }
-  const backendKeysAvailable = shouldAutoConnectServer(server)
 
   useEffect(() => {
     let cancelled = false
-    if (!server.subscriptionUrl) return
-    setLoading(true)
-    window.api.subscription
-      .fetch(server.id)
-      .then((result) => {
-        if (cancelled) return
-        setKeys(result.keys)
-        setHysteria2Links(result.hysteria2Links ?? server.hysteria2Keys ?? [])
-        setSubscriptionUrl(result.subscriptionUrl)
+    // 1) МГНОВЕННАЯ отрисовка из персистентного стора: пропса server может быть
+    // устаревшим снимком Dashboard'а (без hysteria2Keys/awgConfs) — поэтому
+    // перечитываем свежую запись напрямую.
+    window.api.servers
+      .get(server.id)
+      .then((fresh) => {
+        if (cancelled || !fresh) return
+        setKeys(fresh.keys ?? [])
+        setHysteria2Links(fresh.hysteria2Keys ?? [])
+        setAwgConfs(fresh.awgConfs ?? {})
+        setSubscriptionUrl(fresh.subscriptionUrl)
       })
       .catch(() => {
-        if (!cancelled) setKeys(server.keys ?? [])
+        // стора нет — остаёмся на пропсе
       })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [server.id])
 
-  useEffect(() => {
-    let cancelled = false
-    if (!backendKeysAvailable) return
-    setBeBusy(true)
-    ;(async (): Promise<void> => {
+    // 2) Фоновое обновление: подписка + бэкенды, ВСЁ параллельно одним Promise.all
+    //    (равный тайминг с vless; без каскада и разнобоя).
+    const beReady = shouldAutoConnectServer(server)
+    setLoading(true)
+    if (beReady) setBeBusy(true)
+    const subscriptionP = server.subscriptionUrl
+      ? window.api.subscription
+          .fetch(server.id)
+          .then((result) => {
+            if (cancelled) return
+            setKeys(result.keys)
+            setHysteria2Links(result.hysteria2Links ?? [])
+            setSubscriptionUrl(result.subscriptionUrl)
+          })
+          .catch(() => {
+            if (!cancelled) setKeys(server.keys ?? [])
+          })
+      : Promise.resolve()
+
+    const backendP = (async (): Promise<void> => {
+      if (!beReady) return
       try {
-        // Всё параллельно одним Promise.all — равный тайминг с vless-ключами.
         const [pl, bs] = await Promise.all([
           window.api.profiles.list(server.id, storedAccess),
           window.api.backends.status(server.id, storedAccess)
@@ -88,6 +97,7 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
         setBackends(bs)
         const awgActive = bs.backends.awg?.state === 'active'
         const targets = awgActive ? list.filter((p) => p.backends?.awg) : []
+        // Конфы — тоже параллельно (кэш в сторе делает повторные открытия мгновенными).
         const confEntries = await Promise.all(
           targets.map(async (p) => {
             const conf = await window.api.backends
@@ -97,26 +107,34 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
           })
         )
         if (cancelled) return
-        const merged: Record<string, string> = { ...(server.awgConfs ?? {}) }
-        for (const [name, conf] of confEntries) {
-          if (conf) merged[name] = conf
-          else delete merged[name]
-        }
-        setAwgConfs(merged)
+        setAwgConfs((current) => {
+          const merged: Record<string, string> = { ...current }
+          for (const [name, conf] of confEntries) {
+            if (conf) merged[name] = conf
+            else delete merged[name]
+          }
+          return merged
+        })
       } catch {
         if (!cancelled) {
           setProfiles([])
           setBackends(null)
         }
-      } finally {
-        if (!cancelled) setBeBusy(false)
       }
     })()
+
+    void Promise.all([subscriptionP, backendP]).finally(() => {
+      if (!cancelled) {
+        setLoading(false)
+        setBeBusy(false)
+      }
+    })
+
     return () => {
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [server.id, backendKeysAvailable])
+  }, [server.id])
 
   useEffect(() => {
     if (!qrUrl) return
