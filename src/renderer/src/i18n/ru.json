@@ -129,7 +129,11 @@
     "copied": "Скопировано!",
     "qr": "QR-код",
     "subscription": "Subscription URL",
-    "none": "Ключи ещё не получены"
+    "none": "Ключи ещё не получены",
+    "backendsHystNote": "UDP-транспорт: строка уже в подписке. Клиенты: HAPP, Hiddify, v2rayN.",
+    "backendsAwgNote": "AmneziaWG 3.1 — НЕ V2Ray/HAPP: импортируйте конфиг в приложение AmneziaWG/AmneziaVPN. Full-tunnel, AmneziaVPN ≥ 5.0.1.5.",
+    "backendsNotReady": "Бэкенд ещё не активен или конфиг недоступен — проверьте статус в настройках сервера.",
+    "backendsNoAccess": "Для ключей AmneziaWG нужен сохранённый доступ к серверу (пароль/ключ в keychain) — зайдите в Server Settings один раз."
   },
   "settings": {
     "title": "Профили сервера",

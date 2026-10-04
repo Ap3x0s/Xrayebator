@@ -128,7 +128,11 @@
     "copied": "Copied!",
     "qr": "QR code",
     "subscription": "Subscription URL",
-    "none": "No keys yet"
+    "none": "No keys yet",
+    "backendsHystNote": "UDP transport: the line is already in the subscription. Clients: HAPP, Hiddify, v2rayN.",
+    "backendsAwgNote": "AmneziaWG 3.1 — NOT V2Ray/HAPP: import the config into the AmneziaWG/AmneziaVPN app. Full tunnel, AmneziaVPN ≥ 5.0.1.5.",
+    "backendsNotReady": "The backend is not active yet or the config is unavailable — check the status in Server Settings.",
+    "backendsNoAccess": "AmneziaWG keys require saved server access (password/key in the keychain) — open Server Settings once."
   },
   "settings": {
     "title": "Server profiles",
