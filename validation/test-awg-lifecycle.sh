@@ -139,7 +139,9 @@ jq -e '.ok == true and .name == "carol" and
        (.conf | contains("PersistentKeepalive = 25")) and
        (.conf | contains("PresharedKey = ")) and
        (.conf | contains("HeaderProtectionKey = ")) and
-       (.conf | contains("RandomTrailers = on"))' <<<"$conf" >/dev/null \
+       (.conf | contains("RandomTrailers = on")) and
+       (.conf | startswith("# Xrayebator:")) and
+       (.conf | contains("НЕ через"))' <<<"$conf" >/dev/null \
   || fail "client conf shape: $conf"
 jq -r '.conf' <<<"$conf" > "$TMP_ROOT/carol-client.conf"
 grep -qF "H1 = $(jq -r '.junk.H1' "$AWG_PARAMS_FILE")" "$TMP_ROOT/carol-client.conf" \

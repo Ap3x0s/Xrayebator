@@ -223,7 +223,10 @@ Hysteria 拒绝空的 userpass 映射。客户端链接形如
 `10.8.1.0/24`、`ip_forward` 与默认路由接口上的 MASQUERADE。junk 参数按 AWG 规范生成：`Jc`
 1..128、`Jmin < Jmax ≤ 1280`、`S1`/`S2` 15..150 且 `S1+56 ≠ S2`、`H1`–`H4` 在 5..2147483647 内
 互不相同。每个配置档 peer 获得密钥对、预共享密钥与首个空闲地址；客户端 `.conf`（菜单项 12 或
-`awg-conf --name N`）携带全隧道 `AllowedIPs` 与服务端 junk 参数。peer 变更会带回滚地重启接口
+`awg-conf --name N`）携带全隧道 `AllowedIPs` 与服务端 junk 参数，开头带有自述性头部：该配置档
+通过 AmneziaVPN/AmneziaWG 运行，而非 V2Ray 客户端（HAPP）。桌面 GUI 中，相同的密钥通过
+Server Settings 的「密钥」按钮按配置档交付：Hysteria 2 链接与 AWG `.conf` 以文本+二维码呈现，
+并支持一键签发授权。peer 变更会带回滚地重启接口
 ——所有 peer 的隧道会短暂中断；授权与吊销是低频操作，第一阶段可接受。
 
 ### AWG 2.0 与 3.x 的差异——以及 3.1 为何对 DPI/ТСПУ 更重要

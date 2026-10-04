@@ -265,8 +265,11 @@ and MASQUERADE on the default-route interface. Junk parameters are generated per
 `Jc` 1..128, `Jmin < Jmax ≤ 1280`, `S1`/`S2` 15..150 with `S1+56 ≠ S2`, `H1`–`H4` unique in
 5..2147483647. Each profile peer gets a keypair, a preshared key and the first free address; the
 client `.conf` (menu item 12 or `awg-conf --name N`) carries full-tunnel `AllowedIPs` and the
-server's junk parameters. Peer changes restart the interface with rollback — a brief tunnel blip
-for all peers, acceptable because grants and revokes are rare.
+server's junk parameters, and starts with a self-describing header noting that the profile runs
+through AmneziaVPN/AmneziaWG, not V2Ray clients (HAPP). In the desktop GUI the same keys are
+delivered per profile via the «Ключи» button in Server Settings: the Hysteria 2 link and the AWG
+`.conf` as text with QR codes and one-click grant issuance. Peer changes restart the interface with
+rollback — a brief tunnel blip for all peers, acceptable because grants and revokes are rare.
 
 ### AWG 2.0 vs 3.x — and why 3.1 matters against DPI/ТСПУ
 
