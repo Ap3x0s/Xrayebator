@@ -176,11 +176,19 @@
   color: var(--success, #2fb344);
 }
 
-.backendInfo {
+/* Единая внутренняя выемка на ОБА бэкенда — как затемнённые inner-box ключей. */
+.backendsInner {
   background: var(--bg-1, rgba(127, 127, 127, 0.1));
-  border-radius: 10px;
-  padding: 10px 12px;
-  margin-bottom: 10px;
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.backendBlock {
+  display: flex;
+  flex-direction: column;
 }
 
 .backendNote {

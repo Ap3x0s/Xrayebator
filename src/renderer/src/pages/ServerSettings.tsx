@@ -1061,123 +1061,121 @@ export function ServerSettings({
                   </>
                 ) : (
                   <>
-                    <div className={styles.backendBlock}>
-                      <div className={styles.backendHead}>
-                        <div className={`${styles.backendIcon} ${styles.backendIconHyst}`}>
-                          <Zap size={18} />
+                    <div className={styles.backendsInner}>
+                      <div className={styles.backendBlock}>
+                        <div className={styles.backendHead}>
+                          <div className={`${styles.backendIcon} ${styles.backendIconHyst}`}>
+                            <Zap size={18} />
+                          </div>
+                          <div className={styles.backendTitle}>
+                            <div className={styles.backendName}>{t('settings.backendsHyst')}</div>
+                            <div className={styles.backendSub}>{t('settings.backendsHystSub')}</div>
+                          </div>
                         </div>
-                        <div className={styles.backendTitle}>
-                          <div className={styles.backendName}>{t('settings.backendsHyst')}</div>
-                          <div className={styles.backendSub}>{t('settings.backendsHystSub')}</div>
+                        <div
+                          className={`${styles.backendState} ${
+                            hyst?.state === 'active' ? styles.backendStateOk : ''
+                          }`}
+                        >
+                          {hyst?.installed
+                            ? `${t('settings.backendsActive')} · UDP ${hyst.port ?? '—'} · ${
+                                hyst.version ?? ''
+                              }`
+                            : t('settings.backendsNotInstalled')}
                         </div>
-                      </div>
-                      <div
-                        className={`${styles.backendState} ${
-                          hyst?.state === 'active' ? styles.backendStateOk : ''
-                        }`}
-                      >
-                        {hyst?.installed
-                          ? `${t('settings.backendsActive')} · UDP ${hyst.port ?? '—'} · ${
-                              hyst.version ?? ''
-                            }`
-                          : t('settings.backendsNotInstalled')}
-                      </div>
-                      <div className={styles.backendInfo}>
                         <p className={styles.backendNote}>{t('settings.backendsHystNote')}</p>
-                      </div>
-                      <div className={styles.backendActions}>
-                        {hyst?.installed ? (
-                          <>
-                            <Button
-                              size="sm"
-                              variant={hyst.sub_body ? 'secondary' : 'primary'}
-                              isDisabled={busy}
-                              onPress={toggleSubbody}
-                            >
-                              {hyst.sub_body
-                                ? t('settings.backendsSubBodyOn')
-                                : t('settings.backendsSubBodyOff')}
+                        <div className={styles.backendActions}>
+                          {hyst?.installed ? (
+                            <>
+                              <Button
+                                size="sm"
+                                variant={hyst.sub_body ? 'secondary' : 'primary'}
+                                isDisabled={busy}
+                                onPress={toggleSubbody}
+                              >
+                                {hyst.sub_body
+                                  ? t('settings.backendsSubBodyOn')
+                                  : t('settings.backendsSubBodyOff')}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="danger-soft"
+                                isDisabled={busy}
+                                onPress={() => setConfirmBackend('hysteria2-uninstall')}
+                              >
+                                {backendBusy === 'hysteria2-uninstall'
+                                  ? t('settings.backendsUninstalling')
+                                  : t('settings.backendsUninstall')}
+                              </Button>
+                            </>
+                          ) : (
+                            <Button size="sm" isDisabled={busy} onPress={installHysteria2}>
+                              {backendBusy === 'hysteria2-install'
+                                ? t('settings.backendsInstalling')
+                                : t('settings.backendsInstall')}
                             </Button>
-                            <Button
-                              size="sm"
-                              variant="danger-soft"
-                              isDisabled={busy}
-                              onPress={() => setConfirmBackend('hysteria2-uninstall')}
-                            >
-                              {backendBusy === 'hysteria2-uninstall'
-                                ? t('settings.backendsUninstalling')
-                                : t('settings.backendsUninstall')}
-                            </Button>
-                          </>
-                        ) : (
-                          <Button size="sm" isDisabled={busy} onPress={installHysteria2}>
-                            {backendBusy === 'hysteria2-install'
-                              ? t('settings.backendsInstalling')
-                              : t('settings.backendsInstall')}
-                          </Button>
-                        )}
+                          )}
+                        </div>
                       </div>
-                    </div>
 
-                    <div className={styles.backendBlock}>
-                      <div className={styles.backendHead}>
-                        <div className={`${styles.backendIcon} ${styles.backendIconAwg}`}>
-                          <Shield size={18} />
+                      <div className={styles.backendBlock}>
+                        <div className={styles.backendHead}>
+                          <div className={`${styles.backendIcon} ${styles.backendIconAwg}`}>
+                            <Shield size={18} />
+                          </div>
+                          <div className={styles.backendTitle}>
+                            <div className={styles.backendName}>{t('settings.backendsAwg')}</div>
+                            <div className={styles.backendSub}>{t('settings.backendsAwgSub')}</div>
+                          </div>
                         </div>
-                        <div className={styles.backendTitle}>
-                          <div className={styles.backendName}>{t('settings.backendsAwg')}</div>
-                          <div className={styles.backendSub}>{t('settings.backendsAwgSub')}</div>
-                        </div>
-                      </div>
-                      <div
-                        className={`${styles.backendState} ${
-                          awgEntry?.state === 'active' ? styles.backendStateOk : ''
-                        }`}
-                      >
-                        {awgEntry?.installed
-                          ? `${t('settings.backendsActive')} · UDP ${awgEntry.port ?? '—'} · ${
-                              awgEntry.three_enabled
-                                ? t('settings.backends31On')
-                                : t('settings.backends31Off')
-                            }`
-                          : t('settings.backendsNotInstalled')}
-                      </div>
-                      <div className={styles.backendInfo}>
-                        <p className={styles.backendNote}>{t('settings.backendsAwgNote')}</p>
-                      </div>
-                      <div className={styles.backendActions}>
-                        {awgEntry?.installed ? (
-                          <>
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              isDisabled={busy}
-                              onPress={() => setConfirmBackend('awg31-on')}
-                            >
-                              {t(
+                        <div
+                          className={`${styles.backendState} ${
+                            awgEntry?.state === 'active' ? styles.backendStateOk : ''
+                          }`}
+                        >
+                          {awgEntry?.installed
+                            ? `${t('settings.backendsActive')} · UDP ${awgEntry.port ?? '—'} · ${
                                 awgEntry.three_enabled
-                                  ? 'settings.backends31Off'
-                                  : 'settings.backends31On'
-                              )}
+                                  ? t('settings.backends31On')
+                                  : t('settings.backends31Off')
+                              }`
+                            : t('settings.backendsNotInstalled')}
+                        </div>
+                        <p className={styles.backendNote}>{t('settings.backendsAwgNote')}</p>
+                        <div className={styles.backendActions}>
+                          {awgEntry?.installed ? (
+                            <>
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                isDisabled={busy}
+                                onPress={() => setConfirmBackend('awg31-on')}
+                              >
+                                {t(
+                                  awgEntry.three_enabled
+                                    ? 'settings.backends31Off'
+                                    : 'settings.backends31On'
+                                )}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="danger-soft"
+                                isDisabled={busy}
+                                onPress={() => setConfirmBackend('awg-uninstall')}
+                              >
+                                {backendBusy === 'awg-uninstall'
+                                  ? t('settings.backendsUninstalling')
+                                  : t('settings.backendsUninstall')}
+                              </Button>
+                            </>
+                          ) : (
+                            <Button size="sm" isDisabled={busy} onPress={installAwg}>
+                              {backendBusy === 'awg-install'
+                                ? t('settings.backendsInstalling')
+                                : t('settings.backendsInstall')}
                             </Button>
-                            <Button
-                              size="sm"
-                              variant="danger-soft"
-                              isDisabled={busy}
-                              onPress={() => setConfirmBackend('awg-uninstall')}
-                            >
-                              {backendBusy === 'awg-uninstall'
-                                ? t('settings.backendsUninstalling')
-                                : t('settings.backendsUninstall')}
-                            </Button>
-                          </>
-                        ) : (
-                          <Button size="sm" isDisabled={busy} onPress={installAwg}>
-                            {backendBusy === 'awg-install'
-                              ? t('settings.backendsInstalling')
-                              : t('settings.backendsInstall')}
-                          </Button>
-                        )}
+                          )}
+                        </div>
                       </div>
                     </div>
                   </>
