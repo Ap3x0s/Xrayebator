@@ -188,6 +188,14 @@ export interface Hysteria2SubbodyResult {
   error?: string
 }
 
+export interface Hysteria2LinkResult {
+  ok: boolean
+  name?: string
+  /** hysteria2://user:pass@host:port/?sni=…&insecure=…#🇩🇪 Country · name */
+  link?: string
+  error?: string
+}
+
 export interface AwgConfResult {
   ok: boolean
   name?: string
@@ -493,6 +501,12 @@ export interface ElectronAPI {
       access: SshAccessInput,
       on: boolean
     ) => Promise<Hysteria2SubbodyResult>
+    /** hysteria2:// ссылка профиля (требует грант и установленный бэкенд). */
+    hysteria2Link: (
+      serverId: string,
+      access: SshAccessInput,
+      name: string
+    ) => Promise<Hysteria2LinkResult>
     awgGrant: (
       serverId: string,
       access: SshAccessInput,

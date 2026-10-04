@@ -8,6 +8,7 @@ import type {
   BackendSimpleResult,
   BackendStatusResult,
   BackendToggleResult,
+  Hysteria2LinkResult,
   Hysteria2SubbodyResult
 } from '@shared/types'
 
@@ -173,6 +174,28 @@ export class BackendManager {
       const stdout = await this.run(['hysteria2-subbody', on ? '--on' : '--off'])
       const payload = extractJson(stdout) as { ok?: boolean; sub_body?: boolean; error?: string }
       return { ok: payload.ok === true, sub_body: payload.sub_body, error: payload.error }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return { ok: false, error: message }
+    }
+  }
+
+  /** hysteria2:// ссылка профиля (нужны установленный бэкенд и грант). */
+  async hysteria2Link(name: string): Promise<Hysteria2LinkResult> {
+    try {
+      const stdout = await this.run(['hysteria2-link', '--name', name])
+      const payload = extractJson(stdout) as {
+        ok?: boolean
+        name?: string
+        link?: string
+        error?: string
+      }
+      return {
+        ok: payload.ok === true,
+        name: payload.name,
+        link: typeof payload.link === 'string' ? payload.link : undefined,
+        error: payload.error
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       return { ok: false, error: message }
