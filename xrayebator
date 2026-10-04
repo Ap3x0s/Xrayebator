@@ -2967,27 +2967,24 @@ AWG_SYSCTL_FILE="/etc/sysctl.d/99-xrayebator-awg.conf"
 AWG_REPO_MODULE="amnezia-vpn/amneziawg-linux-kernel-module"
 AWG_REPO_TOOLS="amnezia-vpn/amneziawg-tools"
 
-# Случайные параметры AWG, включая 3.1 (HeaderProtectionKey, S3/S4).
-# Спека: Jc 1..128 (рек. 4..12), Jmin<Jmax≤1280, S1..S4 ≥ 12 (3.x) в 15..150,
-# S1+56 ≠ S2, H1–H4 уникальные 5..2147483647. HPK — 32 байта base64,
-# общий секрет сервер/клиент вне Noise-хендшейка.
+# Параметры AWG, включая 3.1 (HeaderProtectionKey, S3/S4).
+# Диалект по умолчанию = дефолты Amnezia (доказанная совместимость с их
+# мобильными клиентами: go-туннель применяет наш кастомный junk не целиком):
+# Jc=5, Jmin=10, Jmax=50, H1–H4=1..4 (WG-магия), S1/S2 12..150, S3/S4 12..64
+# (лимиты их валидатора), S1+56≠S2, S1..S4 уникальные. HPK — 32 байта base64.
 _awg_gen_junk() {
   local jc jmin jmax s1 s2 s3 s4 h1 h2 h3 h4 hpk
-  jc=$((RANDOM % 9 + 4))                              # 4..12 (рек. диапазон)
-  jmin=$((RANDOM % 400 + 8))                          # 8..407
-  jmax=$((jmin + RANDOM % 300 + 40))                  # jmin<jmax≤~747<1280
-  s1=$((RANDOM % 139 + 12))                           # 12..150 (3.x минимум 12)
+  jc=5                                                 # дефолт Amnezia
+  jmin=10
+  jmax=50
+  s1=$((RANDOM % 139 + 12))                            # 12..150
   s2=$((RANDOM % 139 + 12))
   while (( s2 == s1 + 56 )); do s2=$((RANDOM % 139 + 12)); done
-  s3=$((RANDOM % 139 + 12))
-  while (( s3 == s1 || s3 == s2 )); do s3=$((RANDOM % 139 + 12)); done
-  s4=$((RANDOM % 139 + 12))
-  while (( s4 == s1 || s4 == s2 || s4 == s3 )); do s4=$((RANDOM % 139 + 12)); done
-  _awg_rand_h() { echo $(( (RANDOM * 32768 + RANDOM) % 2147483643 + 5 )); }
-  h1=$(_awg_rand_h)
-  h2=$(_awg_rand_h); while [[ "$h2" == "$h1" ]]; do h2=$(_awg_rand_h); done
-  h3=$(_awg_rand_h); while [[ "$h3" == "$h1" || "$h3" == "$h2" ]]; do h3=$(_awg_rand_h); done
-  h4=$(_awg_rand_h); while [[ "$h4" == "$h1" || "$h4" == "$h2" || "$h4" == "$h3" ]]; do h4=$(_awg_rand_h); done
+  s3=$((RANDOM % 53 + 12))                             # 12..64 (их лимит cookie)
+  while (( s3 == s1 || s3 == s2 )); do s3=$((RANDOM % 53 + 12)); done
+  s4=$((RANDOM % 53 + 12))
+  while (( s4 == s1 || s4 == s2 || s4 == s3 )); do s4=$((RANDOM % 53 + 12)); done
+  h1=1; h2=2; h3=3; h4=4                               # WG-магия, дефолт Amnezia
   hpk=$(openssl rand -base64 32 2>/dev/null) || return 1
   jq -n --argjson jc "$jc" --argjson jmin "$jmin" --argjson jmax "$jmax" \
     --argjson s1 "$s1" --argjson s2 "$s2" --argjson s3 "$s3" --argjson s4 "$s4" \

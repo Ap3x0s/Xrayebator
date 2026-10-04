@@ -202,6 +202,16 @@ tcpdump -l -ni <iface> 'udp port <port>'
 `awg-31 --off` 并重新导入以测试 2.0 兼容性。注意：`tcpdump` 重定向到文件时若不加 `-l` 会按块
 缓冲输出——早期数据包在缓冲区刷新前可能不可见。
 
+## AmneziaVPN（完整应用）报错 1000，独立版客户端正常
+
+`错误 1000` 是应用笼统的 `AndroidError`；手机端日志此时显示
+`VPN config format error: No value for client_ip`。应用的原生管道只接受自己的导出形态——
+`amnezia-awg2` 容器、与 `last_config` 并列的服务器级 junk 字段、`protocol_version` 以及压缩
+（`qCompress`）payload。裸 `.conf`（或缺少这些字段的朴素 `vpn://`）会被保存，但客户端部分
+到不了隧道。桌面 GUI 的「QR · AmneziaVPN」二维码构造的正是这种形态——请用它代替粘贴
+`.conf`。Xrayebator 安装的 junk 组与 Amnezia 默认值一致（`Jc` 5、`Jmin` 10、`Jmax` 50、
+`H1`–`H4` = 1..4），正是因为应用的 go-туннель对自定义 junk 应用不完整。
+
 ## AWG 安装失败
 
 - 首选路径是 `amnezia/ppa` PPA；在没有对应发行版构建的系列上，Xrayebator 回退到源码编译。内核

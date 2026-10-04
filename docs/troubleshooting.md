@@ -286,6 +286,17 @@ packets but `awg show` still reports no handshake → the client is sending garb
 block-buffers its output when redirected to a file — early packets may not appear until the buffer
 flushes.
 
+## AmneziaVPN (the full app) fails with error 1000, the standalone client works
+
+`error 1000` is the app's generic `AndroidError`; the phone-side log then shows
+`VPN config format error: No value for client_ip`. The app's native pipeline only accepts its own
+export shape — the `amnezia-awg2` container, server-side junk fields next to `last_config`,
+`protocol_version` and a compressed (`qCompress`) payload. A raw `.conf` (or a bare `vpn://`
+without those fields) is stored, but the client part never reaches the tunnel. The desktop GUI's
+«QR · AmneziaVPN» code builds exactly that shape — use it instead of pasting a `.conf`. The junk
+group Xrayebator installs mirrors the Amnezia defaults (`Jc` 5, `Jmin` 10, `Jmax` 50,
+`H1`–`H4` = 1..4) precisely because the app's go-tunnel applies custom junk incompletely.
+
 ## AWG install fails
 
 - The primary path is the `amnezia/ppa` PPA; on distribution series without PPA builds Xrayebator

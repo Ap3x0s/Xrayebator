@@ -143,7 +143,7 @@ legacy-файлы и блоки, ранее созданные Xrayebator, и с
 | `sudo xrayebator hysteria2-grant --name N` | Выдать per-profile креденшел Hysteria 2 (в `.backends.hysteria2` профиля); серверный конфиг регенерируется из всех профилей; JSON |
 | `sudo xrayebator hysteria2-subbody --on\|--off` | Килл-свитч строк `hysteria2://` в обоих телах подписки: флаг живёт в реестре бэкендов, обработчик перечитывает его на каждый запрос, без рестарта сервиса; JSON |
 | `sudo xrayebator hysteria2-link --name N` | Ссылка `hysteria2://` профиля с грантом в JSON `{ok, name, link}` (именование как у VLESS-маршрутов, с флагом страны) |
-| `sudo xrayebator awg-install [--grant-all]` | Установить системный VPN-бэкенд AmneziaWG 2.0: kernel-модуль через DKMS (PPA `amnezia/ppa`, фолбэк — сборка), интерфейс `awg0` на случайном высоком UDP-порту, junk-параметры по спеке AWG, `ip_forward` + MASQUERADE; JSON |
+| `sudo xrayebator awg-install [--grant-all]` | Установить системный VPN-бэкенд AmneziaWG 2.0: kernel-модуль через DKMS (PPA `amnezia/ppa`, фолбэк — сборка), интерфейс `awg0` на случайном высоком UDP-порту, junk-параметры как в дефолте Amnezia, `ip_forward` + MASQUERADE; JSON |
 | `sudo xrayebator awg-uninstall` | Удалить бэкенд AmneziaWG (интерфейс, конфиг, symlink, правило firewall; пакеты/модуль остаются в системе); JSON |
 | `sudo xrayebator awg-status` | Статус бэкенда AmneziaWG (JSON) |
 | `sudo xrayebator awg-grant --name N` | Выдать per-profile peer (ключевая пара + preshared key + адрес `10.8.1.x` в `.backends.awg` профиля); `awg0.conf` регенерируется; JSON |
@@ -245,14 +245,20 @@ generic); флаг `sub_body` в реестре — выключатель на 
 `awg-install` собирает kernel-модуль через DKMS (основной путь — PPA `amnezia/ppa`; фолбэк —
 сборка из исходников, для ядер ≥ 5.6 нужен полный `linux-source`) и поднимает интерфейс `awg0`
 через `awg-quick@awg0` на случайном высоком UDP-порту, подсеть `10.8.1.0/24`, `ip_forward` и
-MASQUERADE на интерфейсе default-route. Junk-параметры генерируются по спеке AWG: `Jc` 1..128,
-`Jmin < Jmax ≤ 1280`, `S1`/`S2` 15..150 с `S1+56 ≠ S2`, `H1`–`H4` уникальные в 5..2147483647.
+MASQUERADE на интерфейсе default-route. Junk-параметры повторяют дефолты Amnezia — диалект,
+который любой официальный клиент AmneziaVPN (телефон и десктоп) применяет без сюрпризов:
+`Jc` 5, `Jmin` 10, `Jmax` 50, `H1`–`H4` = 1..4 (WG-магия), `S1`/`S2` случайные 12..150 и
+`S3`/`S4` случайные 12..64 (все уникальные, `S1+56 ≠ S2`).
 Каждый профиль-пир получает ключевую пару, preshared key и первый свободный адрес; клиентский
 `.conf` (пункт меню 12 или `awg-conf --name N`) несёт full-tunnel `AllowedIPs` и серверные
 junk-параметры, и начинается с самодокументирующейся шапки: профиль работает через
 AmneziaVPN/AmneziaWG, а не V2Ray-клиенты (HAPP). В десктоп-GUI те же ключи выдаются per-профиль
 кнопкой «Ключи» в Server Settings: ссылка Hysteria 2 и AWG `.conf` текстом с QR и выдачей гранта
-в один клик. Изменения peer-ов перезапускают интерфейс с откатом — короткий обрыв туннеля для
+в один клик. Код «QR · AmneziaVPN» несёт конфиг в родном для приложения формате `vpn://`
+(контейнер `amnezia-awg2`, серверные junk-поля уровня контейнера, `protocol_version`, сжатый
+payload) — сырой `.conf`, вставленный в AmneziaVPN, до туннеля доходит не целиком, поэтому для
+этого приложения рекомендован именно этот код; обычный QR остаётся для standalone-клиента
+AmneziaWG. Изменения peer-ов перезапускают интерфейс с откатом — короткий обрыв туннеля для
 всех peer-ов, приемлемо, поскольку гранты и отзывы редки.
 
 ### AWG 2.0 vs 3.x — и почему 3.1 важна против DPI/ТСПУ

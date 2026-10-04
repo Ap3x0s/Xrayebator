@@ -46,22 +46,21 @@ export XRAYEBATOR_SERVER_ADDR_OVERRIDE="203.0.113.10"
 # shellcheck disable=SC1091
 source ./xrayebator || fail "source ./xrayebator failed"
 
-# 1) junk-параметры: диапазоны и уникальность (5 прогонов), включая 3.1-поля
+# 1) junk-параметры: дефолтный диалект Amnezia (совместимость с их мобильными
+#    клиентами) + уникальность S1..S4 (5 прогонов), включая 3.1-поля
 for _ in 1 2 3 4 5; do
   junk=$(_awg_gen_junk)
   jq -e '
-    .Jc >= 1 and .Jc <= 128 and
-    .Jmin >= 8 and .Jmin < .Jmax and .Jmax <= 1280 and
+    .Jc == 5 and .Jmin == 10 and .Jmax == 50 and
     .S1 >= 12 and .S1 <= 150 and .S2 >= 12 and .S2 <= 150 and
-    .S3 >= 12 and .S3 <= 150 and .S4 >= 12 and .S4 <= 150 and
+    .S3 >= 12 and .S3 <= 64 and .S4 >= 12 and .S4 <= 64 and
     ([.S1, .S2, .S3, .S4] | (length == ([unique[]] | length))) and
     (.S1 + 56) != .S2 and
-    .H1 >= 5 and .H2 >= 5 and .H3 >= 5 and .H4 >= 5 and
-    ([.H1, .H2, .H3, .H4] | (length == ([unique[]] | length))) and
+    .H1 == 1 and .H2 == 2 and .H3 == 3 and .H4 == 4 and
     (.HeaderProtectionKey | length == 44 and endswith("="))
   ' <<<"$junk" >/dev/null || fail "junk/3.1 params out of spec: $junk"
 done
-pass "junk + AWG 3.1 params (S1-S4>=12, HeaderProtectionKey) within spec (5/5 runs)"
+pass "junk = Amnezia defaults (Jc=5/Jmin=10/Jmax=50/H=1..4) + S1-S4 unique + HPK (5/5 runs)"
 
 # 1b) _awg_ensure_31_params дополняет старый params (до-3.1 установка)
 old_junk=$(jq -c 'del(.S3, .S4, .HeaderProtectionKey)' <<<"$junk")
