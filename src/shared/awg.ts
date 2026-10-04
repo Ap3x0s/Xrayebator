@@ -78,45 +78,63 @@ export function detectAwgVersion(map: Record<string, string>): string {
 }
 
 /**
- * Строит JSON-объект в родном для AmneziaVPN формате (контейнер amnezia-awg
- * с last_config) — структура повторяет extractWireGuardConfig из importController:
- * только в этом виде приложение гарантированно переносит junk-параметры в туннель.
+ * Строит JSON-объект в родном для AmneziaVPN формате — 1-в-1 с их экспортом
+ * docker-сервера (AwgProtocolConfig::toJson): серверные junk-поля на уровне
+ * объекта "awg", range-таймеры и ContentPaddingAddition (это параметры их
+ * go-туннеля, не kernel), last_config с полным клиентским набором включая
+ * client_pub_key/clientId. Контейнер — "amnezia-awg2".
  */
 export function buildAwgVpnConfig(
   conf: string,
-  description?: string
+  description?: string,
+  opts?: { clientPubKey?: string; mtu?: string }
 ): Record<string, unknown> {
   const map = parseAwgConfMap(stripAwgComments(conf))
   const endpoint = map['Endpoint'] ?? ''
   const [host = '', port = ''] = endpoint.split(':')
+  const version = detectAwgVersion(map)
+  const clientIp = (map['Address'] ?? '').split('/')[0]
 
+  const clientPub = opts?.clientPubKey ?? ''
   const lastConfig: Record<string, unknown> = {
     config: stripAwgComments(conf),
     hostName: host,
     port: Number(port) || 51820,
+    client_ip: clientIp,
   }
   if (map['PrivateKey']) lastConfig['client_priv_key'] = map['PrivateKey']
-  if (map['Address']) lastConfig['client_ip'] = map['Address']
+  if (clientPub) {
+    lastConfig['client_pub_key'] = clientPub
+    lastConfig['clientId'] = clientPub
+  }
   const psk = map['PresharedKey'] ?? map['PreSharedKey']
   if (psk) lastConfig['psk_key'] = psk
   if (map['PublicKey']) lastConfig['server_pub_key'] = map['PublicKey']
-  if (map['MTU']) lastConfig['mtu'] = map['MTU']
-  if (map['PersistentKeepalive']) lastConfig['persistent_keep_alive'] = map['PersistentKeepalive']
   if (map['AllowedIPs']) {
     lastConfig['allowed_ips'] = map['AllowedIPs']
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean)
   }
+  // junk + 3.x параметры — зеркально в last_config (как в их экспорте)
   for (const key of AWG_PROTOCOL_KEYS) {
-    if (map[key]) lastConfig[key] = map[key]
+    if (key === 'RandomTrailers') lastConfig[key] = map[key] ?? 'on'
+    else if (map[key]) lastConfig[key] = map[key]
   }
-  const version = detectAwgVersion(map)
+  // range-таймеры go-туннеля — дефолты Amnezia (не влияют на handshake)
+  lastConfig['persistent_keep_alive'] = map['PersistentKeepalive'] ?? '25'
+  if (version === '3.1') {
+    lastConfig['RekeyAfterTime'] = '100-120'
+    lastConfig['RekeyTimeout'] = '3-7'
+    lastConfig['RejectAfterTime'] = '150-180'
+    lastConfig['KeepaliveTimeout'] = '5-15'
+    lastConfig['MaxHandshakeAttempts'] = '15-20'
+    lastConfig['ContentPaddingAddition'] = '10-100'
+  }
+  lastConfig['mtu'] = opts?.mtu ?? map['MTU'] ?? '1280'
   lastConfig['protocol_version'] = version
 
-  // Серверные поля — НА УРОВНЕ объекта "awg" (как AwgServerConfig::toJson в
-  // amnezia-client): модель сервера читает их отсюда, а не из last_config.
-  // I1..I5 их toJson пишет безусловно (пустые строки — валидно).
+  // серверный уровень "awg" — тот же набор junk + subnet_address (как в экспорте)
   const serverLevel: Record<string, unknown> = {
     port,
     transport_proto: 'udp',
@@ -136,14 +154,21 @@ export function buildAwgVpnConfig(
   if (map['HeaderProtectionKey']) serverLevel['HeaderProtectionKey'] = map['HeaderProtectionKey']
   if (map['RandomTrailers']) serverLevel['RandomTrailers'] = map['RandomTrailers']
   if (map['DisableCookies']) serverLevel['DisableCookies'] = map['DisableCookies']
+  if (version === '3.1') {
+    serverLevel['RekeyAfterTime'] = '100-120'
+    serverLevel['RekeyTimeout'] = '3-7'
+    serverLevel['RejectAfterTime'] = '150-180'
+    serverLevel['KeepaliveTimeout'] = '5-15'
+    serverLevel['MaxHandshakeAttempts'] = '15-20'
+    serverLevel['ContentPaddingAddition'] = '10-100'
+  }
+  serverLevel['subnet_address'] = '10.8.1.0'
+  serverLevel['isThirdPartyConfig'] = true
+  serverLevel['last_config'] = JSON.stringify(lastConfig)
 
   const container: Record<string, unknown> = {
     container: 'amnezia-awg2',
-    awg: {
-      ...serverLevel,
-      isThirdPartyConfig: true,
-      last_config: JSON.stringify(lastConfig),
-    },
+    awg: serverLevel,
   }
 
   const root: Record<string, unknown> = {
@@ -170,9 +195,18 @@ function toBase64Url(json: string): string {
 
 /**
  * Родная ссылка-импорт для AmneziaVPN: vpn:// + base64url(JSON).
- * Без qCompress — импортёр деликатно принимает и несжатое тело
- * (qUncompress возвращает пусто → используется сырой base64).
+ * GUI строит несжатый payload — импортёр принимает и его (фоллбек
+ * extractConfigFromData при неудачном qUncompress). Сжатый вариант
+ * (qCompress: 4 байта BE-размера + zlib) выдаёт build-vpn-url.mjs.
  */
-export function buildAwgVpnUrl(conf: string, description?: string): string {
-  return 'vpn://' + toBase64Url(JSON.stringify(buildAwgVpnConfig(conf, description)))
+export function buildAwgVpnUrl(
+  conf: string,
+  description?: string,
+  opts?: { clientPubKey?: string; mtu?: string }
+): string {
+  const json = JSON.stringify(buildAwgVpnConfig(conf, description, opts))
+  const bytes = new TextEncoder().encode(json)
+  let bin = ''
+  for (const b of bytes) bin += String.fromCharCode(b)
+  return 'vpn://' + btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
