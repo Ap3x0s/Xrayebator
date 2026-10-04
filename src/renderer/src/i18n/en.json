@@ -132,7 +132,9 @@
     "backendsHystNote": "UDP transport: the line is already in the subscription. Clients: HAPP, Hiddify, v2rayN.",
     "backendsAwgNote": "AmneziaWG 3.1 — NOT V2Ray/HAPP: import the config into the AmneziaWG/AmneziaVPN app. Full tunnel, AmneziaVPN ≥ 5.0.1.5.",
     "backendsNotReady": "The backend is not active yet or the config is unavailable — check the status in Server Settings.",
-    "backendsNoAccess": "AmneziaWG keys require saved server access (password/key in the keychain) — open Server Settings once."
+    "backendsNoAccess": "AmneziaWG keys require saved server access (password/key in the keychain) — open Server Settings once.",
+    "backendsEndpoint": "Endpoint",
+    "backendsAddress": "Address"
   },
   "settings": {
     "title": "Server profiles",
@@ -309,6 +311,8 @@
     "beKeysTitle": "Backend keys",
     "beKeysHystNote": "UDP transport: works in HAPP, Hiddify, v2rayN. The line is already in the subscription — this key is for direct import.",
     "beKeysAwgNote": "AmneziaVPN — NOT V2Ray/HAPP: import the config into the AmneziaWG/AmneziaVPN app. Full tunnel, clients AmneziaVPN ≥ 5.0.1.5.",
-    "beKeysGrant": "Issue grant"
+    "beKeysGrant": "Issue grant",
+    "beKeysEndpoint": "Endpoint",
+    "beKeysAddress": "Address"
   }
 }

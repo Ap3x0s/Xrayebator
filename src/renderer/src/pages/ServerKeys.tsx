@@ -10,6 +10,7 @@ import type {
   VlessLink
 } from '@shared/types'
 import { vlessPort } from '@shared/vless'
+import { parseAwgClientConf, stripAwgComments } from '@shared/awg'
 import { shouldAutoConnectServer } from './server-access'
 import styles from './ServerKeys.module.css'
 
@@ -136,12 +137,7 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
   }
 
   /** QR для импорта в AmneziaWG-клиент: без комментариев-шапки. */
-  const awgQrPayload = (conf: string): string =>
-    conf
-      .split('\n')
-      .filter((line) => !line.trim().startsWith('#'))
-      .join('\n')
-      .trim()
+  const awgQrPayload = (conf: string): string => stripAwgComments(conf)
 
   const hysteria2Port = (link: string): string => {
     const m = link.match(/@[^/:]+:(\d+)/)
@@ -213,39 +209,56 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
           </div>
         ))}
 
-        {awgProfiles.map((profile) => (
-          <div key={profile.name} className={styles.keyCard}>
-            <div className={styles.keyHeader}>
-              <Chip size="sm" color="default">
-                AMNEZIAWG 3.1 · {profile.name}
-              </Chip>
+        {awgProfiles.map((profile) => {
+          const conf = awgConfs[profile.name]
+          const fields = conf ? parseAwgClientConf(conf) : null
+          return (
+            <div key={profile.name} className={styles.keyCard}>
+              <div className={styles.keyHeader}>
+                <Chip size="sm" color="default">
+                  AMNEZIAWG 3.1 · {profile.name}
+                </Chip>
+              </div>
+              <p className={styles.keyNote}>{t('keys.backendsAwgNote')}</p>
+              {awgActive && fields ? (
+                <>
+                  <div className={styles.keysFields}>
+                    <div className={styles.keysField}>
+                      <span className={styles.keysFieldLabel}>
+                        {t('keys.backendsEndpoint')}
+                      </span>
+                      <span className={styles.keysFieldValue}>{fields.endpoint}</span>
+                    </div>
+                    <div className={styles.keysField}>
+                      <span className={styles.keysFieldLabel}>
+                        {t('keys.backendsAddress')}
+                      </span>
+                      <span className={styles.keysFieldValue}>{fields.address}</span>
+                    </div>
+                  </div>
+                  <div className={styles.keyActions}>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onPress={() => copy(awgQrPayload(conf))}
+                    >
+                      {t('keys.copy')}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onPress={() => showQr(awgQrPayload(conf))}
+                    >
+                      {t('keys.qr')}
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <div className={styles.empty}>{t('keys.backendsNotReady')}</div>
+              )}
             </div>
-            <p className={styles.keyNote}>{t('keys.backendsAwgNote')}</p>
-            {awgActive && awgConfs[profile.name] ? (
-              <>
-                <pre className={styles.keyConfPre}>{awgConfs[profile.name]}</pre>
-                <div className={styles.keyActions}>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onPress={() => copy(awgConfs[profile.name])}
-                  >
-                    {t('keys.copy')}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onPress={() => showQr(awgQrPayload(awgConfs[profile.name]))}
-                  >
-                    {t('keys.qr')}
-                  </Button>
-                </div>
-              </>
-            ) : (
-              <div className={styles.empty}>{t('keys.backendsNotReady')}</div>
-            )}
-          </div>
-        ))}
+          )
+        })}
 
 
         {beBusy && (
