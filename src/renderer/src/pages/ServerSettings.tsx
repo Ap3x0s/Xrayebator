@@ -679,6 +679,17 @@ export function ServerSettings({
     setKeysQrData(dataUrl)
   }
 
+  /**
+   * QR для импорта в AmneziaWG-клиент: без комментариев-шапки — часть
+   * приложений спотыкается о строки перед [Interface] при импорте с камеры.
+   */
+  const awgQrPayload = (conf: string): string =>
+    conf
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('#'))
+      .join('\n')
+      .trim()
+
   const forgetHostKey = async (): Promise<void> => {
     setHostKeyResetBusy(true)
     setError(null)
@@ -1040,34 +1051,41 @@ export function ServerSettings({
               ))}
             </section>
 
-            <section className={styles.listCard}>
+            <section>
               <h2 className={styles.sectionTitle}>{t('settings.backendsTitle')}</h2>
               <p className={styles.sectionHint}>{t('settings.backendsHint')}</p>
               {backendsError !== null ? (
-                <p className={styles.hint}>{t('settings.backendsUnsupported')}</p>
+                <div className={styles.backendCard}>
+                  <p className={styles.hint}>{t('settings.backendsUnsupported')}</p>
+                </div>
               ) : backends === null ? (
-                <Spinner size="sm" />
+                <div className={styles.backendCard}>
+                  <Spinner size="sm" />
+                </div>
               ) : (
-                <>
-                  <div className={styles.backendRow}>
-                    <div className={styles.backendMeta}>
-                      <div className={styles.backendName}>
-                        <Zap size={16} />
-                        {t('settings.backendsHyst')}
+                <div className={styles.backendsGrid}>
+                  <div className={styles.backendCard}>
+                    <div className={styles.backendHead}>
+                      <div className={`${styles.backendIcon} ${styles.backendIconHyst}`}>
+                        <Zap size={18} />
                       </div>
-                      <div
-                        className={`${styles.backendState} ${
-                          hyst?.state === 'active' ? styles.backendStateOk : ''
-                        }`}
-                      >
-                        {hyst?.installed
-                          ? `${t('settings.backendsActive')} · UDP ${hyst.port ?? '—'} · ${
-                              hyst.version ?? ''
-                            }`
-                          : t('settings.backendsNotInstalled')}
+                      <div className={styles.backendTitle}>
+                        <div className={styles.backendName}>{t('settings.backendsHyst')}</div>
+                        <div className={styles.backendSub}>{t('settings.backendsHystSub')}</div>
                       </div>
-                      <p className={styles.backendNote}>{t('settings.backendsHystNote')}</p>
                     </div>
+                    <div
+                      className={`${styles.backendState} ${
+                        hyst?.state === 'active' ? styles.backendStateOk : ''
+                      }`}
+                    >
+                      {hyst?.installed
+                        ? `${t('settings.backendsActive')} · UDP ${hyst.port ?? '—'} · ${
+                            hyst.version ?? ''
+                          }`
+                        : t('settings.backendsNotInstalled')}
+                    </div>
+                    <p className={styles.backendNote}>{t('settings.backendsHystNote')}</p>
                     <div className={styles.backendActions}>
                       {hyst?.installed ? (
                         <>
@@ -1102,27 +1120,30 @@ export function ServerSettings({
                     </div>
                   </div>
 
-                  <div className={styles.backendRow}>
-                    <div className={styles.backendMeta}>
-                      <div className={styles.backendName}>
-                        <Shield size={16} />
-                        {t('settings.backendsAwg')}
+                  <div className={styles.backendCard}>
+                    <div className={styles.backendHead}>
+                      <div className={`${styles.backendIcon} ${styles.backendIconAwg}`}>
+                        <Shield size={18} />
                       </div>
-                      <div
-                        className={`${styles.backendState} ${
-                          awgEntry?.state === 'active' ? styles.backendStateOk : ''
-                        }`}
-                      >
-                        {awgEntry?.installed
-                          ? `${t('settings.backendsActive')} · UDP ${awgEntry.port ?? '—'} · ${
-                              awgEntry.three_enabled
-                                ? t('settings.backends31On')
-                                : t('settings.backends31Off')
-                            }`
-                          : t('settings.backendsNotInstalled')}
+                      <div className={styles.backendTitle}>
+                        <div className={styles.backendName}>{t('settings.backendsAwg')}</div>
+                        <div className={styles.backendSub}>{t('settings.backendsAwgSub')}</div>
                       </div>
-                      <p className={styles.backendNote}>{t('settings.backendsAwgNote')}</p>
                     </div>
+                    <div
+                      className={`${styles.backendState} ${
+                        awgEntry?.state === 'active' ? styles.backendStateOk : ''
+                      }`}
+                    >
+                      {awgEntry?.installed
+                        ? `${t('settings.backendsActive')} · UDP ${awgEntry.port ?? '—'} · ${
+                            awgEntry.three_enabled
+                              ? t('settings.backends31On')
+                              : t('settings.backends31Off')
+                          }`
+                        : t('settings.backendsNotInstalled')}
+                    </div>
+                    <p className={styles.backendNote}>{t('settings.backendsAwgNote')}</p>
                     <div className={styles.backendActions}>
                       {awgEntry?.installed ? (
                         <>
@@ -1158,7 +1179,7 @@ export function ServerSettings({
                       )}
                     </div>
                   </div>
-                </>
+                </div>
               )}
             </section>
           </>
@@ -1250,7 +1271,7 @@ export function ServerSettings({
                         <Button
                           size="sm"
                           variant="secondary"
-                          onPress={() => void showKeysQr(keysAwgConf ?? '')}
+                          onPress={() => void showKeysQr(awgQrPayload(keysAwgConf ?? ''))}
                         >
                           {t('keys.qr')}
                         </Button>
