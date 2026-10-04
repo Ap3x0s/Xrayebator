@@ -3071,6 +3071,10 @@ EOF
   sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
 
   # 5) Интерфейс
+  # Юнит awg-quick@awg0 ищет конфиг в /etc/amnezia/amneziawg/ (живой тест
+  # 2.26.125.147) — линкуем наш файл; источник правды остаётся в backends/awg/.
+  mkdir -p /etc/amnezia/amneziawg
+  ln -sfn "$AWG_CONF_FILE" /etc/amnezia/amneziawg/awg0.conf
   systemctl daemon-reload 2>/dev/null
   if ! systemctl enable --now "$AWG_UNIT" 2>/dev/null; then
     echo -e "${RED}✗ systemctl enable --now ${AWG_UNIT} не удался${NC}"
@@ -3092,21 +3096,25 @@ EOF
   # 6) Реестр — последним шагом
   _backend_set awg '(.awg.installed) = true' &&
     _backend_set awg '(.awg.version) = $v' --arg v "kernel-dkms" &&
-    _backend_set awg '(.awg.port) = $p' --argjson port "$port" &&
+    _backend_set awg '(.awg.port) = $port' --argjson port "$port" &&
     _backend_set awg '(.awg.unit) = $u' --arg u "$AWG_UNIT" &&
     _backend_set awg '(.awg.subnet) = $s' --arg s "$AWG_SUBNET" &&
-    _backend_set awg '(.awg.mtu) = $m' --argjson mtu "$AWG_MTU" &&
-    _backend_set awg '(.awg.junk) = $j' --argjson junk "$junk" &&
+    _backend_set awg '(.awg.mtu) = $mtu' --argjson mtu "$AWG_MTU" &&
+    _backend_set awg '(.awg.junk) = $junk' --argjson junk "$junk" &&
     _backend_set awg '(.awg.iface) = $i' --arg i "$iface" &&
     _backend_set awg '(.awg.sub_body) = false' || {
     echo -e "${RED}✗ Не удалось записать реестр бэкендов${NC}"
     systemctl disable --now "$AWG_UNIT" 2>/dev/null
+    rm -f /etc/amnezia/amneziawg/awg0.conf
     rm -rf "$AWG_DIR" "$AWG_SYSCTL_FILE"
+    # Полу-запись недопустима: вычищаем объект awg из реестра.
+    safe_jq_write --arg t awg 'del(.[$t])' "$BACKENDS_REGISTRY_FILE" 2>/dev/null
     return 1
   }
 
-  # Peer-гранты существующим профилям (срез 5). Режимы $2: prompt/grant_all/no_prompt.
-  local grant_mode=${2:-prompt}
+  # Peer-гранты существующим профилям (срез 5). Режим $1 (у AWG нет аргумента
+  # порта, в отличие от _hysteria2_install): prompt/grant_all/no_prompt.
+  local grant_mode=${1:-prompt}
   if [[ "$grant_mode" == "grant_all" ]]; then
     _awg_grant_all_profiles
   elif [[ "$grant_mode" != "no_prompt" ]]; then
@@ -3140,6 +3148,7 @@ _awg_uninstall() {
   echo -e "${CYAN}  → Гашу интерфейс и убираю артефакты...${NC}"
   systemctl disable --now "$AWG_UNIT" 2>/dev/null
   ip link del "$AWG_IFACE" 2>/dev/null || true
+  rm -f /etc/amnezia/amneziawg/awg0.conf 2>/dev/null
   rm -rf "$AWG_DIR"
   rm -f "$AWG_SYSCTL_FILE"
 
@@ -14341,7 +14350,8 @@ if [[ "$XRAYEBATOR_SOURCED" -eq 0 ]]; then
       hysteria2_grant_command "$@"
       ;;
     awg-install)
-      awg_install_command
+      shift
+      awg_install_command "$@"
       ;;
     awg-uninstall)
       awg_uninstall_command
