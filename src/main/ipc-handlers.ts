@@ -20,6 +20,7 @@ import type { ServerConnectionMetadata, ServerStore } from './core/servers'
 import { Deployer } from './core/deployer'
 import { fetchSubscription } from './core/subscription'
 import { ProfileManager } from './core/profiles'
+import { BackendManager } from './core/backend-manager'
 import { ServerManager } from './core/server-manager'
 import { ServerInspector } from './core/server-inspector'
 import { probePortsFor } from './core/probe-ports'
@@ -458,6 +459,60 @@ export function registerIpcHandlers({ store }: IpcContext): void {
     async (_e, serverId: string, access: SshAccessInput, input: ProfileExpireInput) => {
       const manager = await profileManagerFor(serverId, access)
       return manager.setExpire(input)
+    }
+  )
+
+  const backendManagerFor = async (
+    serverId: string,
+    access: SshAccessInput
+  ): Promise<BackendManager> => {
+    const server = store.get(serverId)
+    if (!server) throw new Error('Сервер не найден')
+    const { credentials } = await credentialsFor(server, server, access)
+    return new BackendManager(credentials)
+  }
+
+  ipcMain.handle('backends:status', async (_e, serverId: string, access: SshAccessInput) => {
+    const manager = await backendManagerFor(serverId, access)
+    const result = await manager.status()
+    if (!result.ok) throw new Error(result.error ?? 'Не удалось получить статус бэкендов')
+    return result
+  })
+
+  ipcMain.handle(
+    'backends:hysteria2Grant',
+    async (_e, serverId: string, access: SshAccessInput, name: string) => {
+      if (!name) throw new Error('Не указано имя профиля')
+      const manager = await backendManagerFor(serverId, access)
+      return manager.hysteria2Grant(name)
+    }
+  )
+
+  ipcMain.handle(
+    'backends:awgGrant',
+    async (_e, serverId: string, access: SshAccessInput, name: string) => {
+      if (!name) throw new Error('Не указано имя профиля')
+      const manager = await backendManagerFor(serverId, access)
+      return manager.awgGrant(name)
+    }
+  )
+
+  ipcMain.handle(
+    'backends:awgConf',
+    async (_e, serverId: string, access: SshAccessInput, name: string) => {
+      if (!name) throw new Error('Не указано имя профиля')
+      const manager = await backendManagerFor(serverId, access)
+      const result = await manager.awgConf(name)
+      if (!result.ok) throw new Error(result.error ?? 'Не удалось получить конфиг AWG')
+      return result
+    }
+  )
+
+  ipcMain.handle(
+    'backends:awg31',
+    async (_e, serverId: string, access: SshAccessInput, on: boolean) => {
+      const manager = await backendManagerFor(serverId, access)
+      return manager.awg31(Boolean(on))
     }
   )
 
