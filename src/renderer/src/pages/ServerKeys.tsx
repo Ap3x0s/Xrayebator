@@ -2,8 +2,15 @@ import { useEffect, useState } from 'react'
 import QRCode from 'qrcode'
 import { Button, Chip, Spinner } from '@heroui/react'
 import { useTranslation } from 'react-i18next'
-import type { Server, VlessLink } from '@shared/types'
+import type {
+  BackendStatusResult,
+  Server,
+  ServerProfile,
+  SshAccessInput,
+  VlessLink
+} from '@shared/types'
 import { vlessPort } from '@shared/vless'
+import { shouldAutoConnectServer } from './server-access'
 import styles from './ServerKeys.module.css'
 
 interface ServerKeysProps {
@@ -14,11 +21,30 @@ interface ServerKeysProps {
 export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Element {
   const { t } = useTranslation()
   const [keys, setKeys] = useState<VlessLink[]>(server.keys ?? [])
+  const [hysteria2Links, setHysteria2Links] = useState<string[]>([])
   const [subscriptionUrl, setSubscriptionUrl] = useState(server.subscriptionUrl)
   const [toast, setToast] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [qrUrl, setQrUrl] = useState<string | null>(null)
   const [qrData, setQrData] = useState<string | null>(null)
+
+  // Мультипротокольные бэкенды: hysteria2 приходит из подписки, AWG — по SSH.
+  const [profiles, setProfiles] = useState<ServerProfile[]>([])
+  const [backends, setBackends] = useState<BackendStatusResult | null>(null)
+  const [awgConfs, setAwgConfs] = useState<Record<string, string>>({})
+  const [beBusy, setBeBusy] = useState(false)
+
+  // Доступ из сохранённой карточки сервера (секрет — в keychain).
+  const storedAccess: SshAccessInput = {
+    username: server.username,
+    authMethod: server.authMethod ?? 'password',
+    passwordCredentialId: server.passwordCredentialId ?? undefined,
+    passwordPersisted: server.passwordPersisted ?? false,
+    privateKeyCredentialId: server.privateKeyCredentialId ?? undefined,
+    privateKeyPersisted: server.privateKeyPersisted ?? false,
+    privilegeMode: server.privilegeMode ?? 'root'
+  }
+  const backendKeysAvailable = shouldAutoConnectServer(server)
 
   useEffect(() => {
     let cancelled = false
@@ -29,6 +55,7 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
       .then((result) => {
         if (cancelled) return
         setKeys(result.keys)
+        setHysteria2Links(result.hysteria2Links ?? [])
         setSubscriptionUrl(result.subscriptionUrl)
       })
       .catch(() => {
@@ -41,6 +68,45 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
       cancelled = true
     }
   }, [server.id])
+
+  useEffect(() => {
+    let cancelled = false
+    if (!backendKeysAvailable) return
+    setBeBusy(true)
+    ;(async (): Promise<void> => {
+      try {
+        const pl = await window.api.profiles.list(server.id, storedAccess)
+        if (cancelled) return
+        const list = pl.profiles ?? []
+        setProfiles(list)
+        const bs = await window.api.backends.status(server.id, storedAccess)
+        if (cancelled) return
+        setBackends(bs)
+        const confs: Record<string, string> = {}
+        for (const profile of list) {
+          if (!profile.backends?.awg) continue
+          if (bs.backends.awg?.state !== 'active') break
+          const conf = await window.api.backends
+            .awgConf(server.id, storedAccess, profile.name)
+            .catch(() => null)
+          if (cancelled) return
+          if (conf?.ok && conf.conf) confs[profile.name] = conf.conf
+        }
+        if (!cancelled) setAwgConfs(confs)
+      } catch {
+        if (!cancelled) {
+          setProfiles([])
+          setBackends(null)
+        }
+      } finally {
+        if (!cancelled) setBeBusy(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [server.id, backendKeysAvailable])
 
   useEffect(() => {
     if (!qrUrl) return
@@ -68,6 +134,22 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
     const dataUrl = await QRCode.toDataURL(url, { width: 320, margin: 2 })
     setQrData(dataUrl)
   }
+
+  /** QR для импорта в AmneziaWG-клиент: без комментариев-шапки. */
+  const awgQrPayload = (conf: string): string =>
+    conf
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('#'))
+      .join('\n')
+      .trim()
+
+  const hysteria2Port = (link: string): string => {
+    const m = link.match(/@[^/:]+:(\d+)/)
+    return m ? m[1] : ''
+  }
+
+  const awgProfiles = profiles.filter((p) => p.backends?.awg)
+  const awgActive = backends?.backends.awg?.state === 'active'
 
   return (
     <div className={styles.root}>
@@ -109,6 +191,69 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
           </div>
         ))}
 
+        {hysteria2Links.map((link) => (
+          <div key={link} className={styles.keyCard}>
+            <div className={styles.keyHeader}>
+              <Chip size="sm" color="accent">
+                HYSTERIA2 · UDP :{hysteria2Port(link)}
+              </Chip>
+            </div>
+            <p className={styles.keyNote}>{t('keys.backendsHystNote')}</p>
+            <div className={styles.keyUrl} title={link}>
+              {link}
+            </div>
+            <div className={styles.keyActions}>
+              <Button size="sm" variant="secondary" onPress={() => copy(link)}>
+                {t('keys.copy')}
+              </Button>
+              <Button size="sm" variant="secondary" onPress={() => showQr(link)}>
+                {t('keys.qr')}
+              </Button>
+            </div>
+          </div>
+        ))}
+
+        {awgProfiles.map((profile) => (
+          <div key={profile.name} className={styles.keyCard}>
+            <div className={styles.keyHeader}>
+              <Chip size="sm" color="default">
+                AMNEZIAWG 3.1 · {profile.name}
+              </Chip>
+            </div>
+            <p className={styles.keyNote}>{t('keys.backendsAwgNote')}</p>
+            {awgActive && awgConfs[profile.name] ? (
+              <>
+                <pre className={styles.keyConfPre}>{awgConfs[profile.name]}</pre>
+                <div className={styles.keyActions}>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onPress={() => copy(awgConfs[profile.name])}
+                  >
+                    {t('keys.copy')}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onPress={() => showQr(awgQrPayload(awgConfs[profile.name]))}
+                  >
+                    {t('keys.qr')}
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <div className={styles.empty}>{t('keys.backendsNotReady')}</div>
+            )}
+          </div>
+        ))}
+
+
+        {beBusy && (
+          <div className={styles.loading}>
+            <Spinner size="sm" />
+          </div>
+        )}
+
         {subscriptionUrl && (
           <div className={styles.keyCard}>
             <div className={styles.keyHeader}>
@@ -133,7 +278,13 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
             variant="primary"
             size="lg"
             onPress={() =>
-              copy(keys.map((k) => k.url).join('\n') + '\n' + subscriptionUrl)
+              copy(
+                keys.map((k) => k.url).join('\n') +
+                  '\n' +
+                  hysteria2Links.join('\n') +
+                  '\n' +
+                  subscriptionUrl
+              )
             }
           >
             {t('keys.copy_all')}

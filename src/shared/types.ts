@@ -114,6 +114,8 @@ export interface SubscriptionResult {
   serverId: string
   subscriptionUrl: string
   keys: VlessLink[]
+  /** Строки hysteria2:// из тела подписки (UDP-бэкенд). */
+  hysteria2Links?: string[]
 }
 
 /** Грант Hysteria 2 в профиле (username = имя профиля, password = 32 hex). */

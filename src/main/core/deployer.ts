@@ -182,7 +182,8 @@ export class Deployer {
 
       this.onStep('save', 'Сохраняю результат...')
       const subUrl = payload.subscription_url
-      const keys = subUrl ? await fetchSubscription(subUrl) : []
+      const fetched = subUrl ? await fetchSubscription(subUrl) : { keys: [], hysteria2Links: [] }
+      const keys = fetched.keys
       if (!keys.length && subUrl) {
         throw new Error('Subscription вернул пустой список ключей')
       }

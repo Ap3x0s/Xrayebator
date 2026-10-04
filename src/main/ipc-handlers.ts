@@ -292,9 +292,9 @@ export function registerIpcHandlers({ store }: IpcContext): void {
   ipcMain.handle('subscription:fetch', async (_e, serverId: string) => {
     const server = store.get(serverId)
     if (!server) throw new Error('Сервер не найден')
-    const keys = await fetchSubscription(server.subscriptionUrl)
+    const { keys, hysteria2Links } = await fetchSubscription(server.subscriptionUrl)
     store.updateKeys(serverId, keys)
-    return { serverId, subscriptionUrl: server.subscriptionUrl, keys }
+    return { serverId, subscriptionUrl: server.subscriptionUrl, keys, hysteria2Links }
   })
 
   ipcMain.handle('servers:import', async (event, payload: ImportServerPayload) => {
@@ -320,7 +320,8 @@ export function registerIpcHandlers({ store }: IpcContext): void {
       credentials,
       async (url) => {
         emitStep('subscription')
-        return fetchSubscription(url)
+        const fetched = await fetchSubscription(url)
+        return fetched.keys
       },
       emitLog
     )
