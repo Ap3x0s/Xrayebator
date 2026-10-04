@@ -1940,10 +1940,14 @@ _backend_installed() {
 }
 
 # Значение поля реестра бэкенда (пусто, если поля/бэкенда нет).
+# ВАЖНО: не jq `// empty` — он проглатывает легитимный boolean false
+# (three_enabled/disable_cookies/sub_body), что ломает чтение флагов.
 _backend_field() {
   local type=$1 field=$2
   [[ -s "$BACKENDS_REGISTRY_FILE" ]] || { echo ""; return 0; }
-  jq -r --arg t "$type" --arg f "$field" '.[$t][$f] // empty' "$BACKENDS_REGISTRY_FILE" 2>/dev/null
+  jq -r --arg t "$type" --arg f "$field" \
+    '(.[$t][$f]) | if . == null then "" else tostring end' \
+    "$BACKENDS_REGISTRY_FILE" 2>/dev/null
 }
 
 # Мутация реестра через safe_jq_write (валидация + tmp+mv, in-place).
@@ -2768,7 +2772,15 @@ awg_menu() {
     echo -e "${CYAN} 1)${NC} Установить (kernel DKMS, случайный высокий UDP-порт)"
     echo -e "${CYAN} 2)${NC} Статус"
     echo -e "${CYAN} 3)${NC} Конфиг клиента (peer)"
-    echo -e "${CYAN} 4)${NC} Удалить"
+    local t31
+    t31=$(_backend_field awg three_enabled)
+    [[ "$t31" == "true" || "$t31" == "false" ]] || t31=true
+    if [[ "$t31" == "true" ]]; then
+      echo -e "${CYAN} 4)${NC} Режим AWG 3.1: ВКЛЮЧЁН (HeaderProtection+RandomTrailers) — выключить"
+    else
+      echo -e "${CYAN} 4)${NC} Режим AWG 3.1: выключен — включить (перевыпустить .conf клиентов)"
+    fi
+    echo -e "${CYAN} 5)${NC} Удалить"
     echo -e "${RED} 0)${NC} Назад"
     echo ""
     echo -n -e "${YELLOW}Выберите действие: ${NC}"
@@ -2791,6 +2803,15 @@ awg_menu() {
         read -r
         ;;
       4)
+        if [[ "$t31" == "true" ]]; then
+          _awg_31_toggle off ""
+        else
+          _awg_31_toggle on ""
+        fi
+        echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
+        read -r
+        ;;
+      5)
         _awg_uninstall
         echo -n -e "${YELLOW}Нажмите Enter для продолжения...${NC}"
         read -r
@@ -2883,24 +2904,51 @@ AWG_SYSCTL_FILE="/etc/sysctl.d/99-xrayebator-awg.conf"
 AWG_REPO_MODULE="amnezia-vpn/amneziawg-linux-kernel-module"
 AWG_REPO_TOOLS="amnezia-vpn/amneziawg-tools"
 
-# Случайные junk-параметры в пределах спеки AWG 2.0 (см. шапку секции).
+# Случайные параметры AWG, включая 3.1 (HeaderProtectionKey, S3/S4).
+# Спека: Jc 1..128 (рек. 4..12), Jmin<Jmax≤1280, S1..S4 ≥ 12 (3.x) в 15..150,
+# S1+56 ≠ S2, H1–H4 уникальные 5..2147483647. HPK — 32 байта base64,
+# общий секрет сервер/клиент вне Noise-хендшейка.
 _awg_gen_junk() {
-  local jc jmin jmax s1 s2 h1 h2 h3 h4
+  local jc jmin jmax s1 s2 s3 s4 h1 h2 h3 h4 hpk
   jc=$((RANDOM % 9 + 4))                              # 4..12 (рек. диапазон)
   jmin=$((RANDOM % 400 + 8))                          # 8..407
   jmax=$((jmin + RANDOM % 300 + 40))                  # jmin<jmax≤~747<1280
-  s1=$((RANDOM % 136 + 15))                           # 15..150
-  s2=$((RANDOM % 136 + 15))                           # 15..150
-  while (( s2 == s1 + 56 )); do s2=$((RANDOM % 136 + 15)); done
+  s1=$((RANDOM % 139 + 12))                           # 12..150 (3.x минимум 12)
+  s2=$((RANDOM % 139 + 12))
+  while (( s2 == s1 + 56 )); do s2=$((RANDOM % 139 + 12)); done
+  s3=$((RANDOM % 139 + 12))
+  while (( s3 == s1 || s3 == s2 )); do s3=$((RANDOM % 139 + 12)); done
+  s4=$((RANDOM % 139 + 12))
+  while (( s4 == s1 || s4 == s2 || s4 == s3 )); do s4=$((RANDOM % 139 + 12)); done
   _awg_rand_h() { echo $(( (RANDOM * 32768 + RANDOM) % 2147483643 + 5 )); }
   h1=$(_awg_rand_h)
   h2=$(_awg_rand_h); while [[ "$h2" == "$h1" ]]; do h2=$(_awg_rand_h); done
   h3=$(_awg_rand_h); while [[ "$h3" == "$h1" || "$h3" == "$h2" ]]; do h3=$(_awg_rand_h); done
   h4=$(_awg_rand_h); while [[ "$h4" == "$h1" || "$h4" == "$h2" || "$h4" == "$h3" ]]; do h4=$(_awg_rand_h); done
+  hpk=$(openssl rand -base64 32 2>/dev/null) || return 1
   jq -n --argjson jc "$jc" --argjson jmin "$jmin" --argjson jmax "$jmax" \
-    --argjson s1 "$s1" --argjson s2 "$s2" \
+    --argjson s1 "$s1" --argjson s2 "$s2" --argjson s3 "$s3" --argjson s4 "$s4" \
     --argjson h1 "$h1" --argjson h2 "$h2" --argjson h3 "$h3" --argjson h4 "$h4" \
-    '{Jc:$jc, Jmin:$jmin, Jmax:$jmax, S1:$s1, S2:$s2, H1:$h1, H2:$h2, H3:$h3, H4:$h4}'
+    --arg hpk "$hpk" \
+    '{Jc:$jc, Jmin:$jmin, Jmax:$jmax, S1:$s1, S2:$s2, S3:$s3, S4:$s4,
+      H1:$h1, H2:$h2, H3:$h3, H4:$h4, HeaderProtectionKey: $hpk}'
+}
+
+# Догенерация 3.1-полей в старом server-params.json (установки до 3.1-этапа):
+# добавляет S3/S4 (≥12, уникальные) и HeaderProtectionKey, если их нет.
+_awg_ensure_31_params() {
+  local junk=$1
+  if jq -e 'has("S3") and has("S4") and has("HeaderProtectionKey")' <<<"$junk" >/dev/null 2>&1; then
+    echo "$junk"
+    return 0
+  fi
+  local s3=$((RANDOM % 139 + 12)) s4=$((RANDOM % 139 + 12)) hpk
+  local s1=$(jq -r '.S1 // 15' <<<"$junk") s2=$(jq -r '.S2 // 16' <<<"$junk")
+  while (( s3 == s1 || s3 == s2 )); do s3=$((RANDOM % 139 + 12)); done
+  while (( s4 == s1 || s4 == s2 || s4 == s3 )); do s4=$((RANDOM % 139 + 12)); done
+  hpk=$(openssl rand -base64 32 2>/dev/null) || return 1
+  jq -n --argjson j "$junk" --argjson s3 "$s3" --argjson s4 "$s4" --arg hpk "$hpk" \
+    '$j + {S3: $s3, S4: $s4, HeaderProtectionKey: $hpk}'
 }
 
 # Свободный высокий UDP-порт под интерфейс (не как у hysteria).
@@ -2933,15 +2981,23 @@ _awg_public_iface() {
 
 # Рендер серверного интерфейсного конфига (чистая функция — тестируется в CI).
 # $1=out $2=port $3=privkey $4=params_json $5=pub_iface; [Peer] добавляет реген.
+# $6 = features JSON {hpk:bool, rt:bool, dc:bool} (AWG 3.1); пусто → без 3.x-ключей.
 _awg_render_server_conf() {
-  local out_file=$1 port=$2 privkey=$3 params=$4 iface=$5
-  local jc jmin jmax s1 s2 h1 h2 h3 h4
+  local out_file=$1 port=$2 privkey=$3 params=$4 iface=$5 features=${6:-'{}'}
+  local jc jmin jmax s1 s2 s3 s4 h1 h2 h3 h4 hpk
   jc=$(jq -r '.Jc' <<<"$params");   jmin=$(jq -r '.Jmin' <<<"$params")
   jmax=$(jq -r '.Jmax' <<<"$params"); s1=$(jq -r '.S1' <<<"$params")
   s2=$(jq -r '.S2' <<<"$params")
+  s3=$(jq -r '.S3 // empty' <<<"$params"); s4=$(jq -r '.S4 // empty' <<<"$params")
   h1=$(jq -r '.H1' <<<"$params");   h2=$(jq -r '.H2' <<<"$params")
   h3=$(jq -r '.H3' <<<"$params");   h4=$(jq -r '.H4' <<<"$params")
-  cat > "$out_file" <<EOF
+  hpk=$(jq -r '.HeaderProtectionKey // empty' <<<"$params")
+  local fe_hpk fe_rt fe_dc
+  fe_hpk=$(jq -r '.hpk // false' <<<"$features")
+  fe_rt=$(jq -r '.rt // false' <<<"$features")
+  fe_dc=$(jq -r '.dc // false' <<<"$features")
+  {
+    cat > "$out_file" <<EOF
 [Interface]
 Address = ${AWG_SUBNET_PREFIX}.1/24
 ListenPort = ${port}
@@ -2952,14 +3008,24 @@ Jmin = ${jmin}
 Jmax = ${jmax}
 S1 = ${s1}
 S2 = ${s2}
-H1 = ${h1}
-H2 = ${h2}
-H3 = ${h3}
-H4 = ${h4}
+EOF
+    [[ -n "$s3" ]] && printf 'S3 = %s\n' "$s3" >> "$out_file"
+    [[ -n "$s4" ]] && printf 'S4 = %s\n' "$s4" >> "$out_file"
+    printf 'H1 = %s\nH2 = %s\nH3 = %s\nH4 = %s\n' "$h1" "$h2" "$h3" "$h4" >> "$out_file"
+    # AWG 3.1: HPK шифрует заголовок (общий секрет), RT — случайный хвост пакетов.
+    # Оба должны совпадать на сервере и клиенте; включение на живом сервере
+    # требует перевыпуска всех клиентских .conf.
+    [[ "$fe_hpk" == true && -n "$hpk" ]] && printf 'HeaderProtectionKey = %s\n' "$hpk" >> "$out_file"
+    # Формат булевых в парсере awg (kernel UAPI): on/off, НЕ true/false.
+    [[ "$fe_rt" == true ]] && printf 'RandomTrailers = on\n' >> "$out_file"
+    [[ "$fe_dc" == true ]] && printf 'DisableCookies = on\n' >> "$out_file"
+    cat >> "$out_file" <<EOF
 # Managed by xrayebator — peer-секции добавляет _awg_regen_config.
 PostUp = iptables -A FORWARD -i ${AWG_IFACE} -j ACCEPT; iptables -t nat -A POSTROUTING -o ${iface} -j MASQUERADE
 PostDown = iptables -D FORWARD -i ${AWG_IFACE} -j ACCEPT; iptables -t nat -D POSTROUTING -o ${iface} -j MASQUERADE
 EOF
+  } || return 1
+  return 0
 }
 
 # Установка модуля+tools: PPA (официальный путь) → apt amneziawg.
@@ -3102,7 +3168,9 @@ EOF
     _backend_set awg '(.awg.mtu) = $mtu' --argjson mtu "$AWG_MTU" &&
     _backend_set awg '(.awg.junk) = $junk' --argjson junk "$junk" &&
     _backend_set awg '(.awg.iface) = $i' --arg i "$iface" &&
-    _backend_set awg '(.awg.sub_body) = false' || {
+    _backend_set awg '(.awg.sub_body) = false' &&
+    _backend_set awg '(.awg.three_enabled) = true' &&
+    _backend_set awg '(.awg.disable_cookies) = false' || {
     echo -e "${RED}✗ Не удалось записать реестр бэкендов${NC}"
     systemctl disable --now "$AWG_UNIT" 2>/dev/null
     rm -f /etc/amnezia/amneziawg/awg0.conf
@@ -3217,6 +3285,78 @@ awg_status_command() {
   echo "$full" | jq '{ok: .ok, backend: .backends.awg}'
 }
 
+# Переключение режима AWG 3.1 (HeaderProtectionKey + RandomTrailers).
+# Смена режима меняет [Interface]-параметры — все выданные клиентские .conf
+# должны быть перекачаны заново (об этом оператору явно напоминает вывод).
+# $1 = on|off|"" ("" — не менять), $2 = on|off|"" для DisableCookies.
+_awg_31_toggle() {
+  local mode=$1 dc=$2
+  _backend_installed awg || { echo -e "${RED}✗ AmneziaWG не установлен${NC}"; return 1; }
+  [[ -s "$AWG_PARAMS_FILE" ]] || return 1
+  # Догенерация 3.1-полей в params (установки, сделанные до 3.1-этапа).
+  local junk
+  junk=$(jq -c '.junk // {}' "$AWG_PARAMS_FILE")
+  junk=$(_awg_ensure_31_params "$junk") || {
+    echo -e "${RED}✗ Не удалось дополнить 3.1-параметры (openssl?)${NC}"
+    return 1
+  }
+  local cur dc_cur new
+  cur=$(_backend_field awg three_enabled)
+  [[ "$cur" == "true" || "$cur" == "false" ]] || cur=true
+  dc_cur=$(_backend_field awg disable_cookies)
+  [[ "$dc_cur" == "true" ]] || dc_cur=false
+  new="$cur"
+  case "$mode" in on) new=true ;; off) new=false ;; esac
+  case "$dc" in on) dc_cur=true ;; off) dc_cur=false ;; esac
+  jq -c '.junk = $j' --argjson j "$junk" "$AWG_PARAMS_FILE" > "${AWG_PARAMS_FILE}.tmp" \
+    && mv "${AWG_PARAMS_FILE}.tmp" "$AWG_PARAMS_FILE" || return 1
+  chmod 600 "$AWG_PARAMS_FILE" 2>/dev/null
+  _backend_set awg '(.awg.three_enabled) = $e' --argjson e "$new" \
+    && _backend_set awg '(.awg.disable_cookies) = $d' --argjson d "$dc_cur" || return 1
+  _awg_regen_config || return 1
+  if [[ "$new" == true ]]; then
+    echo -e "${GREEN}  ✓ AWG 3.1 включён (HeaderProtectionKey + RandomTrailers${dc_cur:+, DisableCookies})${NC}"
+  else
+    echo -e "${GREEN}  ✓ AWG 3.1 выключен (конфиги в формате 2.0)${NC}"
+  fi
+  echo -e "${YELLOW}  ⚠ Все выданные клиентские .conf нужно перекачать: [Interface]-параметры изменились.${NC}"
+  echo -e "${YELLOW}    Клиентам нужен AmneziaVPN ≥ 5.0.1.5 — старые не импортируют новые ключи.${NC}"
+  return 0
+}
+
+# CLI: awg-31 --on|--off [--disable-cookies|--no-disable-cookies]. Только JSON на stdout.
+awg_31_command() {
+  local mode="" dc=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --on) mode="on"; shift ;;
+      --off) mode="off"; shift ;;
+      --disable-cookies) dc="on"; shift ;;
+      --no-disable-cookies) dc="off"; shift ;;
+      *) shift ;;
+    esac
+  done
+  [[ -n "$mode" || -n "$dc" ]] || {
+    echo '{"ok":false,"error":"--on / --off / --disable-cookies required"}'
+    return 1
+  }
+  local rc=0
+  exec 3>&1; exec 1>&2
+  _awg_31_toggle "$mode" "$dc" || rc=$?
+  exec 1>&3
+  if [[ $rc == 0 ]]; then
+    local en dcv
+    en=$(_backend_field awg three_enabled); [[ "$en" == true ]] || en=false
+    dcv=$(_backend_field awg disable_cookies); [[ "$dcv" == true ]] || dcv=false
+    jq -n --argjson en "$en" --argjson dc "$dcv" \
+      '{ok: true, three_enabled: $en, disable_cookies: $dc}'
+  else
+    jq -n --argjson code "$rc" '{ok: false, code: $code}'
+    rc=1
+  fi
+  return "$rc"
+}
+
 # ── Срез 5: peers per-profile, клиентский .conf, события жизненного цикла ──
 # Модель та же, что у hysteria: профиль — источник правды
 # (.backends.awg {client_private_key, client_public_key, preshared_key,
@@ -3236,6 +3376,16 @@ _awg_next_address() {
     fi
   done
   return 1
+}
+
+# Набор 3.1-фич из реестра: {hpk, rt, dc}. По умолчанию (нет записей) — включены.
+_awg_features_json() {
+  local en dc
+  en=$(_backend_field awg three_enabled)
+  dc=$(_backend_field awg disable_cookies)
+  [[ "$en" == "true" || "$en" == "false" ]] || en=true
+  [[ "$dc" == "true" ]] || dc=false
+  jq -cn --argjson e "$en" --argjson d "$dc" '{hpk: $e, rt: $e, dc: $d}'
 }
 
 # Применение нового awg0.conf: рестарт интерфейса с откатом при неудаче.
@@ -3281,7 +3431,8 @@ _awg_regen_config() {
   junk=$(jq -c '.junk // {}' "$AWG_PARAMS_FILE")
   [[ -n "$port" && -n "$iface" && -n "$priv" ]] || return 1
   local tmp="$AWG_DIR/.awg0.conf.new"
-  _awg_render_server_conf "$tmp" "$port" "$priv" "$junk" "$iface" || return 1
+  _awg_render_server_conf "$tmp" "$port" "$priv" "$junk" "$iface" \
+    "$(_awg_features_json)" || return 1
   local addr cpub psk
   while IFS=$'\t' read -r addr cpub psk; do
     [[ -n "$addr" && -n "$cpub" && -n "$psk" ]] || continue
@@ -3387,7 +3538,7 @@ _awg_client_conf_pure() {
   [[ -f "$profile_file" ]] || return 1
   _backend_installed awg || return 1
   [[ -s "$AWG_PARAMS_FILE" ]] || return 1
-  local cpriv addr cpub psk spub port mtu junk host
+  local cpriv addr cpub psk spub port mtu junk host features fe_dc
   cpriv=$(jq -r '.backends.awg.client_private_key // empty' "$profile_file" 2>/dev/null)
   addr=$(jq -r '.backends.awg.address // empty' "$profile_file" 2>/dev/null)
   cpub=$(jq -r '.backends.awg.client_public_key // empty' "$profile_file" 2>/dev/null)
@@ -3400,7 +3551,13 @@ _awg_client_conf_pure() {
   [[ -n "$spub" && "$port" =~ ^[0-9]+$ ]] || return 1
   host=$(_connection_server_address 2>/dev/null) || return 1
   [[ -n "$host" ]] || return 1
-  cat <<EOF
+  features=$(_awg_features_json)
+  fe_dc=$(jq -r '.dc // false' <<<"$features")
+  local fe_hpk=$(jq -r '.hpk // false' <<<"$features")
+  local fe_rt=$(jq -r '.rt // false' <<<"$features")
+  local hpk=$(jq -r '.HeaderProtectionKey // empty' <<<"$junk")
+  {
+    cat <<EOF
 [Interface]
 PrivateKey = ${cpriv}
 Address = ${addr}/32
@@ -3410,10 +3567,18 @@ Jmin = $(jq -r '.Jmin' <<<"$junk")
 Jmax = $(jq -r '.Jmax' <<<"$junk")
 S1 = $(jq -r '.S1' <<<"$junk")
 S2 = $(jq -r '.S2' <<<"$junk")
-H1 = $(jq -r '.H1' <<<"$junk")
-H2 = $(jq -r '.H2' <<<"$junk")
-H3 = $(jq -r '.H3' <<<"$junk")
-H4 = $(jq -r '.H4' <<<"$junk")
+EOF
+    local s3 s4
+    s3=$(jq -r '.S3 // empty' <<<"$junk"); s4=$(jq -r '.S4 // empty' <<<"$junk")
+    [[ -n "$s3" ]] && printf 'S3 = %s\n' "$s3"
+    [[ -n "$s4" ]] && printf 'S4 = %s\n' "$s4"
+    printf 'H1 = %s\nH2 = %s\nH3 = %s\nH4 = %s\n' \
+      "$(jq -r '.H1' <<<"$junk")" "$(jq -r '.H2' <<<"$junk")" \
+      "$(jq -r '.H3' <<<"$junk")" "$(jq -r '.H4' <<<"$junk")"
+    [[ "$fe_hpk" == true && -n "$hpk" ]] && printf 'HeaderProtectionKey = %s\n' "$hpk"
+    [[ "$fe_rt" == true ]] && printf 'RandomTrailers = on\n'
+    [[ "$fe_dc" == true ]] && printf 'DisableCookies = on\n'
+    cat <<EOF
 
 [Peer]
 PublicKey = ${spub}
@@ -3422,6 +3587,7 @@ AllowedIPs = 0.0.0.0/0, ::/0
 Endpoint = ${host}:${port}
 PersistentKeepalive = 25
 EOF
+  } || return 1
 }
 
 # CLI: awg-grant --name N / awg-conf --name N. Только JSON на stdout
@@ -14367,6 +14533,10 @@ if [[ "$XRAYEBATOR_SOURCED" -eq 0 ]]; then
       shift
       awg_conf_command "$@"
       ;;
+    awg-31)
+      shift
+      awg_31_command "$@"
+      ;;
     ""|menu)
       main_menu
       ;;
@@ -14407,6 +14577,7 @@ if [[ "$XRAYEBATOR_SOURCED" -eq 0 ]]; then
       echo -e "  ${CYAN}sudo xrayebator awg-status${NC} — статус AmneziaWG (JSON)"
       echo -e "  ${CYAN}sudo xrayebator awg-grant --name N${NC} — выдать peer-грант профилю (JSON)"
       echo -e "  ${CYAN}sudo xrayebator awg-conf --name N${NC} — клиентский .conf профиля (JSON)"
+      echo -e "  ${CYAN}sudo xrayebator awg-31 --on|--off${NC} — режим AWG 3.1 (HeaderProtection+RandomTrailers; JSON)"
       echo ""
       echo -e "${YELLOW}Файлы:${NC}"
       echo -e "  config:    /usr/local/etc/xray/config.json"

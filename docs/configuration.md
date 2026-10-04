@@ -278,23 +278,19 @@ Per the upstream protocol split, AmneziaWG parameters divide into two groups:
 | 3.0: `HeaderProtectionKey` | 3.0: `ContentPaddingAddition`, `Rekey*`, `Reject*`, `Keepalive*`, `MaxHandshakeAttempts` (integer or `"a-b"` range) |
 | 3.1: `RandomTrailers` | 3.1: `DisableCookies` |
 
-Xrayebator generates the 2.0-era parameter set and emits no 3.x-only keys; a 3.x engine reads such a
-config with the 3.x features off, so the stack is upgrade-safe. Enabling 3.x later is a deliberate
-migration, and it is exactly the migration that matters against Russian DPI/ТСПУ analysis: plain
-WireGuard handshakes have fixed packet lengths and plaintext header type bytes, so passive
-classification works without inspecting payloads. AWG 3.0 encrypts the header
-(`HeaderProtectionKey`), 3.1 adds `RandomTrailers` (removes the fixed-length handshake signature)
-and optional `DisableCookies` (removes the cookie-reply pattern, at the cost of the built-in
-anti-amplification defence). Migration rules from the upstream docs:
-
-1. binaries first — a 3.1 engine reads 2.0/3.0-era configs with missing keys treated as off;
-2. `S1`–`S4` must be ≥ 12 in 3.x (Xrayebator generates 15–150, already valid);
-3. `HeaderProtectionKey` and `RandomTrailers` must match byte-for-byte; enabling them on a live
-   server instantly breaks every previously issued client config — plan a window and reissue;
-4. clients need AmneziaVPN ≥ 5.0.1.5 for the 3.1 keys; older apps may refuse to import the config
-   at all — keep a separate non-3.1 server for them;
-5. verify by `awg show`: no `latest handshake` means the must-match group disagrees; a handshake
-   without traffic points to `awg-quick`/routing/firewall instead.
+Xrayebator implements the AWG 3.1 feature set: junk parameters plus `S1`–`S4` (≥ 12), a randomly
+generated `HeaderProtectionKey` shared between the server and every client `.conf`, and
+`RandomTrailers = on`. `DisableCookies` is available but off by default (it trades away the
+built-in anti-amplification defence). New installs get 3.1 immediately; for installs made before
+the 3.1 stage, menu item 12 → «Режим AWG 3.1» or `awg-31 --on|--off` generates the missing keys,
+switches the config format and regenerates the interface. The migration caveat is unchanged, and
+it is exactly what matters against Russian DPI/ТСПУ analysis: plain WireGuard handshakes have
+fixed packet lengths and plaintext header type bytes, so passive classification works without
+inspecting payloads — AWG 3.0 encrypts the header, 3.1 removes the fixed-length signature. The
+3.1 keys live in the must-match group, so after a switch **every previously issued client `.conf`
+must be re-downloaded**, and clients need AmneziaVPN ≥ 5.0.1.5 — older apps refuse to import the
+config at all. Verify by `awg show`: no `latest handshake` means the must-match group disagrees; a
+handshake without traffic points to `awg-quick`/routing/firewall instead.
 
 ## Cascade and upstream nodes
 

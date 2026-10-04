@@ -62,6 +62,12 @@ _backend_apply_profile_lifecycle "some-profile" expired  || fail "lifecycle expi
 _backend_apply_profile_lifecycle "some-profile" bogus    || fail "lifecycle bogus event failed"
 pass "lifecycle hook is a safe no-op without handlers"
 
+# 6b) boolean false читается из реестра как "false", а не глотается как null
+_backend_set hysteria2 '(.hysteria2.sub_body) = false' || fail "set sub_body=false"
+[[ "$(_backend_field hysteria2 sub_body)" == "false" ]] \
+  || fail "boolean false must read back as 'false' (jq // empty swallows it)"
+pass "boolean false fields read back correctly"
+
 # 7) status JSON: ok=true, форма backends.{type}.{installed,port,state}
 status="$(_backend_status_json)" || fail "_backend_status_json failed"
 jq -e '
