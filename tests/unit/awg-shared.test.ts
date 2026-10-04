@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildAwgVpnConfig,
   buildAwgVpnUrl,
+  detectAwgVersion,
   parseAwgClientConf,
   parseAwgConfMap,
   stripAwgComments
@@ -109,6 +110,21 @@ describe('buildAwgVpnUrl', () => {
     expect(last['port']).toBe(45467)
     expect(last['allowed_ips']).toEqual(['0.0.0.0/0', '::/0'])
     expect(last['config']).not.toContain('#')
+    expect(last['protocol_version']).toBe('1.5')
+  })
+
+  it('определяет версию 3.1 по HPK/RandomTrailers и 2 по I1', () => {
+    expect(detectAwgVersion({ HeaderProtectionKey: 'x=', RandomTrailers: 'on' })).toBe('3.1')
+    expect(detectAwgVersion({ I1: '<r 2>' })).toBe('2')
+    expect(detectAwgVersion({ Jc: '10' })).toBe('1.5')
+    const conf31 = FULL_CONF + '\nHeaderProtectionKey = HPK=\nRandomTrailers = on'
+    const cfg = buildAwgVpnConfig(conf31)
+    const awg = (cfg['containers'] as Array<Record<string, unknown>>)[0]['awg'] as Record<
+      string,
+      unknown
+    >
+    expect(awg['protocol_version']).toBe('3.1')
+    expect(JSON.parse(awg['last_config'] as string)['protocol_version']).toBe('3.1')
   })
 
   it('выживает кириллицу в имени профиля (UTF-8 → base64url)', () => {

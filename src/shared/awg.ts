@@ -67,6 +67,17 @@ const AWG_PROTOCOL_KEYS = [
 ] as const
 
 /**
+ * Версия протокола AWG по содержимому конфига (значения из protocolConstants
+ * AmneziaVPN: awgV1_5/awgV2/awgV3). Приложение без явной версии считает конфиг
+ * legacy («старая версия») и запускает туннель не тем поколением параметров.
+ */
+export function detectAwgVersion(map: Record<string, string>): string {
+  if (map['HeaderProtectionKey'] || map['RandomTrailers']) return '3.1'
+  if (['I1', 'I2', 'I3', 'I4', 'I5', 'ContentPaddingAddition'].some((k) => map[k])) return '2'
+  return '1.5'
+}
+
+/**
  * Строит JSON-объект в родном для AmneziaVPN формате (контейнер amnezia-awg
  * с last_config) — структура повторяет extractWireGuardConfig из importController:
  * только в этом виде приложение гарантированно переносит junk-параметры в туннель.
@@ -100,6 +111,8 @@ export function buildAwgVpnConfig(
   for (const key of AWG_PROTOCOL_KEYS) {
     if (map[key]) lastConfig[key] = map[key]
   }
+  const version = detectAwgVersion(map)
+  lastConfig['protocol_version'] = version
 
   const container: Record<string, unknown> = {
     container: 'amnezia-awg',
@@ -108,6 +121,7 @@ export function buildAwgVpnConfig(
       isThirdPartyConfig: true,
       port,
       transport_proto: 'udp',
+      protocol_version: version,
     },
   }
 
