@@ -43,7 +43,7 @@ The wizard shows a step index and a live console of the work actually performed:
 
 ### Server keys
 
-Server keys refreshes the subscription from the saved `subscription_url` and displays the returned VLESS routes. Each VLESS link can be copied or rendered as a QR code; the subscription URL can also be copied, and the page offers a copy-all action. This page does not create a separate server-side subscription or rotate a subscription token (rotation lives on the profile cards in Server settings).
+Server keys refreshes the subscription from the saved `subscription_url` and displays the returned VLESS routes. Each VLESS link can be copied or rendered as a QR code; the subscription URL can also be copied, and the page offers a copy-all action. This page does not create a separate server-side subscription or rotate a subscription token (rotation lives on the profile cards in Server settings). When the server has multi-protocol backends, the page also shows their keys from the persistent local store: one Hysteria 2 card per granted profile with the `hysteria2://` link (copy + QR), and one AmneziaWG card per granted profile with the client `.conf` — the `Endpoint`/`Address` values are surfaced as key fields, and the full `.conf` (service comment header stripped) is available as text and QR for import into AmneziaVPN/AmneziaWG. Backend cards paint immediately from the persisted store and refresh in parallel with the VLESS routes; a per-card spinner shows only while that card's data is being fetched.
 
 ### Server settings
 
@@ -56,7 +56,9 @@ Server settings first authenticates over SSH. When the card already has a keycha
 - change a profile route's port or choose a random port;
 - update the server installation;
 - uninstall the server installation after confirmation;
-- reset the pinned SSH host key after explicit confirmation.
+- reset the pinned SSH host key after explicit confirmation;
+- manage the multi-protocol backends (menu parity with items 11–13): a combined panel shows the Hysteria 2 and AmneziaWG state (version, port, TLS mode / interface, junk summary) with install/uninstall, the subscription kill switch for `hysteria2://` lines and the AWG 3.1 toggle — the last two with explicit confirmation;
+- issue per-profile backend keys: the «Keys» action opens a dialog with the Hysteria 2 link (text + QR) and the AmneziaWG client `.conf` (text + QR, `Endpoint`/`Address` as key fields); opening the dialog creates the server-side grant on demand.
 
 SNI and port are inbound-level settings: changing them can affect every profile sharing that inbound. Fingerprint is different: it is a client-side value stored per profile/route and does not change the other routes. The server command reports the result and whether reconnecting is required.
 
@@ -89,6 +91,14 @@ xrayebator sni-change --name NAME [--route R] --sni SNI
 xrayebator sni-list
 xrayebator port-change --name NAME [--route R] --port PORT|random
 xrayebator bypass list|add --domain D|remove --domain D|reset|bundle [--group a,b,c]
+```
+
+Backend management additionally invokes:
+
+```text
+xrayebator backend-status
+xrayebator hysteria2-install [--port P] [--grant-all] / hysteria2-uninstall / hysteria2-grant --name N / hysteria2-subbody --on|--off / hysteria2-link --name N
+xrayebator awg-install [--grant-all] / awg-uninstall / awg-grant --name N / awg-conf --name N / awg-31 --on|--off
 ```
 
 Deployment additionally invokes:

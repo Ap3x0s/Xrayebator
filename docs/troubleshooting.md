@@ -270,6 +270,22 @@ Then split the debug zones: `awg show awg0` on the server — if the peer is lis
 but no traffic passes, the problem is in the `awg-quick`/routing/firewall zone (`ip_forward`,
 MASQUERADE interface), not in the protocol parameters.
 
+Before blaming the parameters, verify the network path itself. The AWG socket lives in kernel
+space, so the UDP port is invisible to `ss`/`netstat` — the only way to see anything is a capture
+on the server while the client tries to connect:
+
+```bash
+tcpdump -l -ni <iface> 'udp port <port>'
+```
+
+Nothing captured → the packets never arrive: carrier/DPI filtering (a typical RU pattern is
+Hysteria 2 on UDP 443 passing while a high random UDP port is silently dropped). The capture shows
+packets but `awg show` still reports no handshake → the client is sending garbage: re-issue the
+`.conf`, check the app version (3.1 params need AmneziaVPN ≥ 5.0.1.5), or temporarily run
+`awg-31 --off` and re-import to test 2.0 compatibility. Note that `tcpdump` without `-l`
+block-buffers its output when redirected to a file — early packets may not appear until the buffer
+flushes.
+
 ## AWG install fails
 
 - The primary path is the `amnezia/ppa` PPA; on distribution series without PPA builds Xrayebator

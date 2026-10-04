@@ -141,11 +141,14 @@ legacy-файлы и блоки, ранее созданные Xrayebator, и с
 | `sudo xrayebator hysteria2-uninstall` | Удалить бэкенд Hysteria 2 (сервис, конфиг, сертификаты, правило firewall); JSON |
 | `sudo xrayebator hysteria2-status` | Статус бэкенда Hysteria 2 (JSON) |
 | `sudo xrayebator hysteria2-grant --name N` | Выдать per-profile креденшел Hysteria 2 (в `.backends.hysteria2` профиля); серверный конфиг регенерируется из всех профилей; JSON |
+| `sudo xrayebator hysteria2-subbody --on\|--off` | Килл-свитч строк `hysteria2://` в обоих телах подписки: флаг живёт в реестре бэкендов, обработчик перечитывает его на каждый запрос, без рестарта сервиса; JSON |
+| `sudo xrayebator hysteria2-link --name N` | Ссылка `hysteria2://` профиля с грантом в JSON `{ok, name, link}` (именование как у VLESS-маршрутов, с флагом страны) |
 | `sudo xrayebator awg-install [--grant-all]` | Установить системный VPN-бэкенд AmneziaWG 2.0: kernel-модуль через DKMS (PPA `amnezia/ppa`, фолбэк — сборка), интерфейс `awg0` на случайном высоком UDP-порту, junk-параметры по спеке AWG, `ip_forward` + MASQUERADE; JSON |
 | `sudo xrayebator awg-uninstall` | Удалить бэкенд AmneziaWG (интерфейс, конфиг, symlink, правило firewall; пакеты/модуль остаются в системе); JSON |
 | `sudo xrayebator awg-status` | Статус бэкенда AmneziaWG (JSON) |
 | `sudo xrayebator awg-grant --name N` | Выдать per-profile peer (ключевая пара + preshared key + адрес `10.8.1.x` в `.backends.awg` профиля); `awg0.conf` регенерируется; JSON |
 | `sudo xrayebator awg-conf --name N` | Клиентский `.conf` peer-а профиля в JSON `{ok, name, conf}` — full-tunnel AllowedIPs, серверные junk-параметры, endpoint; импорт в клиент AmneziaWG/AmneziaVPN |
+| `sudo xrayebator awg-31 --on\|--off` | Переключить формат конфига AWG 3.1 (`HeaderProtectionKey`, `RandomTrailers`, `S3`/`S4`); для новых установок 3.1 включён по умолчанию, тумблер досоздаёт недостающие параметры сервера на месте, предупреждает, что все выданные клиентские `.conf` нужно скачать заново (AmneziaVPN ≥ 5.0.1.5), и регенерирует интерфейс с откатом |
 | `sudo xrayebator-update [branch]` | Запустить полный `update.sh` lifecycle update; без аргумента — интерактивный выбор ветки |
 | `sudo xrayebator-uninstall` | Снять сервис и конфигурацию |
 
@@ -165,7 +168,9 @@ legacy-файлы и блоки, ранее созданные Xrayebator, и с
 
 Активное Electron-приложение — это CLI-фронтенд поверх SSH, а не полная замена терминальному меню.
 Оно выполняет деплой через `quickstart`, обновляет сохранённый `subscription_url` и предоставляет
-и группы, а также выбранные SNI, fingerprint, port, update и uninstall.
+операции профилей SNI, fingerprint, port, update и uninstall, а также панель мультипротокольных
+бэкендов: установка/удаление и статус, диалог ключей по профилю (ссылка Hysteria 2 + QR, клиентский
+conf AmneziaWG + QR), килл-свитч строк `hysteria2://` в подписке и тумблер AWG 3.1.
 `probe-test`, HAPP setup, cascade, self-steal, интерактивное меню и диагностика сервиса
 остаются серверными операциями.
 
