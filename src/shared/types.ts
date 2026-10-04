@@ -116,6 +116,80 @@ export interface SubscriptionResult {
   keys: VlessLink[]
 }
 
+/** Грант Hysteria 2 в профиле (username = имя профиля, password = 32 hex). */
+export interface ProfileHysteria2Grant {
+  username: string
+  password: string
+  created?: string
+}
+
+/** Грант AmneziaWG peer-а в профиле (адрес 10.8.1.x, full-tunnel клиент). */
+export interface ProfileAwgGrant {
+  client_private_key: string
+  client_public_key: string
+  preshared_key: string
+  address: string
+  created?: string
+}
+
+/**
+ * Аддитивный объект бэкенд-грантов в профиле. Профиль — единственный источник
+ * правды: revoke/expire на сервере синхронно меняют эти креденшелы.
+ * Пометка для UI: AWG-грант работает через клиент AmneziaVPN, НЕ через V2Ray/HAPP.
+ */
+export interface ProfileBackends {
+  hysteria2?: ProfileHysteria2Grant
+  awg?: ProfileAwgGrant
+}
+
+/** Запись одного бэкенда в реестре сервера (backend-status). */
+export interface BackendEntry {
+  installed: boolean
+  /** active | inactive | unknown (unknown — юнит не задан). */
+  state: string
+  version?: string
+  port?: number
+  unit?: string
+  /** Hysteria 2: le | selfsigned. */
+  tls_mode?: string
+  sni?: string
+  masquerade?: string
+  /** Hysteria 2: строки hysteria2:// в телах подписки (kill-switch). */
+  sub_body?: boolean
+  /** AWG 3.1: HeaderProtectionKey + RandomTrailers. */
+  three_enabled?: boolean
+  /** AWG 3.1: локальный флаг отключения cookie-механизма. */
+  disable_cookies?: boolean
+  subnet?: string
+}
+
+export interface BackendStatusResult {
+  ok: boolean
+  backends: Record<string, BackendEntry>
+  error?: string
+}
+
+export interface BackendGrantResult {
+  ok: boolean
+  name?: string
+  error?: string
+}
+
+export interface AwgConfResult {
+  ok: boolean
+  name?: string
+  /** Полный текст клиентского .conf (секреты уровня оператора). */
+  conf?: string
+  error?: string
+}
+
+export interface BackendToggleResult {
+  ok: boolean
+  three_enabled?: boolean
+  disable_cookies?: boolean
+  error?: string
+}
+
 export interface ServerProfile {
   name: string
   uuid: string
@@ -141,6 +215,11 @@ export interface ServerProfile {
    * показывал бы бессрочность там, где управление сроком недоступно.
    */
   expire_supported?: boolean
+  /**
+   * Мультипротокольный этап: гранты опциональных бэкендов. Пустой объект или
+   * отсутствие поля — профиль не имеет доступа к hysteria2/awg.
+   */
+  backends?: ProfileBackends
 }
 
 export interface ProfileCreateInput {
@@ -373,5 +452,34 @@ export interface ElectronAPI {
       serverId: string,
       access: SshAccessInput
     ) => Promise<ServerMaintenanceResult>
+  }
+  backends: {
+    /** Статус всех бэкендов из реестра сервера (backend-status). */
+    status: (
+      serverId: string,
+      access: SshAccessInput
+    ) => Promise<BackendStatusResult>
+    hysteria2Grant: (
+      serverId: string,
+      access: SshAccessInput,
+      name: string
+    ) => Promise<BackendGrantResult>
+    awgGrant: (
+      serverId: string,
+      access: SshAccessInput,
+      name: string
+    ) => Promise<BackendGrantResult>
+    /** Клиентский .conf AWG peer-а для профиля ( AmneziaVPN, не V2Ray/HAPP ). */
+    awgConf: (
+      serverId: string,
+      access: SshAccessInput,
+      name: string
+    ) => Promise<AwgConfResult>
+    /** Тумблер AWG 3.1: включение/выключение требует перекачки .conf клиентов. */
+    awg31: (
+      serverId: string,
+      access: SshAccessInput,
+      on: boolean
+    ) => Promise<BackendToggleResult>
   }
 }

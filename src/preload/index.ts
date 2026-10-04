@@ -1,5 +1,9 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
+  AwgConfResult,
+  BackendGrantResult,
+  BackendStatusResult,
+  BackendToggleResult,
   DeployEvent,
   DeployStartPayload,
   ElectronAPI,
@@ -118,6 +122,27 @@ const api: ElectronAPI = {
       input: ProfileExpireInput
     ): Promise<ProfileExpireResult> =>
       ipcRenderer.invoke('profiles:setExpire', serverId, access, input)
+  },
+
+  backends: {
+    status: (serverId: string, access: SshAccessInput): Promise<BackendStatusResult> =>
+      ipcRenderer.invoke('backends:status', serverId, access),
+    hysteria2Grant: (
+      serverId: string,
+      access: SshAccessInput,
+      name: string
+    ): Promise<BackendGrantResult> =>
+      ipcRenderer.invoke('backends:hysteria2Grant', serverId, access, name),
+    awgGrant: (
+      serverId: string,
+      access: SshAccessInput,
+      name: string
+    ): Promise<BackendGrantResult> =>
+      ipcRenderer.invoke('backends:awgGrant', serverId, access, name),
+    awgConf: (serverId: string, access: SshAccessInput, name: string): Promise<AwgConfResult> =>
+      ipcRenderer.invoke('backends:awgConf', serverId, access, name),
+    awg31: (serverId: string, access: SshAccessInput, on: boolean): Promise<BackendToggleResult> =>
+      ipcRenderer.invoke('backends:awg31', serverId, access, on)
   },
 
   server: {
