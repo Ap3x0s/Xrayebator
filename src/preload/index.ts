@@ -2,9 +2,11 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type {
   AwgConfResult,
   BackendGrantResult,
+  BackendSimpleResult,
   BackendStatusResult,
   BackendToggleResult,
   DeployEvent,
+  Hysteria2SubbodyResult,
   DeployStartPayload,
   ElectronAPI,
   ImportProgressEvent,
@@ -133,12 +135,37 @@ const api: ElectronAPI = {
       name: string
     ): Promise<BackendGrantResult> =>
       ipcRenderer.invoke('backends:hysteria2Grant', serverId, access, name),
+    hysteria2Install: (
+      serverId: string,
+      access: SshAccessInput,
+      grantAll: boolean
+    ): Promise<BackendSimpleResult> =>
+      ipcRenderer.invoke('backends:hysteria2Install', serverId, access, grantAll),
+    hysteria2Uninstall: (
+      serverId: string,
+      access: SshAccessInput
+    ): Promise<BackendSimpleResult> =>
+      ipcRenderer.invoke('backends:hysteria2Uninstall', serverId, access),
+    hysteria2Subbody: (
+      serverId: string,
+      access: SshAccessInput,
+      on: boolean
+    ): Promise<Hysteria2SubbodyResult> =>
+      ipcRenderer.invoke('backends:hysteria2Subbody', serverId, access, on),
     awgGrant: (
       serverId: string,
       access: SshAccessInput,
       name: string
     ): Promise<BackendGrantResult> =>
       ipcRenderer.invoke('backends:awgGrant', serverId, access, name),
+    awgInstall: (
+      serverId: string,
+      access: SshAccessInput,
+      grantAll: boolean
+    ): Promise<BackendSimpleResult> =>
+      ipcRenderer.invoke('backends:awgInstall', serverId, access, grantAll),
+    awgUninstall: (serverId: string, access: SshAccessInput): Promise<BackendSimpleResult> =>
+      ipcRenderer.invoke('backends:awgUninstall', serverId, access),
     awgConf: (serverId: string, access: SshAccessInput, name: string): Promise<AwgConfResult> =>
       ipcRenderer.invoke('backends:awgConf', serverId, access, name),
     awg31: (serverId: string, access: SshAccessInput, on: boolean): Promise<BackendToggleResult> =>

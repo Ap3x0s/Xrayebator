@@ -5,8 +5,10 @@ import { extractJson } from './profiles'
 import type {
   AwgConfResult,
   BackendGrantResult,
+  BackendSimpleResult,
   BackendStatusResult,
-  BackendToggleResult
+  BackendToggleResult,
+  Hysteria2SubbodyResult
 } from '@shared/types'
 
 /**
@@ -96,6 +98,81 @@ export class BackendManager {
       const stdout = await this.run(['hysteria2-grant', '--name', name])
       const payload = extractJson(stdout) as { ok?: boolean; name?: string; error?: string }
       return { ok: payload.ok === true, name: payload.name, error: payload.error }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return { ok: false, error: message }
+    }
+  }
+
+  /**
+   * Установка Hysteria 2 (длинная: загрузка бинарника ~23 МБ). grantAll —
+   * выдать гранты всем существующим профилям (аналог --grant-all).
+   */
+  async hysteria2Install(grantAll: boolean): Promise<BackendSimpleResult> {
+    try {
+      const args = grantAll ? ['hysteria2-install', '--grant-all'] : ['hysteria2-install']
+      const payload = extractJson(await this.run(args)) as {
+        ok?: boolean
+        already?: boolean
+        error?: string
+      }
+      return { ok: payload.ok === true, already: payload.already === true, error: payload.error }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return { ok: false, error: message }
+    }
+  }
+
+  async hysteria2Uninstall(): Promise<BackendSimpleResult> {
+    try {
+      const payload = extractJson(await this.run(['hysteria2-uninstall'])) as {
+        ok?: boolean
+        already?: boolean
+        error?: string
+      }
+      return { ok: payload.ok === true, already: payload.already === true, error: payload.error }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return { ok: false, error: message }
+    }
+  }
+
+  /** Установка AmneziaWG (может включать сборку kernel-модуля — минуты). */
+  async awgInstall(grantAll: boolean): Promise<BackendSimpleResult> {
+    try {
+      const args = grantAll ? ['awg-install', '--grant-all'] : ['awg-install']
+      const payload = extractJson(await this.run(args)) as {
+        ok?: boolean
+        already?: boolean
+        error?: string
+      }
+      return { ok: payload.ok === true, already: payload.already === true, error: payload.error }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return { ok: false, error: message }
+    }
+  }
+
+  async awgUninstall(): Promise<BackendSimpleResult> {
+    try {
+      const payload = extractJson(await this.run(['awg-uninstall'])) as {
+        ok?: boolean
+        already?: boolean
+        error?: string
+      }
+      return { ok: payload.ok === true, already: payload.already === true, error: payload.error }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return { ok: false, error: message }
+    }
+  }
+
+  /** Kill-switch hysteria2-строк в подписке (handler перечитывает реестр сам). */
+  async hysteria2Subbody(on: boolean): Promise<Hysteria2SubbodyResult> {
+    try {
+      const stdout = await this.run(['hysteria2-subbody', on ? '--on' : '--off'])
+      const payload = extractJson(stdout) as { ok?: boolean; sub_body?: boolean; error?: string }
+      return { ok: payload.ok === true, sub_body: payload.sub_body, error: payload.error }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       return { ok: false, error: message }

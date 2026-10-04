@@ -15,10 +15,18 @@ import {
   Check,
   ShieldOff,
   CalendarClock,
-  CalendarX
+  CalendarX,
+  Zap,
+  Shield
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import type { Server, ServerProfile, SniEntry, SshAccessInput } from '@shared/types'
+import type {
+  BackendStatusResult,
+  Server,
+  ServerProfile,
+  SniEntry,
+  SshAccessInput
+} from '@shared/types'
 import { describeExpire, isFutureDate, presetDate } from '@shared/expire'
 import { todayIso } from '@shared/calendar'
 import { isSshAccessReady, SshAccessForm } from '../components/SshAccessForm'
@@ -83,6 +91,12 @@ export function ServerSettings({
   const [busy, setBusy] = useState(false)
   const autoConnectStarted = useRef(false)
   const [profiles, setProfiles] = useState<ServerProfile[] | null>(null)
+  const [backends, setBackends] = useState<BackendStatusResult | null>(null)
+  const [backendsError, setBackendsError] = useState<string | null>(null)
+  const [backendBusy, setBackendBusy] = useState<string | null>(null)
+  const [confirmBackend, setConfirmBackend] = useState<
+    'hysteria2-uninstall' | 'awg-uninstall' | 'awg31-on' | 'awg31-off' | null
+  >(null)
   const [error, setError] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [hostKeyFingerprint, setHostKeyFingerprint] = useState<string | null>(
@@ -162,6 +176,15 @@ export function ServerSettings({
     try {
       const result = await window.api.profiles.list(server.id, access)
       setProfiles(result.profiles ?? [])
+      // Мультипротокольные бэкенды: необязательная секция. На сервере старой
+      // версии backend-status неизвестен — показываем «не поддерживается».
+      try {
+        setBackends(await window.api.backends.status(server.id, access))
+        setBackendsError(null)
+      } catch (err) {
+        setBackends(null)
+        setBackendsError(err instanceof Error ? err.message : String(err))
+      }
       const refreshed = await window.api.servers.get(server.id)
       setHostKeyFingerprint(refreshed?.hostKeyFingerprint ?? null)
       if (refreshed) {
@@ -513,6 +536,73 @@ export function ServerSettings({
     }
   }
 
+  const reloadBackends = async (): Promise<void> => {
+    try {
+      setBackends(await window.api.backends.status(server.id, access))
+      setBackendsError(null)
+    } catch (err) {
+      setBackendsError(err instanceof Error ? err.message : String(err))
+    }
+    try {
+      const fresh = await window.api.profiles.list(server.id, access)
+      if (fresh.ok) setProfiles(fresh.profiles)
+    } catch {
+      // профили уже загружены ранее — молча оставляем как есть
+    }
+  }
+
+  const runBackendAction = async (
+    id: string,
+    action: () => Promise<unknown>
+  ): Promise<void> => {
+    if (!accessReady) return
+    setBusy(true)
+    setBackendBusy(id)
+    setError(null)
+    try {
+      await action()
+      await reloadBackends()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+      setBackendBusy(null)
+    }
+  }
+
+  const installHysteria2 = (): Promise<void> =>
+    runBackendAction('hysteria2-install', () =>
+      window.api.backends.hysteria2Install(server.id, access, true)
+    )
+  const uninstallHysteria2 = (): Promise<void> => {
+    setConfirmBackend(null)
+    return runBackendAction('hysteria2-uninstall', () =>
+      window.api.backends.hysteria2Uninstall(server.id, access)
+    )
+  }
+  const toggleSubbody = (): Promise<void> =>
+    runBackendAction('subbody', () =>
+      window.api.backends.hysteria2Subbody(
+        server.id,
+        access,
+        !(backends?.backends.hysteria2?.sub_body ?? false)
+      )
+    )
+  const installAwg = (): Promise<void> =>
+    runBackendAction('awg-install', () =>
+      window.api.backends.awgInstall(server.id, access, true)
+    )
+  const uninstallAwg = (): Promise<void> => {
+    setConfirmBackend(null)
+    return runBackendAction('awg-uninstall', () =>
+      window.api.backends.awgUninstall(server.id, access)
+    )
+  }
+  const toggle31 = (on: boolean): Promise<void> => {
+    setConfirmBackend(null)
+    return runBackendAction('awg31', () => window.api.backends.awg31(server.id, access, on))
+  }
+
   const forgetHostKey = async (): Promise<void> => {
     setHostKeyResetBusy(true)
     setError(null)
@@ -548,6 +638,9 @@ export function ServerSettings({
       setUninstalling(false)
     }
   }
+
+  const hyst = backends?.backends.hysteria2
+  const awgEntry = backends?.backends.awg
 
   const transportLabel = (profile: ServerProfile): string =>
     profile.multi_route ? `${profile.transport} · ${profile.routes} ${t('settings.routes')}` : profile.transport
@@ -849,9 +942,174 @@ export function ServerSettings({
                 </div>
               ))}
             </section>
+
+            <section className={styles.listCard}>
+              <h2 className={styles.sectionTitle}>{t('settings.backendsTitle')}</h2>
+              <p className={styles.sectionHint}>{t('settings.backendsHint')}</p>
+              {backendsError !== null ? (
+                <p className={styles.hint}>{t('settings.backendsUnsupported')}</p>
+              ) : backends === null ? (
+                <Spinner size="sm" />
+              ) : (
+                <>
+                  <div className={styles.backendRow}>
+                    <div className={styles.backendMeta}>
+                      <div className={styles.backendName}>
+                        <Zap size={16} />
+                        {t('settings.backendsHyst')}
+                      </div>
+                      <div
+                        className={`${styles.backendState} ${
+                          hyst?.state === 'active' ? styles.backendStateOk : ''
+                        }`}
+                      >
+                        {hyst?.installed
+                          ? `${t('settings.backendsActive')} · UDP ${hyst.port ?? '—'} · ${
+                              hyst.version ?? ''
+                            }`
+                          : t('settings.backendsNotInstalled')}
+                      </div>
+                      <p className={styles.backendNote}>{t('settings.backendsHystNote')}</p>
+                    </div>
+                    <div className={styles.backendActions}>
+                      {hyst?.installed ? (
+                        <>
+                          <Button
+                            size="sm"
+                            variant={hyst.sub_body ? 'secondary' : 'primary'}
+                            isDisabled={busy}
+                            onPress={toggleSubbody}
+                          >
+                            {hyst.sub_body
+                              ? t('settings.backendsSubBodyOn')
+                              : t('settings.backendsSubBodyOff')}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="danger-soft"
+                            isDisabled={busy}
+                            onPress={() => setConfirmBackend('hysteria2-uninstall')}
+                          >
+                            {backendBusy === 'hysteria2-uninstall'
+                              ? t('settings.backendsUninstalling')
+                              : t('settings.backendsUninstall')}
+                          </Button>
+                        </>
+                      ) : (
+                        <Button size="sm" isDisabled={busy} onPress={installHysteria2}>
+                          {backendBusy === 'hysteria2-install'
+                            ? t('settings.backendsInstalling')
+                            : t('settings.backendsInstall')}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className={styles.backendRow}>
+                    <div className={styles.backendMeta}>
+                      <div className={styles.backendName}>
+                        <Shield size={16} />
+                        {t('settings.backendsAwg')}
+                      </div>
+                      <div
+                        className={`${styles.backendState} ${
+                          awgEntry?.state === 'active' ? styles.backendStateOk : ''
+                        }`}
+                      >
+                        {awgEntry?.installed
+                          ? `${t('settings.backendsActive')} · UDP ${awgEntry.port ?? '—'} · ${
+                              awgEntry.three_enabled
+                                ? t('settings.backends31On')
+                                : t('settings.backends31Off')
+                            }`
+                          : t('settings.backendsNotInstalled')}
+                      </div>
+                      <p className={styles.backendNote}>{t('settings.backendsAwgNote')}</p>
+                    </div>
+                    <div className={styles.backendActions}>
+                      {awgEntry?.installed ? (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            isDisabled={busy}
+                            onPress={() => setConfirmBackend('awg31-on')}
+                          >
+                            {t(
+                              awgEntry.three_enabled
+                                ? 'settings.backends31Off'
+                                : 'settings.backends31On'
+                            )}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="danger-soft"
+                            isDisabled={busy}
+                            onPress={() => setConfirmBackend('awg-uninstall')}
+                          >
+                            {backendBusy === 'awg-uninstall'
+                              ? t('settings.backendsUninstalling')
+                              : t('settings.backendsUninstall')}
+                          </Button>
+                        </>
+                      ) : (
+                        <Button size="sm" isDisabled={busy} onPress={installAwg}>
+                          {backendBusy === 'awg-install'
+                            ? t('settings.backendsInstalling')
+                            : t('settings.backendsInstall')}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+            </section>
           </>
         )}
       </div>
+
+      <AlertDialog.Root
+        isOpen={confirmBackend !== null}
+        onOpenChange={(open) => {
+          if (!open) setConfirmBackend(null)
+        }}
+      >
+        <AlertDialog.Backdrop>
+          <AlertDialog.Container>
+            <AlertDialog.Dialog className={styles.confirmDialog}>
+              <AlertDialog.Header>
+                <AlertDialog.Icon status="warning">
+                  <Zap size={20} />
+                </AlertDialog.Icon>
+                <AlertDialog.Heading>{t('settings.backendsConfirmTitle')}</AlertDialog.Heading>
+              </AlertDialog.Header>
+              <AlertDialog.Body>
+                {confirmBackend === 'hysteria2-uninstall' && t('settings.backendsConfirmHyst')}
+                {confirmBackend === 'awg-uninstall' && t('settings.backendsConfirmAwg')}
+                {confirmBackend === 'awg31-on' && t('settings.backendsConfirm31On')}
+                {confirmBackend === 'awg31-off' && t('settings.backendsConfirm31Off')}
+              </AlertDialog.Body>
+              <AlertDialog.Footer>
+                <Button variant="secondary" onPress={() => setConfirmBackend(null)}>
+                  {t('dashboard.cancel')}
+                </Button>
+                <Button
+                  variant="danger"
+                  onPress={() => {
+                    if (confirmBackend === 'hysteria2-uninstall') void uninstallHysteria2()
+                    else if (confirmBackend === 'awg-uninstall') void uninstallAwg()
+                    else if (confirmBackend === 'awg31-on') void toggle31(true)
+                    else if (confirmBackend === 'awg31-off') void toggle31(false)
+                    setConfirmBackend(null)
+                  }}
+                >
+                  {t('settings.done')}
+                </Button>
+              </AlertDialog.Footer>
+            </AlertDialog.Dialog>
+          </AlertDialog.Container>
+        </AlertDialog.Backdrop>
+      </AlertDialog.Root>
 
       <AlertDialog.Root
         isOpen={confirmRemove !== null}

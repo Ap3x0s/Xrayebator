@@ -175,6 +175,19 @@ export interface BackendGrantResult {
   error?: string
 }
 
+/** Результат install/uninstall бэкенда (rc=2 воркера → already). */
+export interface BackendSimpleResult {
+  ok: boolean
+  already?: boolean
+  error?: string
+}
+
+export interface Hysteria2SubbodyResult {
+  ok: boolean
+  sub_body?: boolean
+  error?: string
+}
+
 export interface AwgConfResult {
   ok: boolean
   name?: string
@@ -464,11 +477,37 @@ export interface ElectronAPI {
       access: SshAccessInput,
       name: string
     ) => Promise<BackendGrantResult>
+    /** Установка Hysteria 2 (длинная операция). */
+    hysteria2Install: (
+      serverId: string,
+      access: SshAccessInput,
+      grantAll: boolean
+    ) => Promise<BackendSimpleResult>
+    hysteria2Uninstall: (
+      serverId: string,
+      access: SshAccessInput
+    ) => Promise<BackendSimpleResult>
+    /** Kill-switch hysteria2-строк в подписке. */
+    hysteria2Subbody: (
+      serverId: string,
+      access: SshAccessInput,
+      on: boolean
+    ) => Promise<Hysteria2SubbodyResult>
     awgGrant: (
       serverId: string,
       access: SshAccessInput,
       name: string
     ) => Promise<BackendGrantResult>
+    /** Установка AmneziaWG (может собирать kernel-модуль — минуты). */
+    awgInstall: (
+      serverId: string,
+      access: SshAccessInput,
+      grantAll: boolean
+    ) => Promise<BackendSimpleResult>
+    awgUninstall: (
+      serverId: string,
+      access: SshAccessInput
+    ) => Promise<BackendSimpleResult>
     /** Клиентский .conf AWG peer-а для профиля ( AmneziaVPN, не V2Ray/HAPP ). */
     awgConf: (
       serverId: string,
