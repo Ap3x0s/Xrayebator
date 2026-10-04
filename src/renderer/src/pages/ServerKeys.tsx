@@ -22,7 +22,9 @@ interface ServerKeysProps {
 export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Element {
   const { t } = useTranslation()
   const [keys, setKeys] = useState<VlessLink[]>(server.keys ?? [])
-  const [hysteria2Links, setHysteria2Links] = useState<string[]>([])
+  // Бэкенд-ключи инициализируются из карточки сервера — мгновенно, как vless.
+  const [hysteria2Links, setHysteria2Links] = useState<string[]>(server.hysteria2Keys ?? [])
+  const [awgConfs, setAwgConfs] = useState<Record<string, string>>(server.awgConfs ?? {})
   const [subscriptionUrl, setSubscriptionUrl] = useState(server.subscriptionUrl)
   const [toast, setToast] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -32,7 +34,6 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
   // Мультипротокольные бэкенды: hysteria2 приходит из подписки, AWG — по SSH.
   const [profiles, setProfiles] = useState<ServerProfile[]>([])
   const [backends, setBackends] = useState<BackendStatusResult | null>(null)
-  const [awgConfs, setAwgConfs] = useState<Record<string, string>>({})
   const [beBusy, setBeBusy] = useState(false)
 
   // Доступ из сохранённой карточки сервера (секрет — в keychain).
@@ -56,7 +57,7 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
       .then((result) => {
         if (cancelled) return
         setKeys(result.keys)
-        setHysteria2Links(result.hysteria2Links ?? [])
+        setHysteria2Links(result.hysteria2Links ?? server.hysteria2Keys ?? [])
         setSubscriptionUrl(result.subscriptionUrl)
       })
       .catch(() => {
@@ -76,24 +77,32 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
     setBeBusy(true)
     ;(async (): Promise<void> => {
       try {
-        const pl = await window.api.profiles.list(server.id, storedAccess)
+        // Всё параллельно одним Promise.all — равный тайминг с vless-ключами.
+        const [pl, bs] = await Promise.all([
+          window.api.profiles.list(server.id, storedAccess),
+          window.api.backends.status(server.id, storedAccess)
+        ])
         if (cancelled) return
         const list = pl.profiles ?? []
         setProfiles(list)
-        const bs = await window.api.backends.status(server.id, storedAccess)
-        if (cancelled) return
         setBackends(bs)
-        const confs: Record<string, string> = {}
-        for (const profile of list) {
-          if (!profile.backends?.awg) continue
-          if (bs.backends.awg?.state !== 'active') break
-          const conf = await window.api.backends
-            .awgConf(server.id, storedAccess, profile.name)
-            .catch(() => null)
-          if (cancelled) return
-          if (conf?.ok && conf.conf) confs[profile.name] = conf.conf
+        const awgActive = bs.backends.awg?.state === 'active'
+        const targets = awgActive ? list.filter((p) => p.backends?.awg) : []
+        const confEntries = await Promise.all(
+          targets.map(async (p) => {
+            const conf = await window.api.backends
+              .awgConf(server.id, storedAccess, p.name)
+              .catch(() => null)
+            return [p.name, conf?.ok ? (conf.conf ?? '') : ''] as const
+          })
+        )
+        if (cancelled) return
+        const merged: Record<string, string> = { ...(server.awgConfs ?? {}) }
+        for (const [name, conf] of confEntries) {
+          if (conf) merged[name] = conf
+          else delete merged[name]
         }
-        if (!cancelled) setAwgConfs(confs)
+        setAwgConfs(merged)
       } catch {
         if (!cancelled) {
           setProfiles([])

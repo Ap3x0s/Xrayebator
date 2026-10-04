@@ -91,6 +91,13 @@ export interface Server {
   routesCount: number | null
   subscriptionUrl: string
   keys: VlessLink[]
+  /**
+   * Мультипротокольный этап: hysteria2-ссылки из тела подписки — персистятся
+   * вместе с vless-ключами, чтобы страница «Ключи» открывалась мгновенно.
+   */
+  hysteria2Keys?: string[]
+  /** Кэш клиентских .conf AWG per-profile (имя профиля → конфиг). */
+  awgConfs?: Record<string, string>
   authMethod?: SshAuthMethod
   privilegeMode?: SshPrivilegeMode
   privateKeyPath?: string | null

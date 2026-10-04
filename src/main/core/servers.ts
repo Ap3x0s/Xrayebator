@@ -34,6 +34,11 @@ export interface ServerStore {
     connection: ServerConnectionMetadata
   ) => StoredServer
   updateKeys: (id: string, keys: VlessLink[]) => StoredServer | undefined
+  /** Персистит бэкенд-ключи: hysteria2-ссылки и AWG-конфиги per-profile. */
+  updateBackendKeys: (
+    id: string,
+    payload: { hysteria2Keys?: string[]; awgConfs?: Record<string, string> }
+  ) => StoredServer | undefined
   updateConnection: (id: string, input: ServerConnectionMetadata) => StoredServer | undefined
   countCredentialReferences: (credentialId: string, exceptId?: string) => number
   clearCredentialReference: (id: string) => StoredServer | undefined
@@ -64,7 +69,9 @@ function normalizeServer(server: StoredServer, hostKeys: Record<string, string>)
     diagnostics: server.diagnostics ?? null,
     hostKeyFingerprint:
       hostKeys[hostKeyId(server.host, server.port)] ?? server.hostKeyFingerprint ?? null,
-    keys: server.keys ?? []
+    keys: server.keys ?? [],
+    hysteria2Keys: server.hysteria2Keys ?? [],
+    awgConfs: server.awgConfs ?? {}
   }
 }
 
@@ -152,6 +159,24 @@ export function createServerStore(): ServerStore {
       const idx = servers.findIndex((s) => s.id === id)
       if (idx === -1) return undefined
       const updated: StoredServer = { ...servers[idx], keys }
+      const next = [...servers]
+      next[idx] = updated
+      store.set('servers', next)
+      return updated
+    },
+
+    updateBackendKeys(
+      id: string,
+      payload: { hysteria2Keys?: string[]; awgConfs?: Record<string, string> }
+    ): StoredServer | undefined {
+      const servers = store.get('servers')
+      const idx = servers.findIndex((s) => s.id === id)
+      if (idx === -1) return undefined
+      const updated: StoredServer = {
+        ...servers[idx],
+        hysteria2Keys: payload.hysteria2Keys ?? servers[idx].hysteria2Keys ?? [],
+        awgConfs: payload.awgConfs ?? servers[idx].awgConfs ?? {}
+      }
       const next = [...servers]
       next[idx] = updated
       store.set('servers', next)

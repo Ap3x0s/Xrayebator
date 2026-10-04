@@ -4,7 +4,6 @@ import { basename, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { readFileSync, statSync } from 'node:fs'
 import type {
-  AwgConfResult,
   ImportServerPayload,
   ImportStep,
   ProfileCreateInput,
@@ -295,7 +294,14 @@ export function registerIpcHandlers({ store }: IpcContext): void {
     if (!server) throw new Error('Сервер не найден')
     const { keys, hysteria2Links } = await fetchSubscription(server.subscriptionUrl)
     store.updateKeys(serverId, keys)
-    return { serverId, subscriptionUrl: server.subscriptionUrl, keys, hysteria2Links }
+    // hysteria2-ключи персистятся рядом с vless — страница «Ключи» открывается мгновенно.
+    const updated = store.updateBackendKeys(serverId, { hysteria2Keys: hysteria2Links })
+    return {
+      serverId,
+      subscriptionUrl: server.subscriptionUrl,
+      keys,
+      hysteria2Links: updated?.hysteria2Keys ?? hysteria2Links
+    }
   })
 
   ipcMain.handle('servers:import', async (event, payload: ImportServerPayload) => {
@@ -474,17 +480,8 @@ export function registerIpcHandlers({ store }: IpcContext): void {
     return new BackendManager(credentials)
   }
 
-  // Кэш AWG-конфигов: страница «Ключи» открывается мгновенно при повторном
-  // заходе (как обычные коннекторы, хранящиеся в приложении). Инвалидация —
-  // при смене грантов/режима 3.1/удалении бэкенда.
-  const awgConfCache = new Map<string, AwgConfResult>()
-  const awgConfCacheKey = (serverId: string, name: string): string => `${serverId}::${name}`
-  const invalidateAwgConf = (serverId: string): void => {
-    for (const key of awgConfCache.keys()) {
-      if (key.startsWith(`${serverId}::`)) awgConfCache.delete(key)
-    }
-  }
-
+  // Кэш AWG-конфигов персистится в карточке сервера (server.awgConfs) —
+  // страница «Ключей» показывает их мгновенно и обновляет в фоне.
   ipcMain.handle('backends:status', async (_e, serverId: string, access: SshAccessInput) => {
     const manager = await backendManagerFor(serverId, access)
     const result = await manager.status()
@@ -507,7 +504,7 @@ export function registerIpcHandlers({ store }: IpcContext): void {
       if (!name) throw new Error('Не указано имя профиля')
       const manager = await backendManagerFor(serverId, access)
       const result = await manager.awgGrant(name)
-      if (result.ok) invalidateAwgConf(serverId)
+      if (result.ok) store.updateBackendKeys(serverId, { awgConfs: {} })
       return result
     }
   )
@@ -516,13 +513,15 @@ export function registerIpcHandlers({ store }: IpcContext): void {
     'backends:awgConf',
     async (_e, serverId: string, access: SshAccessInput, name: string) => {
       if (!name) throw new Error('Не указано имя профиля')
-      const cacheKey = awgConfCacheKey(serverId, name)
-      const cached = awgConfCache.get(cacheKey)
-      if (cached) return cached
       const manager = await backendManagerFor(serverId, access)
       const result = await manager.awgConf(name)
       if (!result.ok) throw new Error(result.error ?? 'Не удалось получить конфиг AWG')
-      awgConfCache.set(cacheKey, result)
+      if (result.conf) {
+        const current = store.get(serverId)
+        store.updateBackendKeys(serverId, {
+          awgConfs: { ...(current?.awgConfs ?? {}), [name]: result.conf }
+        })
+      }
       return result
     }
   )
@@ -532,7 +531,7 @@ export function registerIpcHandlers({ store }: IpcContext): void {
     async (_e, serverId: string, access: SshAccessInput, on: boolean) => {
       const manager = await backendManagerFor(serverId, access)
       const result = await manager.awg31(Boolean(on))
-      if (result.ok) invalidateAwgConf(serverId)
+      if (result.ok) store.updateBackendKeys(serverId, { awgConfs: {} })
       return result
     }
   )
@@ -561,7 +560,7 @@ export function registerIpcHandlers({ store }: IpcContext): void {
   ipcMain.handle('backends:awgUninstall', async (_e, serverId: string, access: SshAccessInput) => {
     const manager = await backendManagerFor(serverId, access)
     const result = await manager.awgUninstall()
-    if (result.ok) invalidateAwgConf(serverId)
+    if (result.ok) store.updateBackendKeys(serverId, { awgConfs: {} })
     return result
   })
 
