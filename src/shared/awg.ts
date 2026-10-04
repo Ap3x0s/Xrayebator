@@ -114,20 +114,41 @@ export function buildAwgVpnConfig(
   const version = detectAwgVersion(map)
   lastConfig['protocol_version'] = version
 
+  // Серверные поля — НА УРОВНЕ объекта "awg" (как AwgServerConfig::toJson в
+  // amnezia-client): модель сервера читает их отсюда, а не из last_config.
+  // I1..I5 их toJson пишет безусловно (пустые строки — валидно).
+  const serverLevel: Record<string, unknown> = {
+    port,
+    transport_proto: 'udp',
+    protocol_version: version,
+    Jc: map['Jc'] ?? '',
+    Jmin: map['Jmin'] ?? '',
+    Jmax: map['Jmax'] ?? '',
+    S1: map['S1'] ?? '',
+    S2: map['S2'] ?? '',
+  }
+  for (const key of ['S3', 'S4', 'H1', 'H2', 'H3', 'H4'] as const) {
+    if (map[key]) serverLevel[key] = map[key]
+  }
+  for (const key of ['I1', 'I2', 'I3', 'I4', 'I5'] as const) {
+    serverLevel[key] = map[key] ?? ''
+  }
+  if (map['HeaderProtectionKey']) serverLevel['HeaderProtectionKey'] = map['HeaderProtectionKey']
+  if (map['RandomTrailers']) serverLevel['RandomTrailers'] = map['RandomTrailers']
+  if (map['DisableCookies']) serverLevel['DisableCookies'] = map['DisableCookies']
+
   const container: Record<string, unknown> = {
-    container: 'amnezia-awg',
+    container: 'amnezia-awg2',
     awg: {
-      last_config: JSON.stringify(lastConfig),
+      ...serverLevel,
       isThirdPartyConfig: true,
-      port,
-      transport_proto: 'udp',
-      protocol_version: version,
+      last_config: JSON.stringify(lastConfig),
     },
   }
 
   const root: Record<string, unknown> = {
     containers: [container],
-    defaultContainer: 'amnezia-awg',
+    defaultContainer: 'amnezia-awg2',
     description: description ?? 'AmneziaWG',
     hostName: host,
   }

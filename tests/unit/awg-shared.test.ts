@@ -92,13 +92,17 @@ describe('buildAwgVpnUrl', () => {
     const payload = JSON.parse(
       Buffer.from(payload64, 'base64').toString('utf8')
     ) as Record<string, unknown>
-    expect(payload['defaultContainer']).toBe('amnezia-awg')
+    expect(payload['defaultContainer']).toBe('amnezia-awg2')
     expect(payload['hostName']).toBe('2.26.125.147')
     expect(payload['dns1']).toBe('1.1.1.1')
 
     const containers = payload['containers'] as Array<Record<string, unknown>>
-    expect(containers[0]['container']).toBe('amnezia-awg')
+    expect(containers[0]['container']).toBe('amnezia-awg2')
     const awg = containers[0]['awg'] as Record<string, unknown>
+    // серверные junk-поля дублируются на уровне awg-объекта (AwgServerConfig::toJson)
+    expect(awg['Jc']).toBe('10')
+    expect(awg['S1']).toBe('103')
+    expect(awg['I1']).toBe('')
     expect(awg['isThirdPartyConfig']).toBe(true)
     expect(awg['transport_proto']).toBe('udp')
 
@@ -145,7 +149,7 @@ describe('buildAwgVpnUrl', () => {
       'Endpoint = 1.2.3.4:51820'
     ].join('\n')
     const cfg = buildAwgVpnConfig(minimal)
-    expect(cfg['defaultContainer']).toBe('amnezia-awg')
+    expect(cfg['defaultContainer']).toBe('amnezia-awg2')
     expect('HeaderProtectionKey' in JSON.parse(((cfg['containers'] as Array<Record<string, unknown>>)[0]['awg'] as Record<string, unknown>)['last_config'] as string)).toBe(false)
   })
 })
