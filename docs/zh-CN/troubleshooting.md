@@ -155,6 +155,61 @@ sudo systemctl restart sshd
 
 多个配置档可以同时使用：不同的订阅、SNI、端口和线路提供了更多绕过封锁的选择，但它们共享同一台 VPS 的资源。
 
+## Hysteria 2 服务无法启动
+
+先读原因——安装会回滚产物，状态需要复现：
+
+```bash
+journalctl -u hysteria-server.service --no-pager | tail -20
+```
+
+已知失败模式（生成器已修复，手工改配置时仍然相关）：
+
+- `invalid config: auth.userpass: empty auth userpass` —— auth 映射的键是 `userpass` 而**不是**
+  `users`，且空映射会被拒绝。生成器始终至少渲染 `_xrayebator_placeholder`（尚无配置档授权时）；
+  手工编辑 `server.yaml` 时，请保持 `userpass:` 下有非空映射。
+- `Changing to the requested working directory failed: Permission denied` —— 后端目录必须为
+  `root:hysteria 0750`；只 `chmod` 而不做配对 `chown` 会留下 `root:root`，单元无法进入目录。
+- 证书不可读 —— `le` 模式下证书是 `root:hysteria 0640` 的副本；续期 deploy-hook 负责刷新。
+
+修复后的干净路径：`hysteria2-uninstall` 然后重新 `hysteria2-install`。
+
+## AWG：接口已启动但没有 `latest handshake`
+
+AmneziaWG 对参数不匹配保持沉默：peer 只是永远不出现握手。请检查「必须一致」组——它与每个
+客户端 `.conf` 必须完全相同：
+
+- `S1`–`S4`（3.x 引擎要求 ≥ 12）、`H1`–`H4`；
+- 对端存在的任何 3.x 键：`HeaderProtectionKey`（3.0）与 `RandomTrailers`（3.1）必须逐字节
+  一致——Xrayebator 不输出它们，若出现不匹配，说明混入了第三方或手工配置；
+- 客户端应用版本：带 `RandomTrailers` 的配置需要 AmneziaVPN ≥ 5.0.1.5；更旧的客户端可能直接
+  拒绝导入。
+
+然后区分调试区域：服务器上的 `awg show awg0` ——若 peer 在列、握手存在但没有流量，问题在
+`awg-quick`/路由/防火墙区域（`ip_forward`、MASQUERADE 接口），而不是协议参数。
+
+## AWG 安装失败
+
+- 首选路径是 `amnezia/ppa` PPA；在没有对应发行版构建的系列上，Xrayebator 回退到源码编译。内核
+  ≥ 5.6 时需要**完整的** `linux-source` 包——仅有内核头文件不够（模块构建会链接整个源码树）。
+- 安装后验证：`lsmod | grep amneziawg` 显示模块，`awg --version` 有响应。
+- 单元 `awg-quick@awg0` 读取 `/etc/amnezia/amneziawg/awg0.conf` —— Xrayebator 将其维护为指向
+  `/usr/local/etc/xrayebator/backends/awg/awg0.conf` 的 symlink。删除 symlink 会让单元失效，
+  尽管后端配置本身有效。
+- 卸载时软件包与内核模块有意保留在系统中；被移除的是接口、配置、symlink 与防火墙规则。
+
+## 订阅中没有 `hysteria2://` 行
+
+只有同时满足以下条件，`hysteria2://` 链接才会追加到两个订阅主体：
+
+1. Hysteria 2 后端已安装（`xrayebator hysteria2-status`）；
+2. 配置档持有授权（`profiles` JSON → `.backends.hysteria2.password`）；
+3. 注册表标志 `sub_body` 为 `true`（总开关——直接改 `backends.json`，处理器每次请求都会重读
+   注册表，无需重启服务）。
+
+过期或停用的配置档不会得到该行；被吊销的配置档在下次刷新订阅时拿到新凭据。吊销后旧 token
+URL 返回 `404` 属于预期——令牌本身已轮换。
+
 ## quickstart 报错 `apt-get install nginx failed`
 
 新装的 Ubuntu VPS 上，`unattended-upgrades` 可能持有 apt/dpkg 锁约 10 分钟，并且对每个包单独调用 `dpkg`，因此简单的锁检查会从包与包之间的空隙漏过。quickstart 现在会额外等待活跃的 `unattended-upgrade` 进程（12 分钟预算），并给 `apt-get install` 传入 `-o DPkg::Lock::Timeout=180`。当 quickstart 提示 apt 超过预算仍被占用时，请稍后重试部署，或等更新队列结束。该行为由 `validation/test-apt-lock-race.sh` 锁定。

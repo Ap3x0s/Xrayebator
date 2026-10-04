@@ -52,7 +52,7 @@ Bash-управлению, а не вторая реализация серве�
 
 /usr/local/etc/xray/
 ├── config.json                   # инбаунды, outbounds, routing и DNS
-├── profiles/<name>.json          # метаданные профиля, токен подписки, срок действия (.expire)
+├── profiles/<name>.json          # метаданные профиля, токен подписки, срок действия (.expire), гранты бэкендов (.backends)
 ├── upstreams/cascade.json        # параметры upstream каскада
 ├── backups/                      # бэкапы конфига перед runtime-мутациями
 ├── .private_key / .public_key    # ключи Reality
@@ -62,10 +62,18 @@ Bash-управлению, а не вторая реализация серве�
 ├── .current_branch               # ветка менеджера для lifecycle-обновлений
 └── маркеры миграций              # записи выполненных одноразовых миграций
 
+/usr/local/etc/xrayebator/         # корень мультипротокольных бэкендов (нейтральный, пути Xray не трогает)
+├── backends.json                  # реестр бэкендов: installed/version/port/флаги (644, без секретов)
+└── backends/
+    ├── hysteria2/                 # server.yaml (регенерируется из профилей), сертификаты
+    └── awg/                       # awg0.conf (0600), server-params.json (0600)
+
 /usr/local/share/xray/             # geoip.dat и geosite.dat
 /var/log/xray/                     # каталог логов, куда пишет сервис Xray
 /etc/systemd/system/xray.service.d/security.conf
 /etc/systemd/system/xrayebator-sub.service
+/etc/systemd/system/hysteria-server.service   # бэкенд Hysteria 2 (опционально)
+/etc/systemd/system/awg-quick@awg0.service    # бэкенд AmneziaWG (опционально, из amneziawg-tools)
 /etc/nginx/sites-available/xrayebator-sub
 ```
 
@@ -124,7 +132,32 @@ PQ-маршрут остаётся доступен через raw/profile path.
 
 Handler также отдаёт защищённые токеном `geoip.dat` и `geosite.dat`, необходимые для управляемого
 HAPP routing profile. HAPP получает routing metadata, а v2rayNG и v2rayN — совместимое VLESS-тело
-без HAPP-only метаданных.
+без HAPP-only метаданных. Когда бэкенд Hysteria 2 установлен и у профиля есть грант, handler
+дополнительно добавляет одну строку `hysteria2://` в оба тела подписки (HAPP и generic) — под
+управлением флага `sub_body` в реестре; истёкший или отключённый профиль строки не получает.
+
+## Мультипротокольные бэкенды
+
+Помимо Xray, менеджер может установить на тот же VPS дополнительные транспорты. Всё состояние
+бэкендов живёт в нейтральном корне `/usr/local/etc/xrayebator/` (реестр `backends.json` + каталоги
+по бэкендам); пути Xray не затрагиваются. Клиентские креденшелы бэкендов хранятся в самом профиле
+(аддитивный объект `.backends`) — профиль является единственным источником правды: серверные
+конфиги (`backends/hysteria2/server.yaml`, `backends/awg/awg0.conf`) всегда регенерируются из
+профилей, а события жизненного цикла профиля (создание, удаление, revoke, истечение, продление)
+проходят через `_backend_apply_profile_lifecycle` в каждый установленный бэкенд.
+
+- **Hysteria 2** — быстрый UDP-транспорт. Собственный systemd-юнит `hysteria-server.service` от
+  выделенного пользователя `hysteria` с `CAP_NET_BIND_SERVICE`; UDP 443 по умолчанию; адаптивный
+  TLS (сертификат подписки Let's Encrypt + deploy-hook на продление, иначе self-signed);
+  `auth: userpass` — один credential на профиль и placeholder-пользователь, пока карта пуста
+  (Hysteria отвергает пустую карту).
+- **AmneziaWG 2.0** — системный VPN. Kernel-модуль через DKMS (основной путь — PPA `amnezia/ppa`,
+  фолбэк — сборка из исходников), интерфейс `awg0` через `awg-quick@awg0`, подсеть `10.8.1.0/24`,
+  peer-ы на профиль (ключевая пара + preshared key + адрес), `ip_forward` и MASQUERADE на
+  интерфейс default-route. Дистрибутивный юнит читает `/etc/amnezia/amneziawg/awg0.conf` — это
+  symlink на управляемый файл.
+- Оба бэкенда опциональны: ставятся и снимаются из меню (пункты `11`–`13`) или CLI-командами
+  `hysteria2-*` / `awg-*` и никогда не устанавливаются по умолчанию.
 
 ## Пути обновления
 

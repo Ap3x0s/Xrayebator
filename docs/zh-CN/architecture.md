@@ -51,7 +51,7 @@ Xrayebator/
 
 /usr/local/etc/xray/
 ├── config.json                   # 入站、出站、路由和 DNS
-├── profiles/<name>.json          # 配置档元数据、订阅令牌与有效期（.expire）
+├── profiles/<name>.json          # 配置档元数据、订阅令牌、有效期（.expire）、后端授权（.backends）
 ├── upstreams/cascade.json        # 级联上游参数
 ├── backups/                      # 运行时改动前的配置备份
 ├── .private_key / .public_key    # Reality 密钥
@@ -61,10 +61,18 @@ Xrayebator/
 ├── .current_branch               # 管理器用于生命周期更新的分支
 └── 迁移标记                       # 已完成一次性迁移的记录
 
+/usr/local/etc/xrayebator/         # 多协议后端根目录（中性，不触碰 Xray 路径）
+├── backends.json                  # 后端注册表：installed/version/port/开关（644，无机密）
+└── backends/
+    ├── hysteria2/                 # server.yaml（按配置档重新生成）、证书
+    └── awg/                       # awg0.conf（0600）、server-params.json（0600）
+
 /usr/local/share/xray/             # geoip.dat 和 geosite.dat
 /var/log/xray/                     # Xray 服务写入的运行时日志目录
 /etc/systemd/system/xray.service.d/security.conf
 /etc/systemd/system/xrayebator-sub.service
+/etc/systemd/system/hysteria-server.service   # Hysteria 2 后端（可选）
+/etc/systemd/system/awg-quick@awg0.service    # AmneziaWG 后端（可选，来自 amneziawg-tools）
 /etc/nginx/sites-available/xrayebator-sub
 ```
 
@@ -107,7 +115,28 @@ http://127.0.0.1:8080/sub/<token>         # 仅本地回退
 
 处理器还提供由令牌保护的 `geoip.dat` 和 `geosite.dat` 资源，这些资源是托管的 HAPP 路由配置
 所必需的。HAPP 接收其路由元数据，而 v2rayNG 和 v2rayN 接收兼容的 VLESS 主体，不包含 HAPP 专属
-元数据。
+元数据。当 Hysteria 2 后端已安装且配置档持有授权时，处理器会在 HAPP 与通用两个订阅主体中各追加
+一行 `hysteria2://`，由注册表标志 `sub_body` 控制；过期或停用的配置档不会得到该行。
+
+## 多协议后端
+
+除 Xray 外，管理器可以在同一台 VPS 上安装其他传输。所有后端状态位于中性根目录
+`/usr/local/etc/xrayebator/`（注册表 `backends.json` 与各后端目录）；Xray 状态路径不受影响。
+每个配置档的后端凭据保存在其附加的 `.backends` 对象中，配置档 JSON 因此成为唯一事实来源：
+服务端配置（`backends/hysteria2/server.yaml`、`backends/awg/awg0.conf`）始终由配置档重新生成，
+配置档生命周期事件（创建、删除、吊销、过期、恢复）通过 `_backend_apply_profile_lifecycle`
+传播到每个已安装的后端。
+
+- **Hysteria 2** —— 高速 UDP 传输。独立 systemd 单元 `hysteria-server.service`，以专用
+  `hysteria` 用户运行并持有 `CAP_NET_BIND_SERVICE`；默认 UDP 443；自适应 TLS（复用订阅的
+  Let's Encrypt 证书并附续期 deploy-hook，或自签证书）；`auth: userpass`，每个配置档一个凭据，
+  映射可能为空时使用占位用户（Hysteria 拒绝空映射）。
+- **AmneziaWG 2.0** —— 系统级 VPN。通过 DKMS 的内核模块（首选 PPA `amnezia/ppa`，回退源码
+  编译），接口 `awg0` 走 `awg-quick@awg0`，网段 `10.8.1.0/24`，按配置档的 peer（密钥对 +
+  预共享密钥 + 地址），`ip_forward` 与默认路由接口上的 MASQUERADE。发行版单元读取
+  `/etc/amnezia/amneziawg/awg0.conf`——它是指向受管文件的 symlink。
+- 两个后端均为可选，通过菜单项 `11`–`13` 或 `hysteria2-*` / `awg-*` CLI 命令安装与卸载，
+  默认绝不安装。
 
 ## 更新路径
 

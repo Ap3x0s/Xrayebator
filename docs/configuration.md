@@ -93,12 +93,16 @@ The interactive menu uses these exact meanings:
 | `4` | Manage a profile: SNI, client fingerprint, port and advanced settings |
 | `5` | Upgrade a single profile to post-quantum XHTTP + Reality |
 | `6` | HAPP subscription: provision public/local publishing, URL/QR, revoke and HAPP settings; the managed profile has 7 routes and the published list has 6 |
+| `7` | Bypass routing: send selected domains (banks, marketplaces, Steam…) direct instead of through the tunnel |
 | `8` | Cascade and upstream nodes |
 | `9` | Custom domain and self-steal stub |
 | `10` | Set up an outbound server so another VPS can use this server as a foreign cascade node |
+| `11` | Hysteria 2 backend: install/status/client link/uninstall (fast UDP transport) |
+| `12` | AmneziaWG 2.0 backend: install/status/client conf/uninstall (system VPN) |
+| `13` | Status of all multi-protocol backends |
 | `0` | Exit |
 
-Actions are numbered consecutively from `1` to `10`; `0` exits the program. SNI and port are
+Actions are numbered consecutively from `1` to `13`; `0` exits the program. SNI and port are
 shared inbound settings, so changing either can affect other profiles on that port. The fingerprint
 is a client-side profile/route setting; changing it does not restart Xray or alter other routes.
 
@@ -129,6 +133,16 @@ is a client-side profile/route setting; changing it does not restart Xray or alt
 | `sudo xrayebator bypass remove --domain D` | Remove a domain from bypass rules |
 | `sudo xrayebator bypass reset` | Clear all custom bypass rules |
 | `sudo xrayebator bypass bundle [--group a,b,c]` | Apply the default bypass groups; without `--group`, apply all groups |
+| `sudo xrayebator backend-status` | Print the multi-protocol backend registry status as JSON (`{"ok":true,"backends":{…}}`) |
+| `sudo xrayebator hysteria2-install [--port P] [--grant-all]` | Install the Hysteria 2 UDP backend: binary from `HyNetworks/hysteria` releases (SHA-256 verified), dedicated `hysteria` service user, own systemd unit with `CAP_NET_BIND_SERVICE`, QUIC sysctl buffers, adaptive TLS (subscription Let's Encrypt cert with a renewal deploy-hook, otherwise self-signed); default UDP port 443; prints JSON (`already: true` when installed) |
+| `sudo xrayebator hysteria2-uninstall` | Remove the Hysteria 2 backend (service, config, certs, firewall rule); prints JSON |
+| `sudo xrayebator hysteria2-status` | Hysteria 2 backend status as JSON |
+| `sudo xrayebator hysteria2-grant --name N` | Issue a per-profile Hysteria 2 credential (stored in the profile's `.backends.hysteria2`); the server config is regenerated from all profiles; prints JSON |
+| `sudo xrayebator awg-install [--grant-all]` | Install the AmneziaWG 2.0 system-VPN backend: kernel module via DKMS (PPA `amnezia/ppa`, source-build fallback), `awg0` interface with a random high UDP port, junk parameters per the AWG spec, `ip_forward` + MASQUERADE; prints JSON |
+| `sudo xrayebator awg-uninstall` | Remove the AmneziaWG backend (interface, config, symlink, firewall rule; packages/module stay in the system); prints JSON |
+| `sudo xrayebator awg-status` | AmneziaWG backend status as JSON |
+| `sudo xrayebator awg-grant --name N` | Issue a per-profile peer (keypair + preshared key + `10.8.1.x` address in the profile's `.backends.awg`); `awg0.conf` is regenerated; prints JSON |
+| `sudo xrayebator awg-conf --name N` | Print the client `.conf` for a profile peer as JSON `{ok, name, conf}` — full-tunnel AllowedIPs, server junk parameters, endpoint; import into the AmneziaWG/AmneziaVPN client |
 | `sudo xrayebator-update [branch]` | Run the full `update.sh` project lifecycle update; without a branch, display `.current_branch` and open the interactive branch selector; with a branch, use that explicit branch |
 | `sudo xrayebator-uninstall` | Remove the service and installation |
 
@@ -191,8 +205,10 @@ npm test
 npm run typecheck
 ```
 
+## Bypass routing
 
-VPN. The `domain -> direct` rules sit above the catch-all, so they keep working with the cascade
+Bypass routing sends selected domains around the tunnel: matched traffic goes `direct`, everything
+else keeps using the VPN. The `domain -> direct` rules sit above the catch-all, so they keep working with the cascade
 enabled.
 
 Default bundle groups:
@@ -208,6 +224,77 @@ Default bundle groups:
 | `mailru` | VK Group and Mail.ru |
 
 The menu is interactive: arrows move the selection, space toggles a group, Enter applies.
+
+## Multi-protocol backends
+
+Beyond Xray Reality, one VPS can run additional transports managed from the same CLI/menu. All
+backend state lives in a neutral root that does not touch `/usr/local/etc/xray/`:
+
+```text
+/usr/local/etc/xrayebator/
+├── backends.json                 # registry: per-backend installed/version/port/flags (644, no secrets)
+└── backends/
+    ├── hysteria2/                # server.yaml, certs, placeholder credential
+    └── awg/                      # awg0.conf, server-params.json (0600)
+```
+
+Per-profile credentials are stored in the profile JSON itself (`.backends.hysteria2`,
+`.backends.awg`) — the profile is the single source of truth, and backend server configs are always
+regenerated from profiles. Profile lifecycle events (create/delete/revoke/expire/restore) propagate
+to every installed backend automatically: revoking a profile rotates its Hysteria password and AWG
+peer keys; expiring it removes the grant from both server configs; extending restores both.
+
+### Hysteria 2 (fast UDP)
+
+`hysteria2-install` downloads the binary from the official `HyNetworks/hysteria` releases (SHA-256
+verified), creates the `hysteria` service user and a dedicated systemd unit, and listens on UDP 443
+by default (QUIC next to the TCP 443 Reality inbound). TLS is adaptive: when the subscription
+endpoint already has a Let's Encrypt certificate it is reused (clients connect with `insecure=0`),
+otherwise a self-signed cert is generated (`insecure=1`). While no profile has a grant the auth map
+carries a `_xrayebator_placeholder` user — Hysteria rejects an empty userpass map. Client links look
+like `hysteria2://user:pass@host:port/?sni=…&insecure=0|1#name` and are appended to both
+subscription bodies (HAPP and generic); the registry flag `sub_body` is the kill switch if a client
+parser objects.
+
+### AmneziaWG 2.0 (system VPN)
+
+`awg-install` builds the kernel module via DKMS (primary path: the `amnezia/ppa` PPA; fallback: a
+source build that needs the full `linux-source` tree on kernels ≥ 5.6) and brings up the `awg0`
+interface through `awg-quick@awg0` with a random high UDP port, subnet `10.8.1.0/24`, `ip_forward`
+and MASQUERADE on the default-route interface. Junk parameters are generated per the AWG spec:
+`Jc` 1..128, `Jmin < Jmax ≤ 1280`, `S1`/`S2` 15..150 with `S1+56 ≠ S2`, `H1`–`H4` unique in
+5..2147483647. Each profile peer gets a keypair, a preshared key and the first free address; the
+client `.conf` (menu item 12 or `awg-conf --name N`) carries full-tunnel `AllowedIPs` and the
+server's junk parameters. Peer changes restart the interface with rollback — a brief tunnel blip
+for all peers, acceptable because grants and revokes are rare.
+
+### AWG 2.0 vs 3.x — and why 3.1 matters against DPI/ТСПУ
+
+Per the upstream protocol split, AmneziaWG parameters divide into two groups:
+
+| Must match byte-for-byte on server and client | Local per side |
+|---|---|
+| `S1`–`S4`, `H1`–`H4` | `PersistentKeepalive` (recommended 22–30) |
+| 3.0: `HeaderProtectionKey` | 3.0: `ContentPaddingAddition`, `Rekey*`, `Reject*`, `Keepalive*`, `MaxHandshakeAttempts` (integer or `"a-b"` range) |
+| 3.1: `RandomTrailers` | 3.1: `DisableCookies` |
+
+Xrayebator generates the 2.0-era parameter set and emits no 3.x-only keys; a 3.x engine reads such a
+config with the 3.x features off, so the stack is upgrade-safe. Enabling 3.x later is a deliberate
+migration, and it is exactly the migration that matters against Russian DPI/ТСПУ analysis: plain
+WireGuard handshakes have fixed packet lengths and plaintext header type bytes, so passive
+classification works without inspecting payloads. AWG 3.0 encrypts the header
+(`HeaderProtectionKey`), 3.1 adds `RandomTrailers` (removes the fixed-length handshake signature)
+and optional `DisableCookies` (removes the cookie-reply pattern, at the cost of the built-in
+anti-amplification defence). Migration rules from the upstream docs:
+
+1. binaries first — a 3.1 engine reads 2.0/3.0-era configs with missing keys treated as off;
+2. `S1`–`S4` must be ≥ 12 in 3.x (Xrayebator generates 15–150, already valid);
+3. `HeaderProtectionKey` and `RandomTrailers` must match byte-for-byte; enabling them on a live
+   server instantly breaks every previously issued client config — plan a window and reissue;
+4. clients need AmneziaVPN ≥ 5.0.1.5 for the 3.1 keys; older apps may refuse to import the config
+   at all — keep a separate non-3.1 server for them;
+5. verify by `awg show`: no `latest handshake` means the must-match group disagrees; a handshake
+   without traffic points to `awg-quick`/routing/firewall instead.
 
 ## Cascade and upstream nodes
 
