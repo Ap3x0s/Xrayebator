@@ -140,7 +140,7 @@ is a client-side profile/route setting; changing it does not restart Xray or alt
 | `sudo xrayebator hysteria2-grant --name N` | Issue a per-profile Hysteria 2 credential (stored in the profile's `.backends.hysteria2`); the server config is regenerated from all profiles; prints JSON |
 | `sudo xrayebator hysteria2-subbody --on\|--off` | Kill switch for the `hysteria2://` lines in both subscription bodies: the flag lives in the backend registry and the handler re-reads it on every request, no service restart; prints JSON |
 | `sudo xrayebator hysteria2-link --name N` | Print the `hysteria2://` link of a profile with a grant as JSON `{ok, name, link}` (naming mirrors the VLESS routes, with the country flag) |
-| `sudo xrayebator awg-install [--grant-all]` | Install the AmneziaWG 2.0 system-VPN backend: kernel module via DKMS (PPA `amnezia/ppa`, source-build fallback), `awg0` interface with a random high UDP port, junk parameters per the AWG spec, `ip_forward` + MASQUERADE; prints JSON |
+| `sudo xrayebator awg-install [--grant-all]` | Install the AmneziaWG 2.0 system-VPN backend: kernel module via DKMS (PPA `amnezia/ppa`, source-build fallback), `awg0` interface with a random high UDP port, junk parameters matching the Amnezia defaults, `ip_forward` + MASQUERADE; prints JSON |
 | `sudo xrayebator awg-uninstall` | Remove the AmneziaWG backend (interface, config, symlink, firewall rule; packages/module stay in the system); prints JSON |
 | `sudo xrayebator awg-status` | AmneziaWG backend status as JSON |
 | `sudo xrayebator awg-grant --name N` | Issue a per-profile peer (keypair + preshared key + `10.8.1.x` address in the profile's `.backends.awg`); `awg0.conf` is regenerated; prints JSON |
@@ -267,14 +267,20 @@ parser objects.
 `awg-install` builds the kernel module via DKMS (primary path: the `amnezia/ppa` PPA; fallback: a
 source build that needs the full `linux-source` tree on kernels ≥ 5.6) and brings up the `awg0`
 interface through `awg-quick@awg0` with a random high UDP port, subnet `10.8.1.0/24`, `ip_forward`
-and MASQUERADE on the default-route interface. Junk parameters are generated per the AWG spec:
-`Jc` 1..128, `Jmin < Jmax ≤ 1280`, `S1`/`S2` 15..150 with `S1+56 ≠ S2`, `H1`–`H4` unique in
-5..2147483647. Each profile peer gets a keypair, a preshared key and the first free address; the
+and MASQUERADE on the default-route interface. Junk parameters mirror the Amnezia defaults — the
+dialect every official AmneziaVPN client (phone and desktop) applies reliably: `Jc` 5, `Jmin` 10,
+`Jmax` 50, `H1`–`H4` = 1..4 (the WireGuard magic headers), `S1`/`S2` random 12..150 and `S3`/`S4`
+random 12..64 (all unique, `S1+56 ≠ S2`). Each profile peer gets a keypair, a preshared key and the
+first free address; the
 client `.conf` (menu item 12 or `awg-conf --name N`) carries full-tunnel `AllowedIPs` and the
 server's junk parameters, and starts with a self-describing header noting that the profile runs
 through AmneziaVPN/AmneziaWG, not V2Ray clients (HAPP). In the desktop GUI the same keys are
 delivered per profile via the «Ключи» button in Server Settings: the Hysteria 2 link and the AWG
-`.conf` as text with QR codes and one-click grant issuance. Peer changes restart the interface with
+`.conf` as text with QR codes and one-click grant issuance. The «QR · AmneziaVPN» code carries the
+config in the app-native `vpn://` shape (`amnezia-awg2` container, server-side junk fields,
+`protocol_version`, compressed payload) — a raw `.conf` pasted into AmneziaVPN does not reach its
+tunnel intact, so that code is the recommended delivery for this app; the plain QR stays for the
+standalone AmneziaWG client. Peer changes restart the interface with
 rollback — a brief tunnel blip for all peers, acceptable because grants and revokes are rare.
 
 ### AWG 2.0 vs 3.x — and why 3.1 matters against DPI/ТСПУ
