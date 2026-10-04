@@ -135,7 +135,8 @@
     "backendsNotReady": "Бэкенд ещё не активен или конфиг недоступен — проверьте статус в настройках сервера.",
     "backendsNoAccess": "Для ключей AmneziaWG нужен сохранённый доступ к серверу (пароль/ключ в keychain) — зайдите в Server Settings один раз.",
     "backendsEndpoint": "Endpoint",
-    "backendsAddress": "Адрес"
+    "backendsAddress": "Адрес",
+    "backendsQrVpn": "QR · AmneziaVPN"
   },
   "settings": {
     "title": "Профили сервера",

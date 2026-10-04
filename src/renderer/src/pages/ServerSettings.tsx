@@ -30,7 +30,7 @@ import type {
 } from '@shared/types'
 import { describeExpire, isFutureDate, presetDate } from '@shared/expire'
 import { todayIso } from '@shared/calendar'
-import { parseAwgClientConf, stripAwgComments } from '@shared/awg'
+import { buildAwgVpnUrl, parseAwgClientConf, stripAwgComments } from '@shared/awg'
 import { isSshAccessReady, SshAccessForm } from '../components/SshAccessForm'
 import { CalendarPicker } from '../components/CalendarPicker'
 import { shouldAutoConnectServer } from './server-access'
@@ -1252,7 +1252,7 @@ export function ServerSettings({
                 <div className={styles.keysBlock}>
                   <div className={styles.keysChipRow}>
                     <Chip size="sm" color="default">
-                      AMNEZIAWG 3.1 · UDP
+                      AMNEZIAWG · UDP
                     </Chip>
                   </div>
                   <p className={styles.keysNote}>{t('settings.beKeysAwgNote')}</p>
@@ -1287,6 +1287,15 @@ export function ServerSettings({
                           onPress={() => void showKeysQr(stripAwgComments(keysAwgConf ?? ''))}
                         >
                           {t('keys.qr')}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onPress={() =>
+                            void showKeysQr(buildAwgVpnUrl(keysAwgConf ?? '', keysTarget?.name))
+                          }
+                        >
+                          {t('keys.backendsQrVpn')}
                         </Button>
                       </div>
                     </>

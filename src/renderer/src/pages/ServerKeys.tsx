@@ -9,7 +9,7 @@ import type {
   VlessLink
 } from '@shared/types'
 import { vlessPort } from '@shared/vless'
-import { parseAwgClientConf, stripAwgComments } from '@shared/awg'
+import { buildAwgVpnUrl, parseAwgClientConf, stripAwgComments } from '@shared/awg'
 import { shouldAutoConnectServer } from './server-access'
 import styles from './ServerKeys.module.css'
 
@@ -247,7 +247,7 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
             <div key={name} className={styles.keyCard}>
               <div className={styles.keyHeader}>
                 <Chip size="sm" color="default">
-                  AMNEZIAWG 3.1 · {name}
+                  AMNEZIAWG · {name}
                 </Chip>
               </div>
               <p className={styles.keyNote}>{t('keys.backendsAwgNote')}</p>
@@ -281,6 +281,13 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
                       onPress={() => showQr(awgQrPayload(conf))}
                     >
                       {t('keys.qr')}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onPress={() => showQr(buildAwgVpnUrl(conf, name))}
+                    >
+                      {t('keys.backendsQrVpn')}
                     </Button>
                   </div>
                 </>
