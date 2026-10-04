@@ -2360,7 +2360,23 @@ _hysteria2_profile_link_pure() {
   local uri="hysteria2://${user}:${pass}@${host}:${port}/?insecure=${insecure}"
   [[ -n "$sni" ]] && uri="hysteria2://${user}:${pass}@${host}:${port}/?sni=${sni}&insecure=${insecure}"
   name=$(jq -r '.name // empty' "$profile_file" 2>/dev/null)
-  [[ -n "$name" ]] && uri="${uri}#${name}"
+  if [[ -n "$name" ]]; then
+    # Флаг страны — как у VLESS-маршрутов: в HAPP ключи должны выглядеть
+    # единообразно (круглый флаг в начале имени). Нет geo-маркера — голое имя.
+    local geo_country geo_flag
+    geo_country=$(_geo_country_name)
+    geo_flag=$(_geo_flag_emoji "$(_geo_country_code)")
+    if [[ -n "$geo_country" ]]; then
+      if [[ -n "$geo_flag" ]]; then
+        name="${geo_flag} ${geo_country} · ${name}"
+      else
+        name="${geo_country} · ${name}"
+      fi
+    fi
+    # Фрагмент обязан быть URL-encoded (юникод флага/пробелы) — как в vless://.
+    name=$(jq -nr --arg n "$name" '$n|@uri')
+    uri="${uri}#${name}"
+  fi
   echo "$uri"
 }
 
