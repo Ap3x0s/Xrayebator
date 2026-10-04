@@ -138,11 +138,14 @@ is a client-side profile/route setting; changing it does not restart Xray or alt
 | `sudo xrayebator hysteria2-uninstall` | Remove the Hysteria 2 backend (service, config, certs, firewall rule); prints JSON |
 | `sudo xrayebator hysteria2-status` | Hysteria 2 backend status as JSON |
 | `sudo xrayebator hysteria2-grant --name N` | Issue a per-profile Hysteria 2 credential (stored in the profile's `.backends.hysteria2`); the server config is regenerated from all profiles; prints JSON |
+| `sudo xrayebator hysteria2-subbody --on\|--off` | Kill switch for the `hysteria2://` lines in both subscription bodies: the flag lives in the backend registry and the handler re-reads it on every request, no service restart; prints JSON |
+| `sudo xrayebator hysteria2-link --name N` | Print the `hysteria2://` link of a profile with a grant as JSON `{ok, name, link}` (naming mirrors the VLESS routes, with the country flag) |
 | `sudo xrayebator awg-install [--grant-all]` | Install the AmneziaWG 2.0 system-VPN backend: kernel module via DKMS (PPA `amnezia/ppa`, source-build fallback), `awg0` interface with a random high UDP port, junk parameters per the AWG spec, `ip_forward` + MASQUERADE; prints JSON |
 | `sudo xrayebator awg-uninstall` | Remove the AmneziaWG backend (interface, config, symlink, firewall rule; packages/module stay in the system); prints JSON |
 | `sudo xrayebator awg-status` | AmneziaWG backend status as JSON |
 | `sudo xrayebator awg-grant --name N` | Issue a per-profile peer (keypair + preshared key + `10.8.1.x` address in the profile's `.backends.awg`); `awg0.conf` is regenerated; prints JSON |
 | `sudo xrayebator awg-conf --name N` | Print the client `.conf` for a profile peer as JSON `{ok, name, conf}` — full-tunnel AllowedIPs, server junk parameters, endpoint; import into the AmneziaWG/AmneziaVPN client |
+| `sudo xrayebator awg-31 --on\|--off` | Toggle the AWG 3.1 config format (`HeaderProtectionKey`, `RandomTrailers`, `S3`/`S4`); 3.1 is on by default for new installs, the toggle upgrades legacy server params in place, warns that every issued client `.conf` must be re-downloaded (AmneziaVPN ≥ 5.0.1.5) and regenerates the interface with rollback |
 | `sudo xrayebator-update [branch]` | Run the full `update.sh` project lifecycle update; without a branch, display `.current_branch` and open the interactive branch selector; with a branch, use that explicit branch |
 | `sudo xrayebator-uninstall` | Remove the service and installation |
 
@@ -189,7 +192,10 @@ profile when `xhttp-legacy`, `xhttp-pq` or the expected seven-route shape is mis
 
 The active Electron app is a CLI front-end over SSH, not a complete replacement for the terminal
 menu. It deploys with `quickstart`, refreshes the saved `subscription_url`, and exposes profile
-SNI, fingerprint, port, update and uninstall operations. `probe-test`, HAPP setup, cascade,
+SNI, fingerprint, port, update and uninstall operations plus the multi-protocol backend panel:
+backend install/uninstall and status, a per-profile keys dialog (Hysteria 2 link + QR, AmneziaWG
+client conf + QR), the subscription kill switch for `hysteria2://` lines and the AWG 3.1 toggle.
+`probe-test`, HAPP setup, cascade,
 self-steal, the interactive menu and service diagnostics remain server-side operations.
 
 See [Electron Desktop GUI](desktop-gui.md) for the complete command mapping, security boundary,

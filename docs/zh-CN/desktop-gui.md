@@ -44,7 +44,7 @@ GUI 会显示部署日志和步骤状态，但进行中的部署没有 IPC 取�
 向导显示步骤索引和实际执行工作的实时控制台：SSH 连接、`xrayebator inspect --json` 调用、返回的组件状态、订阅探测和最终结果。订阅 URL 是 bearer credential，因此其令牌在进入控制台前会被遮蔽（`…`）；密码和密钥字节完全不会出现在其中。
 ### Server keys
 
-Server keys 会从保存的 `subscription_url` 刷新订阅，并显示返回的 VLESS 线路。每条 VLESS 链接都可以复制或生成二维码；订阅 URL 也可以复制，页面还提供复制全部内容的操作。此页面不会在服务器上创建独立订阅，也不会轮换订阅令牌（轮换在 Server settings 的配置档卡片上进行）。
+Server keys 会从保存的 `subscription_url` 刷新订阅，并显示返回的 VLESS 线路。每条 VLESS 链接都可以复制或生成二维码；订阅 URL 也可以复制，页面还提供复制全部内容的操作。此页面不会在服务器上创建独立订阅，也不会轮换订阅令牌（轮换在 Server settings 的配置档卡片上进行）。当服务器存在多协议后端时，页面还会从持久化本地存储中显示它们的密钥：每个持有授权的配置档一张 Hysteria 2 卡片（`hysteria2://` 链接，复制+二维码），以及一张 AmneziaWG 卡片——客户端 `.conf`，其中 `Endpoint`/`Address` 以键值字段呈现，去掉服务注释头的完整 `.conf` 以文本和二维码提供，可导入 AmneziaVPN/AmneziaWG。后端卡片立即从持久化存储渲染，并与 VLESS 线路并行刷新；spinner 位于卡片内部，仅在数据获取期间可见。
 
 ### Server settings
 
@@ -57,7 +57,9 @@ Server settings 先通过 SSH 认证。如果卡片中已有系统钥匙串保�
 - 修改配置档线路的端口，或选择随机端口；
 - 更新服务器安装；
 - 确认后卸载服务器安装；
-- 在明确确认后重置固定的 SSH host key。
+- 在明确确认后重置固定的 SSH host key；
+- 管理多协议后端（与菜单项 11–13 对齐）：合并面板显示 Hysteria 2 与 AmneziaWG 状态（版本、端口、TLS 模式 / 接口、junk 摘要），提供安装/卸载、订阅中 `hysteria2://` 行的总开关和 AWG 3.1 切换——后两者均带明确确认；
+- 按配置档签发后端密钥：「密钥」操作打开对话框，包含 Hysteria 2 链接（文本+二维码）与 AmneziaWG 客户端 `.conf`（文本+二维码，`Endpoint`/`Address` 单独成字段）；首次打开对话框时按需在服务器上创建授权。
 
 SNI 和端口属于 inbound 级别的设置：修改它们可能影响共享该 inbound 的所有配置档。Fingerprint 则不同：它是按配置档/线路保存的客户端参数，不会修改其他线路。服务端命令会报告结果以及是否需要重新连接。
 
@@ -90,6 +92,14 @@ xrayebator sni-change --name NAME [--route R] --sni SNI
 xrayebator sni-list
 xrayebator port-change --name NAME [--route R] --port PORT|random
 xrayebator bypass list|add --domain D|remove --domain D|reset|bundle [--group a,b,c]
+```
+
+后端管理会额外调用：
+
+```text
+xrayebator backend-status
+xrayebator hysteria2-install [--port P] [--grant-all] / hysteria2-uninstall / hysteria2-grant --name N / hysteria2-subbody --on|--off / hysteria2-link --name N
+xrayebator awg-install [--grant-all] / awg-uninstall / awg-grant --name N / awg-conf --name N / awg-31 --on|--off
 ```
 
 部署流程会调用以下命令之一：
