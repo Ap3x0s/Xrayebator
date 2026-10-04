@@ -516,6 +516,40 @@ export function registerIpcHandlers({ store }: IpcContext): void {
     }
   )
 
+  ipcMain.handle(
+    'backends:hysteria2Install',
+    async (_e, serverId: string, access: SshAccessInput, grantAll: boolean) => {
+      const manager = await backendManagerFor(serverId, access)
+      return manager.hysteria2Install(Boolean(grantAll))
+    }
+  )
+
+  ipcMain.handle('backends:hysteria2Uninstall', async (_e, serverId: string, access: SshAccessInput) => {
+    const manager = await backendManagerFor(serverId, access)
+    return manager.hysteria2Uninstall()
+  })
+
+  ipcMain.handle(
+    'backends:awgInstall',
+    async (_e, serverId: string, access: SshAccessInput, grantAll: boolean) => {
+      const manager = await backendManagerFor(serverId, access)
+      return manager.awgInstall(Boolean(grantAll))
+    }
+  )
+
+  ipcMain.handle('backends:awgUninstall', async (_e, serverId: string, access: SshAccessInput) => {
+    const manager = await backendManagerFor(serverId, access)
+    return manager.awgUninstall()
+  })
+
+  ipcMain.handle(
+    'backends:hysteria2Subbody',
+    async (_e, serverId: string, access: SshAccessInput, on: boolean) => {
+      const manager = await backendManagerFor(serverId, access)
+      return manager.hysteria2Subbody(Boolean(on))
+    }
+  )
+
   const serverManagerFor = async (
     serverId: string,
     access: SshAccessInput

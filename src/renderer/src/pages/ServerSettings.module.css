@@ -112,6 +112,56 @@
   padding: 18px 20px;
 }
 
+/* --- Мультипротокольные бэкенды (этап 2) --- */
+.backendRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+}
+
+.backendRow:first-of-type {
+  border-top: none;
+  padding-top: 4px;
+}
+
+.backendMeta {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.backendName {
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.backendState {
+  font-size: 12px;
+  color: var(--text-2);
+  margin-top: 2px;
+}
+
+.backendStateOk {
+  color: var(--success, #2fb344);
+}
+
+.backendNote {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.backendActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .hint {
   margin: 0 0 14px;
   font-size: 14px;

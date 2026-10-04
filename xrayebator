@@ -2738,6 +2738,32 @@ hysteria2_status_command() {
   echo "$full" | jq --arg bin "$bin_state" '{ok: .ok, binary: $bin, backend: .backends.hysteria2}'
 }
 
+# CLI: hysteria2-subbody --on|--off. Kill-switch строк hysteria2:// в телах
+# подписки (handler перечитывает реестр на каждый запрос — без рестартов).
+# Только JSON на stdout.
+hysteria2_subbody_command() {
+  local mode=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --on) mode="on"; shift ;;
+      --off) mode="off"; shift ;;
+      *) shift ;;
+    esac
+  done
+  [[ -n "$mode" ]] || { echo '{"ok":false,"error":"--on/--off required"}'; return 1; }
+  if ! _backend_installed hysteria2; then
+    echo '{"ok":false,"error":"Hysteria 2 не установлена"}'
+    return 1
+  fi
+  local v=true
+  [[ "$mode" == "off" ]] && v=false
+  _backend_set hysteria2 '(.hysteria2.sub_body) = $v' --argjson v "$v" || {
+    echo '{"ok":false,"error":"registry write failed"}'
+    return 1
+  }
+  jq -n --argjson v "$v" '{ok: true, sub_body: $v}'
+}
+
 # Меню 13: сводный статус всех бэкендов.
 backend_status_menu() {
   while true; do
@@ -14515,6 +14541,10 @@ if [[ "$XRAYEBATOR_SOURCED" -eq 0 ]]; then
       shift
       hysteria2_grant_command "$@"
       ;;
+    hysteria2-subbody)
+      shift
+      hysteria2_subbody_command "$@"
+      ;;
     awg-install)
       shift
       awg_install_command "$@"
@@ -14572,6 +14602,7 @@ if [[ "$XRAYEBATOR_SOURCED" -eq 0 ]]; then
       echo -e "  ${CYAN}sudo xrayebator hysteria2-uninstall${NC} — удалить Hysteria 2 (JSON)"
       echo -e "  ${CYAN}sudo xrayebator hysteria2-status${NC} — статус Hysteria 2 (JSON)"
       echo -e "  ${CYAN}sudo xrayebator hysteria2-grant --name N${NC} — выдать грант профилю (JSON)"
+      echo -e "  ${CYAN}sudo xrayebator hysteria2-subbody --on|--off${NC} — hysteria2-строки в подписке (JSON)"
       echo -e "  ${CYAN}sudo xrayebator awg-install${NC} — установить AmneziaWG 2.0 (JSON)"
       echo -e "  ${CYAN}sudo xrayebator awg-uninstall${NC} — удалить AmneziaWG (JSON)"
       echo -e "  ${CYAN}sudo xrayebator awg-status${NC} — статус AmneziaWG (JSON)"
