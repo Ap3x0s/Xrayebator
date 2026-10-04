@@ -110,11 +110,14 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
         setAwgConfs((current) => {
           const merged: Record<string, string> = { ...current }
           for (const [name, conf] of confEntries) {
+            // Неудачный refetch НЕ стирает сохранённый конфиг (last known good).
             if (conf) merged[name] = conf
-            else delete merged[name]
           }
           return merged
         })
+        // Финальная синхронизация со стором: состояние == персистентные данные.
+        const fresh = await window.api.servers.get(server.id)
+        if (!cancelled && fresh?.awgConfs) setAwgConfs(fresh.awgConfs)
       } catch {
         if (!cancelled) {
           setProfiles([])
@@ -280,19 +283,14 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
                     </Button>
                   </div>
                 </>
+              ) : beBusy ? (
+                <Spinner size="sm" />
               ) : (
                 <div className={styles.empty}>{t('keys.backendsNotReady')}</div>
               )}
             </div>
           )
         })}
-
-
-        {beBusy && (
-          <div className={styles.loading}>
-            <Spinner size="sm" />
-          </div>
-        )}
 
         {subscriptionUrl && (
           <div className={styles.keyCard}>
