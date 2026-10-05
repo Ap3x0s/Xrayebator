@@ -48,7 +48,9 @@ promise that installer and updater paths behave identically.
 | `test-cascade-upstream-import.sh` | Cascade upstream import from a VLESS link |
 | `test-dead-stealth-route-pruning.sh` | Pruning dead stealth routes |
 | `test-fingerprint-subscription-sync.sh` | Fingerprint changes and subscription synchronisation |
-| `test-happ-subscription-static.sh` | Static HAPP subscription handler behavior |
+| `test-happ-subscription-static.sh` | Static HAPP subscription handler behavior (routing placeholders, schema validation order) |
+| `test-happ-client-routing.sh` | HAPP client split-profile: generator from bypass bundles (258 domains, placeholders, `geoip:ru`), nginx proxy buffers, menu wiring |
+| `test-legacy-profile-port-sync.sh` | Legacy profiles without `routes` still receive SNI/port sync updates |
 | `test-installer-network-fallbacks.sh` | Installer network and resolver fallbacks |
 | `test-legacy-udp443-migration.sh` | One-time removal of the legacy UDP/443 block |
 | `test-main-menu-numbering.sh` | Consecutive menu numbering and matching handlers (1..13 including the backend items) |
