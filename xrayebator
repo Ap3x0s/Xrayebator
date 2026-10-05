@@ -12971,6 +12971,12 @@ server {
     ssl_ciphers HIGH:!aNULL:!MD5;
     location / {
         limit_req zone=xrayebator_sub burst=5 nodelay;
+        # HAPP routing-профиль легко перерастает дефолтные 4k заголовка:
+        # без буферов nginx отвечает 502 "upstream sent too big header".
+        # (Идея из PR #23, tony-adamson; латынь та же, что в доменном TLS-шаблоне.)
+        proxy_buffer_size 32k;
+        proxy_buffers 8 32k;
+        proxy_busy_buffers_size 64k;
         proxy_pass http://127.0.0.1:8080;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
