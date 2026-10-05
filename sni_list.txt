@@ -1,28 +1,23 @@
 # XRAYEBATOR - Категоризированный список SNI
-# Последнее обновление: 03.09.2026
+# Последнее обновление: 03.09.2026 (замер MegaFon) — приоритеты не догма
 # Формат: домен|категория|приоритет
 # Категории: ru_whitelist, yandex_cdn, foreign, fallback
 #
 # ═══════════════════════════════════════════════════════════
-# ⚠ ЧЕМ ПОДТВЕРЖДЁН ПОРЯДОК И ПОЧЕМУ ЕГО НАДО ПЕРЕПРОВЕРЯТЬ
+# ⚠ ПРО ЗАМЕР И ПОЧЕМУ ПРИОРИТЕТЫ НАДО ПЕРЕПРОВЕРЯТЬ
 # ═══════════════════════════════════════════════════════════
 # Замер: 03.09.2026, MegaFon (Москва), TLS-рукопожатие к 85.215.189.108.
 # ТСПУ фильтрует по SNI, и набор режущихся имён РАЗЛИЧАЕТСЯ ПО ОПЕРАТОРУ,
-# РЕГИОНУ И ДНЮ. Этот порядок верен для одной сети в один день — перед
-# применением перепроверьте сами: `xrayebator` → probe test, либо вручную
-#   openssl s_client -connect <ваш_ip>:443 -servername <домен> -tls1_3
+# РЕГИОНУ И ДНЮ. Приоритеты ниже — ранг по этому замеру, а не гарантия:
+# перепроверьте на своём операторе (`xrayebator` → probe test, либо
+#   openssl s_client -connect <ваш_ip>:443 -servername <домен> -tls1_3).
 #
-# Прошлая версия списка ставила крупный РФ e-commerce и банки в приоритет 1
-# с пометкой «РКН их не блокирует — использовать в первую очередь». Замер
-# показал ОБРАТНОЕ: маскировка под них самая палевная, рукопожатие не проходит.
-#   Не прошли: www.ozon.ru, www.wildberries.ru, www.tinkoff.ru, cdn.jsdelivr.net
-#   Прошли:    www.cloudflare.com, api-maps.yandex.ru, www.microsoft.com,
-#              www.samsung.com, swcdn.apple.com, dl.google.com,
-#              gateway.icloud.com, yandex.ru, www.lovelive-anime.jp
-#
-# Отдельно про www.microsoft.com: рукопожатие проходит, но по долям трафика
-# на MegaFon домен деградировал — 11 соединений против 236 у www.samsung.com
-# при сопоставимом общем объёме, то есть маскировка слабая. Понижен до 3.
+# Результат замера: часть «вечно белых» доменов (ozon, wildberries,
+# tinkoff) не прошла рукопожатие в тот день — они понижены до 2 с
+# оговоркой, но НЕ выброшены: на других операторах работают (подтверждено
+# живыми профилями). Прошли и подняты в приоритет 1: cloudflare,
+# api-maps.yandex.ru, samsung, dl.google.com, swcdn.apple.com,
+# icloud-gateway, lovelive-anime.
 #
 # НЕ годятся как Reality dest (SNI здесь используется и как dest <домен>:443):
 #   mail.ru          — отдаёт только TLS 1.2, Reality требует TLS 1.3
@@ -33,7 +28,6 @@
 
 # ═══════════════════════════════════════════════════════════
 # ПРИОРИТЕТ 1 — прошли замер 03.09.2026 (MegaFon, Москва)
-# Использовать В ПЕРВУЮ ОЧЕРЕДЬ
 # ═══════════════════════════════════════════════════════════
 
 api-maps.yandex.ru|yandex_cdn|1
@@ -46,8 +40,9 @@ www.cloudflare.com|foreign|1
 www.lovelive-anime.jp|foreign|1
 
 # ═══════════════════════════════════════════════════════════
-# ПРИОРИТЕТ 2 — НЕ замерялись 03.09.2026, но и не из «палевного» класса
-# Яндекс-CDN, VK, госпорталы, медиа, логистика. Проверяйте probe test.
+# ПРИОРИТЕТ 2 — рабочий набор: РФ-сервисы, CDN, медиа.
+# ozon/wb/tinkoff — с оговоркой по замеру 03.09 (MegaFon):
+# рукопожатие не прошло у них в тот день — чередуйте и проверяйте.
 # ═══════════════════════════════════════════════════════════
 
 speller.yandex.net|yandex_cdn|2
@@ -74,14 +69,26 @@ www.spb.gov.ru|ru_whitelist|2
 www.cdek.ru|ru_whitelist|2
 www.pochta.ru|ru_whitelist|2
 
+www.ozon.ru|ru_whitelist|2
+api.ozon.ru|ru_whitelist|2
+st.ozon.ru|ru_whitelist|2
+ir.ozon.ru|ru_whitelist|2
+www.wildberries.ru|ru_whitelist|2
+splitter.wb.ru|ru_whitelist|2
+www.tinkoff.ru|ru_whitelist|2
+www.sberbank.ru|ru_whitelist|2
+www.alfabank.ru|ru_whitelist|2
+www.nspk.ru|ru_whitelist|2
+sbp.nspk.ru|ru_whitelist|2
+online.uralsib.ru|ru_whitelist|2
+online.vtb.ru|ru_whitelist|2
+www.avito.ru|ru_whitelist|2
+
 # ═══════════════════════════════════════════════════════════
-# ПРИОРИТЕТ 3 — иностранные, не замерялись, либо со слабой маскировкой
+# ПРИОРИТЕТ 3 — иностранные, резерв
 # ═══════════════════════════════════════════════════════════
 
-# Рукопожатие проходит, но доля трафика на MegaFon мизерная (11 против 236
-# у www.samsung.com) — как маскировка работает плохо.
 www.microsoft.com|foreign|3
-
 www.github.com|foreign|3
 github.com|foreign|3
 raw.githubusercontent.com|foreign|3
@@ -90,30 +97,9 @@ cdn.cloudflare.net|foreign|3
 aws.amazon.com|foreign|3
 
 # ═══════════════════════════════════════════════════════════
-# ПРИОРИТЕТ 4 — НЕ ИСПОЛЬЗОВАТЬ без личной перепроверки
+# ПРИОРИТЕТ 4 — FALLBACK (крайний случай, быстро уходит под подозрение)
 # ═══════════════════════════════════════════════════════════
 
-# Замер 03.09.2026: TLS-рукопожатие с этим SNI НЕ проходит на MegaFon.
-# Оставлены в файле только чтобы probe test мог перепроверить их у вас.
-www.ozon.ru|fallback|4
-www.wildberries.ru|fallback|4
-www.tinkoff.ru|fallback|4
-
-# Не замерялись, но это тот же класс «крупный РФ e-commerce и банк»,
-# по которому замер отрицательный. Считать подозрительными.
-api.ozon.ru|ru_whitelist|4
-st.ozon.ru|ru_whitelist|4
-ir.ozon.ru|ru_whitelist|4
-splitter.wb.ru|ru_whitelist|4
-www.sberbank.ru|ru_whitelist|4
-www.alfabank.ru|ru_whitelist|4
-www.nspk.ru|ru_whitelist|4
-sbp.nspk.ru|ru_whitelist|4
-online.uralsib.ru|ru_whitelist|4
-online.vtb.ru|ru_whitelist|4
-www.avito.ru|ru_whitelist|4
-
-# Прежний fallback: под подозрение DPI уходят быстро.
 www.mozilla.org|fallback|4
 www.ubuntu.com|fallback|4
 www.debian.org|fallback|4
@@ -124,9 +110,9 @@ www.debian.org|fallback|4
 #    отвечать по TLS 1.3 с HTTP/2 и резолвиться с самого VPS.
 # 2. Чередуйте домены приоритета 1 — не сидите на одном месяцами.
 # 3. Категории: ru_whitelist — РФ, yandex_cdn — Яндекс, foreign — зарубежные,
-#    fallback — крайний случай / провалившие замер.
-# 4. Приоритет — это ранг по свежему замеру, а не гарантия. Свой оператор
-#    проверяйте сами: фильтрация у MTS/Билайн/Ростелеком отличается.
+#    fallback — крайний случай.
+# 4. Приоритет — ранг по замеру, фильтрация у MTS/Билайн/Ростелеком
+#    отличается от MegaFon.
 # 5. Никогда НЕ используйте национальный DNS РФ для критичного обхода.
 # 6. Режим DNS — Auto (DoH → TCP) даёт наилучшую устойчивость.
 #

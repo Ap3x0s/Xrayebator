@@ -113,6 +113,7 @@ export function ServerSettings({
   const [keysHystErr, setKeysHystErr] = useState<string | null>(null)
   const [keysAwgConf, setKeysAwgConf] = useState<string | null>(null)
   const [keysAwgErr, setKeysAwgErr] = useState<string | null>(null)
+  const [keysExpiryDate, setKeysExpiryDate] = useState<string | null>(null)
   const [keysBusy, setKeysBusy] = useState(false)
   const [keysQrUrl, setKeysQrUrl] = useState<string | null>(null)
   const [keysQrData, setKeysQrData] = useState<string | null>(null)
@@ -656,6 +657,7 @@ export function ServerSettings({
 
   const openBackendKeys = (profile: ServerProfile): void => {
     setKeysTarget(profile)
+    setKeysExpiryDate(profile.expire_date ?? null)
     setKeysBusy(true)
     void fetchBackendKeys(profile.name).finally(() => setKeysBusy(false))
   }
@@ -665,6 +667,28 @@ export function ServerSettings({
     setKeysHystLink(null)
     setKeysAwgConf(null)
     setKeysQrUrl(null)
+    setKeysExpiryDate(null)
+  }
+
+  // Срок в диалоге ключей: профильный expiry управляет всеми ключами профиля
+  // (vless + hysteria2 + awg) транзитивно через choke point.
+  const applyKeysExpire = async (days: number | null): Promise<void> => {
+    if (!keysTarget) return
+    setKeysBusy(true)
+    try {
+      const value = days ? presetDate(days, Date.now()) : null
+      await window.api.profiles.setExpire(server.id, access, {
+        name: keysTarget.name,
+        expire: value
+      })
+      setKeysExpiryDate(value)
+      const fresh = await window.api.profiles.list(server.id, access)
+      setProfiles(fresh.profiles ?? [])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setKeysBusy(false)
+    }
   }
 
   const grantBackend = async (kind: 'hysteria2' | 'awg'): Promise<void> => {
@@ -1213,10 +1237,31 @@ export function ServerSettings({
               <AlertDialog.Body>
                 {keysBusy ? <Spinner size="sm" /> : null}
                 <p className={styles.keysNote}>
-                  {keysTarget?.expire_date
-                    ? t('keys.backendsExpiryDate', { date: keysTarget.expire_date })
+                  {keysExpiryDate
+                    ? t('keys.backendsExpiryDate', { date: keysExpiryDate })
                     : t('keys.backendsExpiryNone')}
                 </p>
+                <div className={styles.backendActions}>
+                  {[7, 30, 90, 365].map((d) => (
+                    <Button
+                      key={d}
+                      size="sm"
+                      variant="secondary"
+                      isDisabled={keysBusy}
+                      onPress={() => void applyKeysExpire(d)}
+                    >
+                      +{d}
+                    </Button>
+                  ))}
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    isDisabled={keysBusy}
+                    onPress={() => void applyKeysExpire(null)}
+                  >
+                    ∞
+                  </Button>
+                </div>
 
                 <div className={styles.keysBlock}>
                   <div className={styles.keysChipRow}>
