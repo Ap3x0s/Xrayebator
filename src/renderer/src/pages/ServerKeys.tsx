@@ -9,6 +9,7 @@ import type {
   VlessLink
 } from '@shared/types'
 import { vlessPort } from '@shared/vless'
+import { presetDate } from '@shared/expire'
 import { buildAwgVpnUrl, parseAwgClientConf, stripAwgComments } from '@shared/awg'
 import { shouldAutoConnectServer } from './server-access'
 import styles from './ServerKeys.module.css'
@@ -234,6 +235,48 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
       </p>
     ) : null
 
+  // Срок для бэкенд-ключей = срок профиля (транзитивно через choke point:
+  // истёкший профиль теряет и hysteria2-юзера, и AWG-peer). Пресеты — чтобы
+  // управлять сроком прямо с карточки ключа, не ища профиль в настройках.
+  const setBackendExpiry = async (name: string, days: number | null): Promise<void> => {
+    setRotating(`exp:${name}`)
+    try {
+      await window.api.profiles.setExpire(
+        server.id,
+        storedAccess,
+        { name, expire: days ? presetDate(days, Date.now()) : null }
+      )
+      const pl = await window.api.profiles.list(server.id, storedAccess).catch(() => null)
+      if (pl?.profiles) setProfiles(pl.profiles)
+    } finally {
+      setRotating(null)
+    }
+  }
+
+  const expiryPresets = (name: string): React.JSX.Element => (
+    <div className={styles.keyActions}>
+      {[7, 30, 90].map((d) => (
+        <Button
+          key={d}
+          size="sm"
+          variant="secondary"
+          isDisabled={rotating !== null}
+          onPress={() => void setBackendExpiry(name, d)}
+        >
+          +{d}
+        </Button>
+      ))}
+      <Button
+        size="sm"
+        variant="secondary"
+        isDisabled={rotating !== null}
+        onPress={() => void setBackendExpiry(name, null)}
+      >
+        ∞
+      </Button>
+    </div>
+  )
+
   const hysteria2Port = (link: string): string => {
     const m = link.match(/@[^/:]+:(\d+)/)
     return m ? m[1] : ''
@@ -300,6 +343,7 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
               </div>
               <p className={styles.keyNote}>{t('keys.backendsHystNote')}</p>
               {expiryLine(profile)}
+              {profile ? expiryPresets(user) : null}
               <div className={styles.keyUrl} title={link}>
                 {link}
               </div>
@@ -332,6 +376,7 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
               </div>
               <p className={styles.keyNote}>{t('keys.backendsAwgNote')}</p>
               {expiryLine(profile)}
+              {profile ? expiryPresets(name) : null}
               {fields ? (
                 <>
                   <div className={styles.keysFields}>
