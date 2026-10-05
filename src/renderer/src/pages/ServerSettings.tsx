@@ -1154,8 +1154,8 @@ export function ServerSettings({
                               >
                                 {t(
                                   awgEntry.three_enabled
-                                    ? 'settings.backends31Off'
-                                    : 'settings.backends31On'
+                                    ? 'settings.backends31Disable'
+                                    : 'settings.backends31Enable'
                                 )}
                               </Button>
                               <Button
