@@ -9,7 +9,6 @@ import type {
   VlessLink
 } from '@shared/types'
 import { vlessPort } from '@shared/vless'
-import { presetDate } from '@shared/expire'
 import { buildAwgVpnUrl, parseAwgClientConf, stripAwgComments } from '@shared/awg'
 import { shouldAutoConnectServer } from './server-access'
 import styles from './ServerKeys.module.css'
@@ -34,9 +33,6 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
   // Мультипротокольные бэкенды: hysteria2 приходит из подписки, AWG — по SSH.
   const [profiles, setProfiles] = useState<ServerProfile[]>([])
   const [beBusy, setBeBusy] = useState(false)
-  // Перевыпуск креденшелов бэкендов (ротация пароля/ключей peer'а).
-  const [rotating, setRotating] = useState<string | null>(null)
-  const [confirmRotate, setConfirmRotate] = useState<string | null>(null)
 
   // Доступ из сохранённой карточки сервера (секрет — в keychain).
   const storedAccess: SshAccessInput = {
@@ -166,42 +162,6 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
   /** QR для импорта в AmneziaWG-клиент: без комментариев-шапки. */
   const awgQrPayload = (conf: string): string => stripAwgComments(conf)
 
-  const refreshSubscription = async (): Promise<void> => {
-    const result = await window.api.subscription.fetch(server.id)
-    setKeys(result.keys)
-    setHysteria2Links(result.hysteria2Links ?? [])
-    setSubscriptionUrl(result.subscriptionUrl)
-  }
-
-  // Перевыпуск = повторный grant: Hysteria ротирует пароль, AWG — пару ключей
-  // peer'а (адрес сохраняется). Старые ключи перестают работать.
-  const rotateHysteria = async (name: string): Promise<void> => {
-    setRotating(`hyst:${name}`)
-    try {
-      await window.api.backends.hysteria2Grant(server.id, storedAccess, name)
-      await refreshSubscription()
-    } finally {
-      setRotating(null)
-      setConfirmRotate(null)
-    }
-  }
-
-  const rotateAwg = async (name: string): Promise<void> => {
-    setRotating(`awg:${name}`)
-    try {
-      await window.api.backends.awgGrant(server.id, storedAccess, name)
-      const conf = await window.api.backends
-        .awgConf(server.id, storedAccess, name)
-        .catch(() => null)
-      if (conf?.ok && conf.conf) {
-        setAwgConfs((current) => ({ ...current, [name]: conf.conf ?? '' }))
-      }
-    } finally {
-      setRotating(null)
-      setConfirmRotate(null)
-    }
-  }
-
   const hystUserFromLink = (link: string): string => {
     const user = link.match(/^hysteria2:\/\/([^:]+):/)?.[1] ?? ''
     try {
@@ -211,21 +171,6 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
     }
   }
 
-  const rotateButton = (key: string, rotate: () => Promise<void>): React.JSX.Element => (
-    <Button
-      size="sm"
-      variant={confirmRotate === key ? 'primary' : 'secondary'}
-      isDisabled={rotating !== null}
-      onPress={() => (confirmRotate === key ? void rotate() : setConfirmRotate(key))}
-    >
-      {rotating === key
-        ? t('keys.backendsReissuing')
-        : confirmRotate === key
-          ? t('keys.backendsReissueConfirm')
-          : t('keys.backendsReissue')}
-    </Button>
-  )
-
   const expiryLine = (profile: ServerProfile | undefined): React.JSX.Element | null =>
     profile ? (
       <p className={styles.keyNote}>
@@ -234,48 +179,6 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
           : t('keys.backendsExpiryNone')}
       </p>
     ) : null
-
-  // Срок для бэкенд-ключей = срок профиля (транзитивно через choke point:
-  // истёкший профиль теряет и hysteria2-юзера, и AWG-peer). Пресеты — чтобы
-  // управлять сроком прямо с карточки ключа, не ища профиль в настройках.
-  const setBackendExpiry = async (name: string, days: number | null): Promise<void> => {
-    setRotating(`exp:${name}`)
-    try {
-      await window.api.profiles.setExpire(
-        server.id,
-        storedAccess,
-        { name, expire: days ? presetDate(days, Date.now()) : null }
-      )
-      const pl = await window.api.profiles.list(server.id, storedAccess).catch(() => null)
-      if (pl?.profiles) setProfiles(pl.profiles)
-    } finally {
-      setRotating(null)
-    }
-  }
-
-  const expiryPresets = (name: string): React.JSX.Element => (
-    <div className={styles.keyActions}>
-      {[7, 30, 90].map((d) => (
-        <Button
-          key={d}
-          size="sm"
-          variant="secondary"
-          isDisabled={rotating !== null}
-          onPress={() => void setBackendExpiry(name, d)}
-        >
-          +{d}
-        </Button>
-      ))}
-      <Button
-        size="sm"
-        variant="secondary"
-        isDisabled={rotating !== null}
-        onPress={() => void setBackendExpiry(name, null)}
-      >
-        ∞
-      </Button>
-    </div>
-  )
 
   const hysteria2Port = (link: string): string => {
     const m = link.match(/@[^/:]+:(\d+)/)
@@ -343,7 +246,6 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
               </div>
               <p className={styles.keyNote}>{t('keys.backendsHystNote')}</p>
               {expiryLine(profile)}
-              {profile ? expiryPresets(user) : null}
               <div className={styles.keyUrl} title={link}>
                 {link}
               </div>
@@ -354,9 +256,6 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
                 <Button size="sm" variant="secondary" onPress={() => showQr(link)}>
                   {t('keys.qr')}
                 </Button>
-                {user && profile?.backends?.hysteria2
-                  ? rotateButton(`hyst:${user}`, () => rotateHysteria(user))
-                  : null}
               </div>
             </div>
           )
@@ -376,7 +275,6 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
               </div>
               <p className={styles.keyNote}>{t('keys.backendsAwgNote')}</p>
               {expiryLine(profile)}
-              {profile ? expiryPresets(name) : null}
               {fields ? (
                 <>
                   <div className={styles.keysFields}>
@@ -421,7 +319,6 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
                     >
                       {t('keys.backendsQrVpn')}
                     </Button>
-                    {rotateButton(`awg:${name}`, () => rotateAwg(name))}
                   </div>
                 </>
               ) : granted && beBusy ? (

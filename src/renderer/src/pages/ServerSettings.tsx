@@ -105,6 +105,8 @@ export function ServerSettings({
     | 'awg31-off'
     | 'hysteria2-regrant'
     | 'awg-regrant'
+    | 'hysteria2-revoke-all'
+    | 'awg-revoke-all'
     | null
   >(null)
   // Срез C: диалог ключей бэкендов у профиля.
@@ -113,7 +115,6 @@ export function ServerSettings({
   const [keysHystErr, setKeysHystErr] = useState<string | null>(null)
   const [keysAwgConf, setKeysAwgConf] = useState<string | null>(null)
   const [keysAwgErr, setKeysAwgErr] = useState<string | null>(null)
-  const [keysExpiryDate, setKeysExpiryDate] = useState<string | null>(null)
   const [keysBusy, setKeysBusy] = useState(false)
   const [keysQrUrl, setKeysQrUrl] = useState<string | null>(null)
   const [keysQrData, setKeysQrData] = useState<string | null>(null)
@@ -164,6 +165,7 @@ export function ServerSettings({
   const [revokeUrl, setRevokeUrl] = useState<string | null>(null)
 
   const [expireTarget, setExpireTarget] = useState<ServerProfile | null>(null)
+  const [expireChooser, setExpireChooser] = useState<ServerProfile[] | null>(null)
   const [expireDate, setExpireDate] = useState('')
   const [expireBusy, setExpireBusy] = useState(false)
   const [expireDone, setExpireDone] = useState(false)
@@ -637,6 +639,36 @@ export function ServerSettings({
     return runBackendAction('awg31', () => window.api.backends.awg31(server.id, access, on))
   }
 
+  // Revoke/Срок на карточках бэкендов: креденшелы per-profile, поэтому
+  // операции идут по всем профилям с грантом этого бэкенда.
+  const grantedBackendProfiles = (kind: 'hysteria2' | 'awg'): ServerProfile[] =>
+    (profiles ?? []).filter((p) => p.backends?.[kind])
+
+  const revokeBackendKeys = (kind: 'hysteria2' | 'awg'): Promise<void> => {
+    setConfirmBackend(null)
+    const targets = grantedBackendProfiles(kind)
+    return runBackendAction(`${kind}-revoke-all`, async () => {
+      for (const p of targets) {
+        if (kind === 'hysteria2') {
+          await window.api.backends.hysteria2Grant(server.id, access, p.name)
+        } else {
+          await window.api.backends.awgGrant(server.id, access, p.name)
+        }
+      }
+    })
+  }
+
+  const openBackendExpiry = (kind: 'hysteria2' | 'awg'): void => {
+    const granted = grantedBackendProfiles(kind)
+    if (granted.length === 0) return
+    if (granted.length === 1) {
+      setExpireChooser(null)
+      setExpireTarget(granted[0])
+    } else {
+      setExpireChooser(granted)
+    }
+  }
+
   // ─── Срез C: диалог ключей бэкендов ───
   const fetchBackendKeys = async (name: string): Promise<void> => {
     setKeysHystLink(null)
@@ -657,7 +689,6 @@ export function ServerSettings({
 
   const openBackendKeys = (profile: ServerProfile): void => {
     setKeysTarget(profile)
-    setKeysExpiryDate(profile.expire_date ?? null)
     setKeysBusy(true)
     void fetchBackendKeys(profile.name).finally(() => setKeysBusy(false))
   }
@@ -667,28 +698,6 @@ export function ServerSettings({
     setKeysHystLink(null)
     setKeysAwgConf(null)
     setKeysQrUrl(null)
-    setKeysExpiryDate(null)
-  }
-
-  // Срок в диалоге ключей: профильный expiry управляет всеми ключами профиля
-  // (vless + hysteria2 + awg) транзитивно через choke point.
-  const applyKeysExpire = async (days: number | null): Promise<void> => {
-    if (!keysTarget) return
-    setKeysBusy(true)
-    try {
-      const value = days ? presetDate(days, Date.now()) : null
-      await window.api.profiles.setExpire(server.id, access, {
-        name: keysTarget.name,
-        expire: value
-      })
-      setKeysExpiryDate(value)
-      const fresh = await window.api.profiles.list(server.id, access)
-      setProfiles(fresh.profiles ?? [])
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setKeysBusy(false)
-    }
   }
 
   const grantBackend = async (kind: 'hysteria2' | 'awg'): Promise<void> => {
@@ -1130,6 +1139,24 @@ export function ServerSettings({
                               </Button>
                               <Button
                                 size="sm"
+                                variant="secondary"
+                                isDisabled={busy}
+                                onPress={() => openBackendExpiry('hysteria2')}
+                              >
+                                <CalendarClock size={14} />
+                                {t('settings.expireBtn')}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                isDisabled={busy}
+                                onPress={() => setConfirmBackend('hysteria2-revoke-all')}
+                              >
+                                <ShieldOff size={14} />
+                                {t('settings.revokeBtn')}
+                              </Button>
+                              <Button
+                                size="sm"
                                 variant="danger-soft"
                                 isDisabled={busy}
                                 onPress={() => setConfirmBackend('hysteria2-uninstall')}
@@ -1190,6 +1217,24 @@ export function ServerSettings({
                               </Button>
                               <Button
                                 size="sm"
+                                variant="secondary"
+                                isDisabled={busy}
+                                onPress={() => openBackendExpiry('awg')}
+                              >
+                                <CalendarClock size={14} />
+                                {t('settings.expireBtn')}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                isDisabled={busy}
+                                onPress={() => setConfirmBackend('awg-revoke-all')}
+                              >
+                                <ShieldOff size={14} />
+                                {t('settings.revokeBtn')}
+                              </Button>
+                              <Button
+                                size="sm"
                                 variant="danger-soft"
                                 isDisabled={busy}
                                 onPress={() => setConfirmBackend('awg-uninstall')}
@@ -1236,32 +1281,6 @@ export function ServerSettings({
               </AlertDialog.Header>
               <AlertDialog.Body>
                 {keysBusy ? <Spinner size="sm" /> : null}
-                <p className={styles.keysNote}>
-                  {keysExpiryDate
-                    ? t('keys.backendsExpiryDate', { date: keysExpiryDate })
-                    : t('keys.backendsExpiryNone')}
-                </p>
-                <div className={styles.backendActions}>
-                  {[7, 30, 90, 365].map((d) => (
-                    <Button
-                      key={d}
-                      size="sm"
-                      variant="secondary"
-                      isDisabled={keysBusy}
-                      onPress={() => void applyKeysExpire(d)}
-                    >
-                      +{d}
-                    </Button>
-                  ))}
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    isDisabled={keysBusy}
-                    onPress={() => void applyKeysExpire(null)}
-                  >
-                    ∞
-                  </Button>
-                </div>
 
                 <div className={styles.keysBlock}>
                   <div className={styles.keysChipRow}>
@@ -1288,14 +1307,6 @@ export function ServerSettings({
                           onPress={() => void showKeysQr(keysHystLink)}
                         >
                           {t('keys.qr')}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          isDisabled={keysBusy}
-                          onPress={() => setConfirmBackend('hysteria2-regrant')}
-                        >
-                          {t('keys.backendsReissue')}
                         </Button>
                       </div>
                     </>
@@ -1366,14 +1377,6 @@ export function ServerSettings({
                         >
                           {t('keys.backendsQrVpn')}
                         </Button>
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          isDisabled={keysBusy}
-                          onPress={() => setConfirmBackend('awg-regrant')}
-                        >
-                          {t('keys.backendsReissue')}
-                        </Button>
                       </div>
                     </>
                   ) : keysAwgErr ? (
@@ -1423,6 +1426,9 @@ export function ServerSettings({
                 {confirmBackend === 'awg31-off' && t('settings.backendsConfirm31Off')}
                 {confirmBackend === 'hysteria2-regrant' && t('settings.backendsConfirmReissueHyst')}
                 {confirmBackend === 'awg-regrant' && t('settings.backendsConfirmReissueAwg')}
+                {confirmBackend === 'hysteria2-revoke-all' &&
+                  t('settings.backendsConfirmRevokeHystAll')}
+                {confirmBackend === 'awg-revoke-all' && t('settings.backendsConfirmRevokeAwgAll')}
               </AlertDialog.Body>
               <AlertDialog.Footer>
                 <Button variant="secondary" onPress={() => setConfirmBackend(null)}>
@@ -1437,6 +1443,8 @@ export function ServerSettings({
                     else if (confirmBackend === 'awg31-off') void toggle31(false)
                     else if (confirmBackend === 'hysteria2-regrant') void grantBackend('hysteria2')
                     else if (confirmBackend === 'awg-regrant') void grantBackend('awg')
+                    else if (confirmBackend === 'hysteria2-revoke-all') void revokeBackendKeys('hysteria2')
+                    else if (confirmBackend === 'awg-revoke-all') void revokeBackendKeys('awg')
                     setConfirmBackend(null)
                   }}
                 >
@@ -1608,9 +1616,12 @@ export function ServerSettings({
       </AlertDialog.Root>
 
       <AlertDialog.Root
-        isOpen={expireTarget !== null}
+        isOpen={expireTarget !== null || expireChooser !== null}
         onOpenChange={(open) => {
-          if (!open && !expireBusy) setExpireTarget(null)
+          if (!open && !expireBusy) {
+            setExpireTarget(null)
+            setExpireChooser(null)
+          }
         }}
       >
         <AlertDialog.Backdrop className={styles.blurBackdrop}>
@@ -1625,69 +1636,94 @@ export function ServerSettings({
                 </AlertDialog.Heading>
               </AlertDialog.Header>
               <AlertDialog.Body>
-                <p className={styles.fpHint}>{t('settings.expireHintBody')}</p>
-                {expireTarget && (
-                  <p className={styles.fpCurrent}>
-                    {t('settings.expireCurrent', {
-                      value: expireTarget.expire
-                        ? describeExpire(
-                            expireTarget.expire,
-                            false,
-                            Date.now(),
-                            expireTarget.expire_date
-                          ).date
-                        : t('settings.expireNever')
-                    })}
-                  </p>
+                {expireTarget === null && expireChooser !== null ? (
+                  <div>
+                    <p className={styles.fpHint}>{t('settings.backendsExpiryChoose')}</p>
+                    <div className={styles.revokeOptions}>
+                      {expireChooser.map((p) => (
+                        <Button
+                          key={p.name}
+                          className={styles.revokeOption}
+                          size="sm"
+                          variant="secondary"
+                          onPress={() => {
+                            setExpireTarget(p)
+                            setExpireChooser(null)
+                          }}
+                        >
+                          {p.name}
+                          {p.expire_date ? ` — ${p.expire_date}` : ''}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <p className={styles.fpHint}>{t('settings.expireHintBody')}</p>
+                    {expireTarget && (
+                      <p className={styles.fpCurrent}>
+                        {t('settings.expireCurrent', {
+                          value: expireTarget.expire
+                            ? describeExpire(
+                                expireTarget.expire,
+                                false,
+                                Date.now(),
+                                expireTarget.expire_date
+                              ).date
+                            : t('settings.expireNever')
+                        })}
+                      </p>
+                    )}
+                    <div className={styles.fpField}>
+                      <span className={styles.fieldLabel}>{t('settings.expireSelect')}</span>
+                      <div className={styles.inlineRow}>
+                        {[7, 30, 90, 365].map((d) => (
+                          <Button
+                            key={d}
+                            size="sm"
+                            variant="secondary"
+                            isDisabled={expireBusy}
+                            onPress={() => setExpireDate(presetDate(d, Date.now()))}
+                          >
+                            {t('settings.expirePreset', { count: d })}
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className={styles.fpField}>
+                      <CalendarPicker
+                        value={expireDate}
+                        disabled={expireBusy}
+                        onChange={setExpireDate}
+                      />
+                      {expireDate && (
+                        <p className={styles.fpCurrent}>
+                          {t('settings.expirePicked', { date: expireDate })}
+                        </p>
+                      )}
+                    </div>
+                    <p className={styles.fpNote}>{t('settings.expireEnforced')}</p>
+                    {/* Снятие срока — отдельное осознанное действие в теле диалога:
+                        раньше оно жило в футере рядом с «Сохранить» и требовало
+                        второй кнопки «Готово», что путало (одно действие — два клика). */}
+                    {expireTarget?.expire ? (
+                      <div className={styles.expireClearRow}>
+                        <Button
+                          variant="danger-soft"
+                          size="sm"
+                          isDisabled={expireBusy}
+                          onPress={() => void applyExpire(null)}
+                        >
+                          <CalendarX size={14} />
+                          {t('settings.expireClear')}
+                        </Button>
+                        <span className={styles.expireClearHint}>
+                          {t('settings.expireClearHint')}
+                        </span>
+                      </div>
+                    ) : null}
+                  </>
                 )}
-                <div className={styles.fpField}>
-                  <span className={styles.fieldLabel}>{t('settings.expireSelect')}</span>
-                  <div className={styles.inlineRow}>
-                    {[7, 30, 90, 365].map((d) => (
-                      <Button
-                        key={d}
-                        size="sm"
-                        variant="secondary"
-                        isDisabled={expireBusy}
-                        onPress={() => setExpireDate(presetDate(d, Date.now()))}
-                      >
-                        {t('settings.expirePreset', { count: d })}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-                <div className={styles.fpField}>
-                  <CalendarPicker
-                    value={expireDate}
-                    disabled={expireBusy}
-                    onChange={setExpireDate}
-                  />
-                  {expireDate && (
-                    <p className={styles.fpCurrent}>
-                      {t('settings.expirePicked', { date: expireDate })}
-                    </p>
-                  )}
-                </div>
-                <p className={styles.fpNote}>{t('settings.expireEnforced')}</p>
-                {/* Снятие срока — отдельное осознанное действие в теле диалога:
-                    раньше оно жило в футере рядом с «Сохранить» и требовало
-                    второй кнопки «Готово», что путало (одно действие — два клика). */}
-                {expireTarget?.expire ? (
-                  <div className={styles.expireClearRow}>
-                    <Button
-                      variant="danger-soft"
-                      size="sm"
-                      isDisabled={expireBusy}
-                      onPress={() => void applyExpire(null)}
-                    >
-                      <CalendarX size={14} />
-                      {t('settings.expireClear')}
-                    </Button>
-                    <span className={styles.expireClearHint}>
-                      {t('settings.expireClearHint')}
-                    </span>
-                  </div>
-                ) : null}
               </AlertDialog.Body>
               <AlertDialog.Footer>
                 {/* Отмена — слева и всегда только закрывает диалог, без действий. */}
