@@ -137,7 +137,12 @@
     "backendsEndpoint": "Endpoint",
     "backendsAddress": "Адрес",
     "backendsQrVpn": "QR · AmneziaVPN",
-    "backendsQrAwg": "QR · AmneziaWG"
+    "backendsQrAwg": "QR · AmneziaWG",
+    "backendsReissue": "Перевыпустить",
+    "backendsReissuing": "Перевыпуск…",
+    "backendsReissueConfirm": "Подтвердить?",
+    "backendsExpiryDate": "Срок: {{date}}",
+    "backendsExpiryNone": "Срок: бессрочно"
   },
   "settings": {
     "title": "Профили сервера",
@@ -312,6 +317,8 @@
     "backendsConfirmAwg": "Удалить AmneziaWG? Интерфейс, конфиг и правило firewall будут сняты (пакеты и модуль останутся в системе). Все peer-подключения прекратятся.",
     "backendsConfirm31On": "Включить режим AWG 3.1 (HeaderProtectionKey + RandomTrailers)? Все выданные клиентские .conf нужно будет скачать заново. Клиентам нужен AmneziaVPN ≥ 5.0.1.5.",
     "backendsConfirm31Off": "Выключить режим AWG 3.1? Конфиги вернутся к формату 2.0; все клиентские .conf нужно будет скачать заново.",
+    "backendsConfirmReissueHyst": "Перевыпустить креденшел Hysteria 2? Старый пароль и ссылка перестанут работать.",
+    "backendsConfirmReissueAwg": "Перевыпустить ключи AWG peer'а? Старый .conf перестанет работать.",
     "beKeysBtn": "Ключи",
     "beKeysTitle": "Ключи бэкендов",
     "beKeysHystNote": "UDP-транспорт: работает в HAPP, Hiddify, v2rayN. Строка уже добавлена в подписку — этот ключ для прямого импорта.",

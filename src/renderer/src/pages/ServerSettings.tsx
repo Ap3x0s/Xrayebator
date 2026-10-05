@@ -99,7 +99,13 @@ export function ServerSettings({
   const [backendsError, setBackendsError] = useState<string | null>(null)
   const [backendBusy, setBackendBusy] = useState<string | null>(null)
   const [confirmBackend, setConfirmBackend] = useState<
-    'hysteria2-uninstall' | 'awg-uninstall' | 'awg31-on' | 'awg31-off' | null
+    | 'hysteria2-uninstall'
+    | 'awg-uninstall'
+    | 'awg31-on'
+    | 'awg31-off'
+    | 'hysteria2-regrant'
+    | 'awg-regrant'
+    | null
   >(null)
   // Срез C: диалог ключей бэкендов у профиля.
   const [keysTarget, setKeysTarget] = useState<ServerProfile | null>(null)
@@ -1206,6 +1212,11 @@ export function ServerSettings({
               </AlertDialog.Header>
               <AlertDialog.Body>
                 {keysBusy ? <Spinner size="sm" /> : null}
+                <p className={styles.keysNote}>
+                  {keysTarget?.expire_date
+                    ? t('keys.backendsExpiryDate', { date: keysTarget.expire_date })
+                    : t('keys.backendsExpiryNone')}
+                </p>
 
                 <div className={styles.keysBlock}>
                   <div className={styles.keysChipRow}>
@@ -1232,6 +1243,14 @@ export function ServerSettings({
                           onPress={() => void showKeysQr(keysHystLink)}
                         >
                           {t('keys.qr')}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          isDisabled={keysBusy}
+                          onPress={() => setConfirmBackend('hysteria2-regrant')}
+                        >
+                          {t('keys.backendsReissue')}
                         </Button>
                       </div>
                     </>
@@ -1302,6 +1321,14 @@ export function ServerSettings({
                         >
                           {t('keys.backendsQrVpn')}
                         </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          isDisabled={keysBusy}
+                          onPress={() => setConfirmBackend('awg-regrant')}
+                        >
+                          {t('keys.backendsReissue')}
+                        </Button>
                       </div>
                     </>
                   ) : keysAwgErr ? (
@@ -1349,6 +1376,8 @@ export function ServerSettings({
                 {confirmBackend === 'awg-uninstall' && t('settings.backendsConfirmAwg')}
                 {confirmBackend === 'awg31-on' && t('settings.backendsConfirm31On')}
                 {confirmBackend === 'awg31-off' && t('settings.backendsConfirm31Off')}
+                {confirmBackend === 'hysteria2-regrant' && t('settings.backendsConfirmReissueHyst')}
+                {confirmBackend === 'awg-regrant' && t('settings.backendsConfirmReissueAwg')}
               </AlertDialog.Body>
               <AlertDialog.Footer>
                 <Button variant="secondary" onPress={() => setConfirmBackend(null)}>
@@ -1361,6 +1390,8 @@ export function ServerSettings({
                     else if (confirmBackend === 'awg-uninstall') void uninstallAwg()
                     else if (confirmBackend === 'awg31-on') void toggle31(true)
                     else if (confirmBackend === 'awg31-off') void toggle31(false)
+                    else if (confirmBackend === 'hysteria2-regrant') void grantBackend('hysteria2')
+                    else if (confirmBackend === 'awg-regrant') void grantBackend('awg')
                     setConfirmBackend(null)
                   }}
                 >

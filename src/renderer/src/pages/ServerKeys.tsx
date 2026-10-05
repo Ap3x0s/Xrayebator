@@ -33,6 +33,9 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
   // Мультипротокольные бэкенды: hysteria2 приходит из подписки, AWG — по SSH.
   const [profiles, setProfiles] = useState<ServerProfile[]>([])
   const [beBusy, setBeBusy] = useState(false)
+  // Перевыпуск креденшелов бэкендов (ротация пароля/ключей peer'а).
+  const [rotating, setRotating] = useState<string | null>(null)
+  const [confirmRotate, setConfirmRotate] = useState<string | null>(null)
 
   // Доступ из сохранённой карточки сервера (секрет — в keychain).
   const storedAccess: SshAccessInput = {
@@ -162,6 +165,75 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
   /** QR для импорта в AmneziaWG-клиент: без комментариев-шапки. */
   const awgQrPayload = (conf: string): string => stripAwgComments(conf)
 
+  const refreshSubscription = async (): Promise<void> => {
+    const result = await window.api.subscription.fetch(server.id)
+    setKeys(result.keys)
+    setHysteria2Links(result.hysteria2Links ?? [])
+    setSubscriptionUrl(result.subscriptionUrl)
+  }
+
+  // Перевыпуск = повторный grant: Hysteria ротирует пароль, AWG — пару ключей
+  // peer'а (адрес сохраняется). Старые ключи перестают работать.
+  const rotateHysteria = async (name: string): Promise<void> => {
+    setRotating(`hyst:${name}`)
+    try {
+      await window.api.backends.hysteria2Grant(server.id, storedAccess, name)
+      await refreshSubscription()
+    } finally {
+      setRotating(null)
+      setConfirmRotate(null)
+    }
+  }
+
+  const rotateAwg = async (name: string): Promise<void> => {
+    setRotating(`awg:${name}`)
+    try {
+      await window.api.backends.awgGrant(server.id, storedAccess, name)
+      const conf = await window.api.backends
+        .awgConf(server.id, storedAccess, name)
+        .catch(() => null)
+      if (conf?.ok && conf.conf) {
+        setAwgConfs((current) => ({ ...current, [name]: conf.conf ?? '' }))
+      }
+    } finally {
+      setRotating(null)
+      setConfirmRotate(null)
+    }
+  }
+
+  const hystUserFromLink = (link: string): string => {
+    const user = link.match(/^hysteria2:\/\/([^:]+):/)?.[1] ?? ''
+    try {
+      return decodeURIComponent(user)
+    } catch {
+      return user
+    }
+  }
+
+  const rotateButton = (key: string, rotate: () => Promise<void>): React.JSX.Element => (
+    <Button
+      size="sm"
+      variant={confirmRotate === key ? 'primary' : 'secondary'}
+      isDisabled={rotating !== null}
+      onPress={() => (confirmRotate === key ? void rotate() : setConfirmRotate(key))}
+    >
+      {rotating === key
+        ? t('keys.backendsReissuing')
+        : confirmRotate === key
+          ? t('keys.backendsReissueConfirm')
+          : t('keys.backendsReissue')}
+    </Button>
+  )
+
+  const expiryLine = (profile: ServerProfile | undefined): React.JSX.Element | null =>
+    profile ? (
+      <p className={styles.keyNote}>
+        {profile.expire_date
+          ? t('keys.backendsExpiryDate', { date: profile.expire_date })
+          : t('keys.backendsExpiryNone')}
+      </p>
+    ) : null
+
   const hysteria2Port = (link: string): string => {
     const m = link.match(/@[^/:]+:(\d+)/)
     return m ? m[1] : ''
@@ -216,27 +288,35 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
           </div>
         ))}
 
-        {hysteria2Links.map((link) => (
-          <div key={link} className={styles.keyCard}>
-            <div className={styles.keyHeader}>
-              <Chip size="sm" color="accent">
-                HYSTERIA2 · UDP :{hysteria2Port(link)}
-              </Chip>
+        {hysteria2Links.map((link) => {
+          const user = hystUserFromLink(link)
+          const profile = profiles.find((p) => p.name === user)
+          return (
+            <div key={link} className={styles.keyCard}>
+              <div className={styles.keyHeader}>
+                <Chip size="sm" color="accent">
+                  HYSTERIA2 · UDP :{hysteria2Port(link)}
+                </Chip>
+              </div>
+              <p className={styles.keyNote}>{t('keys.backendsHystNote')}</p>
+              {expiryLine(profile)}
+              <div className={styles.keyUrl} title={link}>
+                {link}
+              </div>
+              <div className={styles.keyActions}>
+                <Button size="sm" variant="secondary" onPress={() => copy(link)}>
+                  {t('keys.copy')}
+                </Button>
+                <Button size="sm" variant="secondary" onPress={() => showQr(link)}>
+                  {t('keys.qr')}
+                </Button>
+                {user && profile?.backends?.hysteria2
+                  ? rotateButton(`hyst:${user}`, () => rotateHysteria(user))
+                  : null}
+              </div>
             </div>
-            <p className={styles.keyNote}>{t('keys.backendsHystNote')}</p>
-            <div className={styles.keyUrl} title={link}>
-              {link}
-            </div>
-            <div className={styles.keyActions}>
-              <Button size="sm" variant="secondary" onPress={() => copy(link)}>
-                {t('keys.copy')}
-              </Button>
-              <Button size="sm" variant="secondary" onPress={() => showQr(link)}>
-                {t('keys.qr')}
-              </Button>
-            </div>
-          </div>
-        ))}
+          )
+        })}
 
         {awgNames.map((name) => {
           const conf = awgConfs[name]
@@ -251,6 +331,7 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
                 </Chip>
               </div>
               <p className={styles.keyNote}>{t('keys.backendsAwgNote')}</p>
+              {expiryLine(profile)}
               {fields ? (
                 <>
                   <div className={styles.keysFields}>
@@ -295,6 +376,7 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
                     >
                       {t('keys.backendsQrVpn')}
                     </Button>
+                    {rotateButton(`awg:${name}`, () => rotateAwg(name))}
                   </div>
                 </>
               ) : granted && beBusy ? (
