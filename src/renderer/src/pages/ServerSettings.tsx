@@ -1110,7 +1110,7 @@ export function ServerSettings({
                               </Button>
                             </>
                           ) : (
-                            <Button size="sm" isDisabled={busy} onPress={installHysteria2}>
+                            <Button size="sm" variant="primary" isDisabled={busy} onPress={installHysteria2}>
                               {backendBusy === 'hysteria2-install'
                                 ? t('settings.backendsInstalling')
                                 : t('settings.backendsInstall')}
@@ -1148,7 +1148,7 @@ export function ServerSettings({
                             <>
                               <Button
                                 size="sm"
-                                variant="secondary"
+                                variant={awgEntry.three_enabled ? 'secondary' : 'primary'}
                                 isDisabled={busy}
                                 onPress={() => setConfirmBackend('awg31-on')}
                               >
@@ -1170,7 +1170,7 @@ export function ServerSettings({
                               </Button>
                             </>
                           ) : (
-                            <Button size="sm" isDisabled={busy} onPress={installAwg}>
+                            <Button size="sm" variant="primary" isDisabled={busy} onPress={installAwg}>
                               {backendBusy === 'awg-install'
                                 ? t('settings.backendsInstalling')
                                 : t('settings.backendsInstall')}
