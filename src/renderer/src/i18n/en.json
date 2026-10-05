@@ -135,7 +135,8 @@
     "backendsNoAccess": "AmneziaWG keys require saved server access (password/key in the keychain) — open Server Settings once.",
     "backendsEndpoint": "Endpoint",
     "backendsAddress": "Address",
-    "backendsQrVpn": "QR · AmneziaVPN"
+    "backendsQrVpn": "QR · AmneziaVPN",
+    "backendsQrAwg": "QR · AmneziaWG"
   },
   "settings": {
     "title": "Server profiles",

@@ -17,8 +17,7 @@ import {
   ShieldOff,
   CalendarClock,
   CalendarX,
-  Zap,
-  Shield
+  Zap
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type {
@@ -35,6 +34,8 @@ import { isSshAccessReady, SshAccessForm } from '../components/SshAccessForm'
 import { CalendarPicker } from '../components/CalendarPicker'
 import { shouldAutoConnectServer } from './server-access'
 import styles from './ServerSettings.module.css'
+import hystLogo from '../assets/hysteria-logo.svg'
+import amneziaLogo from '../assets/amnezia-logo.jpg'
 
 interface ServerSettingsProps {
   server: Server
@@ -1065,7 +1066,7 @@ export function ServerSettings({
                       <div className={styles.backendBlock}>
                         <div className={styles.backendHead}>
                           <div className={`${styles.backendIcon} ${styles.backendIconHyst}`}>
-                            <Zap size={18} />
+                            <img src={hystLogo} alt="Hysteria" className={styles.backendIconSvg} />
                           </div>
                           <div className={styles.backendTitle}>
                             <div className={styles.backendName}>{t('settings.backendsHyst')}</div>
@@ -1121,7 +1122,7 @@ export function ServerSettings({
                       <div className={styles.backendBlock}>
                         <div className={styles.backendHead}>
                           <div className={`${styles.backendIcon} ${styles.backendIconAwg}`}>
-                            <Shield size={18} />
+                            <img src={amneziaLogo} alt="Amnezia" className={styles.backendIconImg} />
                           </div>
                           <div className={styles.backendTitle}>
                             <div className={styles.backendName}>{t('settings.backendsAwg')}</div>
@@ -1286,7 +1287,7 @@ export function ServerSettings({
                           variant="secondary"
                           onPress={() => void showKeysQr(stripAwgComments(keysAwgConf ?? ''))}
                         >
-                          {t('keys.qr')}
+                          {t('keys.backendsQrAwg')}
                         </Button>
                         <Button
                           size="sm"

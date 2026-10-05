@@ -136,7 +136,8 @@
     "backendsNoAccess": "Для ключей AmneziaWG нужен сохранённый доступ к серверу (пароль/ключ в keychain) — зайдите в Server Settings один раз.",
     "backendsEndpoint": "Endpoint",
     "backendsAddress": "Адрес",
-    "backendsQrVpn": "QR · AmneziaVPN"
+    "backendsQrVpn": "QR · AmneziaVPN",
+    "backendsQrAwg": "QR · AmneziaWG"
   },
   "settings": {
     "title": "Профили сервера",

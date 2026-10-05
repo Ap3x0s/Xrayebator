@@ -280,7 +280,7 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
                       variant="secondary"
                       onPress={() => showQr(awgQrPayload(conf))}
                     >
-                      {t('keys.qr')}
+                      {t('keys.backendsQrAwg')}
                     </Button>
                     <Button
                       size="sm"

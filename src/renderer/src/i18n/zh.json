@@ -134,7 +134,8 @@
     "backendsNoAccess": "AmneziaWG 密钥需要已保存的服务器访问凭据（keychain 中的密码/密钥）——请先打开 Server Settings。",
     "backendsEndpoint": "Endpoint",
     "backendsAddress": "地址",
-    "backendsQrVpn": "QR · AmneziaVPN"
+    "backendsQrVpn": "QR · AmneziaVPN",
+    "backendsQrAwg": "QR · AmneziaWG"
   },
   "settings": {
     "title": "服务器配置文件",
