@@ -307,6 +307,27 @@ must be re-downloaded**, and clients need AmneziaVPN ≥ 5.0.1.5 — older apps 
 config at all. Verify by `awg show`: no `latest handshake` means the must-match group disagrees; a
 handshake without traffic points to `awg-quick`/routing/firewall instead.
 
+### One key — how many devices?
+
+VLESS, Hysteria 2 and AmneziaWG have different multi-device semantics:
+
+- **VLESS (subscription)** — the subscription hands out the profile's UUIDs, and UUIDs are not
+  exclusive: any number of devices can pull the same subscription in HAPP and connect
+  simultaneously, each opening its own Reality tunnels per route. The routes are transports, not
+  device slots.
+- **Hysteria 2** — auth is per connection (`userpass`), and the server does not lock a credential
+  to one session: **one `hysteria2://` link works from unlimited devices simultaneously**, each
+  with its own QUIC session. They share the server's bandwidth, nothing else.
+- **AmneziaWG** — cryptokey routing binds a peer to its keypair, and the interface keeps a single
+  endpoint per peer (last authenticated sender wins). **One key = one device reliably.** Two
+  devices on the same `.conf` fight over the endpoint and reconnect in turns; behind one NAT it
+  limps along, across networks it breaks. A second device needs its own profile/key — it gets its
+  own peer and `10.8.1.x` address.
+- **nginx** serves only the subscription endpoint on 8443 (key delivery). Hysteria (UDP 443) and
+  AmneziaWG (their UDP port) bypass nginx entirely, and nothing load-balances between the
+  backends — they are independent services on separate ports; every device simply adds its own
+  session to whichever protocol it uses.
+
 ## Cascade and upstream nodes
 
 The cascade is a server-side outbound and routing mode, not a new client profile. The client keeps

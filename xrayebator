@@ -3099,7 +3099,7 @@ _awg_install_packages() {
     echo "deb https://ppa.launchpadcontent.net/amnezia/ppa/ubuntu focal main" > /etc/apt/sources.list.d/amneziawg.list
   fi
   apt-get update -qq >/dev/null 2>&1 || true
-  apt-get install -y --no-install-recommends amneziawg >/dev/null 2>&1
+  apt-get "${APT_LOCK_OPTS[@]}" install -y --no-install-recommends amneziawg >/dev/null 2>&1
   command -v awg >/dev/null 2>&1
 }
 
@@ -3108,7 +3108,7 @@ _awg_install_packages() {
 _awg_install_packages_manual() {
   echo -e "${CYAN}  → PPA недоступен — ручная сборка amneziawg из исходников...${NC}"
   _apt_wait_lock
-  apt-get install -y --no-install-recommends \
+  apt-get "${APT_LOCK_OPTS[@]}" install -y --no-install-recommends \
     build-essential dkms git "linux-headers-$(uname -r)" linux-source >/dev/null 2>&1 || true
   local work
   work=$(mktemp -d) || return 1
