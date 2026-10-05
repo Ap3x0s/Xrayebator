@@ -24,7 +24,9 @@ for test_file in validation/*.sh; do bash "$test_file" || exit; done
 | `test-project-update-rollback.sh` | Откат неудачного обновления проекта |
 | `test-xhttp-route-path-repair.sh` | Починку путей XHTTP-маршрутов при миграции |
 | `test-multiroute-argument-preservation.sh` | Сохранение transport-аргументов multiroute-профиля |
-| `test-happ-subscription-static.sh` | Обработчик HAPP-подписки |
+| `test-happ-subscription-static.sh` | Обработчик HAPP-подписки (плейсхолдеры routing, порядок валидации) |
+| `test-happ-client-routing.sh` | HAPP клиентский split-профиль: генератор из bypass-наборов (258 доменов, плейсхолдеры, `geoip:ru`), nginx-буферы, проводка меню |
+| `test-legacy-profile-port-sync.sh` | Легаси-профили без `routes` получают обновления SNI/порта |
 | `test-subscription-server-name.sh` | Имя сервера подписки в клиенте |
 | `test-fingerprint-subscription-sync.sh` | Синхронность маршрутов и подписки при смене fingerprint |
 | `test-dead-stealth-route-pruning.sh` | Отсечение мёртвых stealth-маршрутов |

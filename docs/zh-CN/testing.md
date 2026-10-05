@@ -23,7 +23,9 @@ for test_file in validation/*.sh; do bash "$test_file" || exit; done
 | `test-project-update-rollback.sh` | 项目更新失败后的回滚 |
 | `test-xhttp-route-path-repair.sh` | 迁移过程中 XHTTP 路径的修复 |
 | `test-multiroute-argument-preservation.sh` | 多线路配置档传输参数的保留 |
-| `test-happ-subscription-static.sh` | HAPP 订阅处理器 |
+| `test-happ-subscription-static.sh` | HAPP 订阅处理器（routing 占位符、校验顺序） |
+| `test-happ-client-routing.sh` | HAPP 客户端分流配置：基于 bypass 集合的生成器（258 个域名、占位符、`geoip:ru`）、nginx 缓冲区、菜单接线 |
+| `test-legacy-profile-port-sync.sh` | 无 `routes` 的旧版配置档仍能收到 SNI/端口同步 |
 | `test-subscription-server-name.sh` | 客户端中显示的订阅服务器名 |
 | `test-fingerprint-subscription-sync.sh` | 更换指纹时线路与订阅的同步 |
 | `test-dead-stealth-route-pruning.sh` | 失效 stealth 线路的清理 |
