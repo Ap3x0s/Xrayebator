@@ -129,7 +129,7 @@ legacy-файлы и блоки, ранее созданные Xrayebator, и с
 | `sudo xrayebator expire-check` | Применить все наступившие сроки пакетно; идемпотентно, без изменений не перезапускает Xray. Вызывается таймером `xrayebator-expire.timer` каждые 10 минут |
 | `sudo xrayebator fp-change --name ИМЯ [--route R] --fp ОТПЕЧАТОК` | Сменить клиентский fingerprint для одного маршрута профиля; JSON |
 | `sudo xrayebator sni-change --name ИМЯ [--route R] --sni SNI` | Сменить общий inbound SNI и синхронизировать профили на этом порту; JSON |
-| `sudo xrayebator sni-list` | Вывести SNI-кандидаты по категориям для GUI; JSON |
+| `sudo xrayebator sni-list` | Вывести SNI-кандидаты по категориям для GUI; JSON. Первая незакомментированная строка `sni_list.txt` — SNI по умолчанию для новых профилей (`www.cloudflare.com`) |
 | `sudo xrayebator port-change --name ИМЯ [--route R] --port ПОРТ\|random` | Сменить порт инбаунда, firewall и метаданные подписки; клиенту переподключиться; JSON |
 | `sudo xrayebator bypass list` | Показать текущие bypass-правила (JSON) |
 | `sudo xrayebator bypass add --domain D` | Добавить домен в bypass-правила |
@@ -294,8 +294,9 @@ Xrayebator реализует набор 3.1: junk-параметры плюс `
 Не пускать домашний трафик в туннель можно только профилем клиента.
 
 Профиль уезжает клиенту в заголовке ответа, поэтому большой список `DirectSites` может перерасти
-дефолтный 4k-буфер nginx. В генерируемом `location /sub/` буфер поднят (`proxy_buffer_size 32k`);
-если перед подпиской стоит свой реверс-прокси, `proxy_buffer_size` нужно поднять и там, иначе nginx
+дефолтный 4k-буфер nginx. В генерируемом вхосте подписки буфер поднят (`proxy_buffer_size 32k`) —
+и в доменном `location /sub/`, и в IP-режиме (quickstart, `location /`); если перед подпиской стоит
+свой реверс-прокси, `proxy_buffer_size` нужно поднять и там, иначе nginx
 ответит 502 и напишет в лог `upstream sent too big header`.
 
 ### Генерация из меню

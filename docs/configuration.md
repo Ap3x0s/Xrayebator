@@ -126,7 +126,7 @@ is a client-side profile/route setting; changing it does not restart Xray or alt
 | `sudo xrayebator expire-check` | Apply every due expiry in one batch; idempotent and never restarts Xray without changes. Driven by the `xrayebator-expire.timer` unit every 10 minutes |
 | `sudo xrayebator fp-change --name NAME [--route R] --fp FINGERPRINT` | Change the client fingerprint for one profile route; prints JSON |
 | `sudo xrayebator sni-change --name NAME [--route R] --sni SNI` | Change the shared inbound SNI and synchronise profiles on that port; prints JSON |
-| `sudo xrayebator sni-list` | Print SNI candidates grouped by category for the GUI SNI dialog; prints JSON |
+| `sudo xrayebator sni-list` | Print SNI candidates grouped by category for the GUI SNI dialog; prints JSON. The first uncommented line of `sni_list.txt` is the default SNI for new profiles (`www.cloudflare.com`) |
 | `sudo xrayebator port-change --name NAME [--route R] --port PORT\|random` | Change the inbound port, firewall and subscription metadata; reconnect the client; prints JSON |
 | `sudo xrayebator bypass list` | Print current bypass domain rules as JSON |
 | `sudo xrayebator bypass add --domain D` | Add a domain to bypass rules |
@@ -319,8 +319,9 @@ without a cascade the catch-all outbound is already `direct`, so bypass cannot c
 site sees. Keeping domestic traffic out of the tunnel is only possible in the client profile.
 
 The profile travels to the client in a response header, so a large `DirectSites` list can outgrow
-nginx's default 4k proxy buffer. The generated `location /sub/` raises it (`proxy_buffer_size 32k`);
-if you run your own reverse proxy in front of the subscription, set `proxy_buffer_size` there too,
+nginx's default 4k proxy buffer. The generated subscription vhost raises it (`proxy_buffer_size 32k`)
+— in the domain-mode `location /sub/` and in the IP-mode (quickstart) vhost alike; if you run your own
+reverse proxy in front of the subscription, set `proxy_buffer_size` there too,
 otherwise nginx answers 502 and logs `upstream sent too big header`.
 
 ### Generating it from the menu
