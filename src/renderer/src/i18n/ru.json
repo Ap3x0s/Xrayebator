@@ -324,18 +324,9 @@
     "backendsConfirmAwg": "Удалить AmneziaWG? Интерфейс, конфиг и правило firewall будут сняты (пакеты и модуль останутся в системе). Все peer-подключения прекратятся.",
     "backendsConfirm31On": "Включить режим AWG 3.1 (HeaderProtectionKey + RandomTrailers)? Все выданные клиентские .conf нужно будет скачать заново. Клиентам нужен AmneziaVPN ≥ 5.0.1.5.",
     "backendsConfirm31Off": "Выключить режим AWG 3.1? Конфиги вернутся к формату 2.0; все клиентские .conf нужно будет скачать заново.",
-    "backendsConfirmReissueHyst": "Перевыпустить креденшел Hysteria 2? Старый пароль и ссылка перестанут работать.",
-    "backendsConfirmReissueAwg": "Перевыпустить ключи AWG peer'а? Старый .conf перестанет работать.",
     "backendsExpiryBtn": "Срок",
     "backendsExpiryChoose": "Выберите профиль, для которого меняется срок:",
     "backendsConfirmRevokeHystAll": "Перевыпустить все ключи Hysteria 2? Старые пароли перестанут работать.",
-    "backendsConfirmRevokeAwgAll": "Перевыпустить ключи всех AWG-peer'ов? Старые .conf перестанут работать.",
-    "beKeysBtn": "Ключи",
-    "beKeysTitle": "Ключи бэкендов",
-    "beKeysHystNote": "UDP-транспорт: работает в HAPP, Hiddify, v2rayN. Строка уже добавлена в подписку — этот ключ для прямого импорта.",
-    "beKeysAwgNote": "AmneziaVPN — НЕ V2Ray/HAPP: импортируйте конфиг в приложение AmneziaWG/AmneziaVPN. Full-tunnel, клиенты AmneziaVPN ≥ 5.0.1.5. Один ключ — одно устройство.",
-    "beKeysGrant": "Выдать грант",
-    "beKeysEndpoint": "Endpoint",
-    "beKeysAddress": "Адрес"
+    "backendsConfirmRevokeAwgAll": "Перевыпустить ключи всех AWG-peer'ов? Старые .conf перестанут работать."
   }
 }

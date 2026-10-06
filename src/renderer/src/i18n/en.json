@@ -323,18 +323,9 @@
     "backendsConfirmAwg": "Remove AmneziaWG? Interface, config and firewall rule are removed (packages and module stay in the system). All peer connections stop.",
     "backendsConfirm31On": "Enable AWG 3.1 mode (HeaderProtectionKey + RandomTrailers)? Every issued client .conf must be re-downloaded. Clients need AmneziaVPN ≥ 5.0.1.5.",
     "backendsConfirm31Off": "Disable AWG 3.1 mode? Configs return to the 2.0 format; every client .conf must be re-downloaded.",
-    "backendsConfirmReissueHyst": "Re-issue the Hysteria 2 credential? The old password and link stop working.",
-    "backendsConfirmReissueAwg": "Re-issue the AWG peer keys? The old .conf stops working.",
     "backendsExpiryBtn": "Expiry",
     "backendsExpiryChoose": "Choose the profile whose expiry you want to change:",
     "backendsConfirmRevokeHystAll": "Re-issue all Hysteria 2 keys? Old passwords stop working.",
-    "backendsConfirmRevokeAwgAll": "Re-issue all AWG peer keys? Old .conf files stop working.",
-    "beKeysBtn": "Keys",
-    "beKeysTitle": "Backend keys",
-    "beKeysHystNote": "UDP transport: works in HAPP, Hiddify, v2rayN. The line is already in the subscription — this key is for direct import.",
-    "beKeysAwgNote": "AmneziaVPN — NOT V2Ray/HAPP: import the config into the AmneziaWG/AmneziaVPN app. Full tunnel, clients AmneziaVPN ≥ 5.0.1.5. One key — one device.",
-    "beKeysGrant": "Issue grant",
-    "beKeysEndpoint": "Endpoint",
-    "beKeysAddress": "Address"
+    "backendsConfirmRevokeAwgAll": "Re-issue all AWG peer keys? Old .conf files stop working."
   }
 }
