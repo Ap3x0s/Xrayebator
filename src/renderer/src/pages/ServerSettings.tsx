@@ -159,6 +159,7 @@ export function ServerSettings({
   const [revokeStep, setRevokeStep] = useState<'choose' | 'confirm' | 'done'>('choose')
   const [revokeBusy, setRevokeBusy] = useState(false)
   const [revokeUrl, setRevokeUrl] = useState<string | null>(null)
+  const [revokeFullOnly, setRevokeFullOnly] = useState(false)
 
   const [expireTarget, setExpireTarget] = useState<ServerProfile | null>(null)
   const [expireChooser, setExpireChooser] = useState<ServerProfile[] | null>(null)
@@ -439,9 +440,10 @@ export function ServerSettings({
     toastText(t('settings.copied'))
   }
 
-  const openRevoke = (profile: ServerProfile): void => {
+  const openRevoke = (profile: ServerProfile, forceFull = false): void => {
     setRevokeTarget(profile)
-    setRevokeStep('choose')
+    setRevokeFullOnly(forceFull)
+    setRevokeStep(forceFull ? 'confirm' : 'choose')
     setRevokeUrl(null)
   }
 
@@ -1260,7 +1262,7 @@ export function ServerSettings({
                           size="sm"
                           variant="secondary"
                           isDisabled={busy || hyst?.state !== 'active'}
-                          onPress={() => openRevoke(profile)}
+                          onPress={() => openRevoke(profile, true)}
                         >
                           <ShieldOff size={14} />
                           {t('settings.revokeBtn')}
@@ -1329,7 +1331,7 @@ export function ServerSettings({
                           size="sm"
                           variant="secondary"
                           isDisabled={busy || awgEntry?.state !== 'active'}
-                          onPress={() => openRevoke(profile)}
+                          onPress={() => openRevoke(profile, true)}
                         >
                           <ShieldOff size={14} />
                           {t('settings.revokeBtn')}
@@ -1710,7 +1712,11 @@ export function ServerSettings({
                       variant="secondary"
                       isDisabled={revokeBusy}
                       onPress={() =>
-                        revokeStep === 'confirm' ? setRevokeStep('choose') : setRevokeTarget(null)
+                        revokeStep === 'confirm'
+                          ? (revokeFullOnly
+                              ? setRevokeTarget(null)
+                              : setRevokeStep('choose'))
+                          : setRevokeTarget(null)
                       }
                     >
                       {t('dashboard.cancel')}
