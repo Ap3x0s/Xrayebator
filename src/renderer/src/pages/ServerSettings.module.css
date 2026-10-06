@@ -219,6 +219,104 @@
   gap: 8px;
 }
 
+/* --- Создание профилей бэкендов (карточки под транспортом) --- */
+.backendCreate {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.backendCreateGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.backendCreateCard {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  font-family: var(--font);
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--bg-1);
+  color: var(--text-1);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.backendCreateCard:hover:not(:disabled) {
+  color: var(--text-0);
+  border-color: var(--accent);
+}
+
+.backendCreateCard:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.backendCreateText {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.backendCreateName {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-0);
+}
+
+.backendCreateDesc {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+
+/* --- Карточки бэкенд-профилей в списке (дубликаты стиля бэкенд-блока) --- */
+.backendProfileCard {
+  margin-top: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--bg-1, rgba(127, 127, 127, 0.1));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.backendProfileHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.backendProfileTitle {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.backendProfileSub {
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+@media (max-width: 720px) {
+  .backendCreateGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .backendSkeleton {
   height: 76px;
   border-radius: 12px;
