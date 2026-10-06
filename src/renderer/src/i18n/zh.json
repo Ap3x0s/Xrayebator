@@ -307,8 +307,6 @@
     "backendsCreateNotInstalled": "后端未安装——请在下方“多协议后端”部分安装",
     "backendsCreated": "配置档已创建，后端密钥已签发：{{count}}",
     "backendsCreatedPartial": "配置档已创建，但部分密钥未签发——请检查后端部分",
-    "backendsCardLink": "链接",
-    "backendsCardConf": "配置",
     "backendsInstall": "安装",
     "backendsInstalling": "安装中…",
     "backendsUninstall": "卸载",

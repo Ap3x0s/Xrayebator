@@ -854,14 +854,6 @@ export function ServerSettings({
     return res.link
   }
 
-  const copyProfileHystLink = async (profile: ServerProfile): Promise<void> => {
-    try {
-      await copyKeysText(await profileHystLink(profile))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    }
-  }
-
   const qrProfileHyst = async (profile: ServerProfile): Promise<void> => {
     try {
       await showKeysQr(await profileHystLink(profile))
@@ -874,14 +866,6 @@ export function ServerSettings({
     const res = await window.api.backends.awgConf(server.id, access, profile.name)
     if (!res.ok || !res.conf) throw new Error(res.error ?? t('settings.createFailed'))
     return res.conf
-  }
-
-  const copyProfileAwgConf = async (profile: ServerProfile): Promise<void> => {
-    try {
-      await copyKeysText(stripAwgComments(await profileAwgConf(profile)))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    }
   }
 
   const qrProfileAwg = async (profile: ServerProfile): Promise<void> => {
@@ -1281,22 +1265,8 @@ export function ServerSettings({
                           <div className={styles.backendName}>{t('settings.backendsHyst')}</div>
                           <div className={styles.backendProfileSub}>{profile.name} · UDP</div>
                         </div>
-                        <Chip size="sm" color={hyst?.state === 'active' ? 'accent' : 'default'}>
-                          {hyst?.state === 'active'
-                            ? t('settings.backendsActive')
-                            : t('settings.backendsNotInstalled')}
-                        </Chip>
                       </div>
                       <div className={styles.backendActions}>
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          isDisabled={busy || hyst?.state !== 'active'}
-                          onPress={() => void copyProfileHystLink(profile)}
-                        >
-                          <Copy size={13} />
-                          {t('settings.backendsCardLink')}
-                        </Button>
                         <Button
                           size="sm"
                           variant="secondary"
@@ -1321,8 +1291,27 @@ export function ServerSettings({
                           onPress={() => openRevoke(profile)}
                         >
                           <ShieldOff size={14} />
-                          {t('settings.backendsReissue')}
+                          {t('keys.backendsReissue')}
                         </Button>
+                        {profile.multi_route ? (
+                          <span
+                            className={styles.protectedProfile}
+                            title={t('settings.mainProfileHint')}
+                          >
+                            <Lock size={13} />
+                            {t('settings.mainProfile')}
+                          </span>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="danger-soft"
+                            isDisabled={busy}
+                            onPress={() => setConfirmRemove(profile)}
+                          >
+                            <Trash2 size={14} />
+                            {t('settings.deleteKey')}
+                          </Button>
+                        )}
                       </div>
                     </div>
                   )}
@@ -1336,22 +1325,8 @@ export function ServerSettings({
                           <div className={styles.backendName}>{t('settings.backendsAwg')}</div>
                           <div className={styles.backendProfileSub}>{profile.name} · AWG 3.1</div>
                         </div>
-                        <Chip size="sm" color={awgEntry?.state === 'active' ? 'accent' : 'default'}>
-                          {awgEntry?.state === 'active'
-                            ? t('settings.backendsActive')
-                            : t('settings.backendsNotInstalled')}
-                        </Chip>
                       </div>
                       <div className={styles.backendActions}>
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          isDisabled={busy || awgEntry?.state !== 'active'}
-                          onPress={() => void copyProfileAwgConf(profile)}
-                        >
-                          <Copy size={13} />
-                          {t('settings.backendsCardConf')}
-                        </Button>
                         <Button
                           size="sm"
                           variant="secondary"
@@ -1384,8 +1359,27 @@ export function ServerSettings({
                           onPress={() => openRevoke(profile)}
                         >
                           <ShieldOff size={14} />
-                          {t('settings.backendsReissue')}
+                          {t('keys.backendsReissue')}
                         </Button>
+                        {profile.multi_route ? (
+                          <span
+                            className={styles.protectedProfile}
+                            title={t('settings.mainProfileHint')}
+                          >
+                            <Lock size={13} />
+                            {t('settings.mainProfile')}
+                          </span>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="danger-soft"
+                            isDisabled={busy}
+                            onPress={() => setConfirmRemove(profile)}
+                          >
+                            <Trash2 size={14} />
+                            {t('settings.deleteKey')}
+                          </Button>
+                        )}
                       </div>
                     </div>
                   )}
