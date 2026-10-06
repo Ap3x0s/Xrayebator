@@ -135,6 +135,19 @@ _hysteria2_on_profile_event alice restored || fail "event restored"
 grep -q "\"alice\":\"$pw2\"" "$HYSTERIA2_DIR/server.yaml" || fail "restored: alice missing"
 pass "event restored returns grant to users map"
 
+# deleted: файл профиля удалён ДО события (как в profile_delete_command) —
+# реген users-карты обязан пройти без удалённого гранта, иначе осиротевший
+# пароль остаётся в server.yaml и удалённый пользователь сохраняет доступ.
+jq -n '{name:"cleo", uuid:"u-cleo", transport:"tcp", port:443}' \
+  > "$PROFILES_DIR/cleo.json" || fail "fixture cleo"
+_hysteria2_grant_profile cleo || fail "grant cleo"
+grep -q '"cleo"' "$HYSTERIA2_DIR/server.yaml" || fail "cleo missing after grant"
+rm -f "$PROFILES_DIR/cleo.json" || fail "fixture delete cleo"
+_hysteria2_on_profile_event cleo deleted || fail "event deleted (file pre-removed)"
+grep -q '"cleo"' "$HYSTERIA2_DIR/server.yaml" && fail "deleted: cleo still in users map"
+grep -q '"alice"' "$HYSTERIA2_DIR/server.yaml" || fail "deleted: alice collateral damage"
+pass "event deleted (file pre-removed) removes grant from users map"
+
 # grant_all: массовая выдача с одним регеном
 jq -n '{name:"bob", uuid:"u-bob", transport:"xhttp", port:8443, fingerprint:"firefox",
         sni:"www.example.com", sub_token:"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", created:"2026-10-04"}' \

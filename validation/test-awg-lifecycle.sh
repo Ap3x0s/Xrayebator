@@ -196,6 +196,15 @@ _awg_on_profile_event carol restored || fail "awg event restored"
 grep -qF "10.8.1.2/32" "$AWG_CONF_FILE" || fail "restored peer missing in conf"
 pass "event restored returns peer to conf"
 
+# deleted: файл профиля удалён ДО события (как в profile_delete_command) —
+# реген обязан сняться с интерфейса без удалённого peer-а, иначе осиротевший
+# peer живёт вечно и удалённый пользователь сохраняет доступ.
+rm -f "$PROFILES_DIR/carol.json" || fail "fixture delete carol"
+_awg_on_profile_event carol deleted || fail "awg event deleted (file pre-removed)"
+grep -qF "10.8.1.2/32" "$AWG_CONF_FILE" && fail "deleted peer still in conf (regen skipped)"
+grep -qF "10.8.1.3/32" "$AWG_CONF_FILE" || fail "active peer lost on deleted event"
+pass "event deleted (file pre-removed) removes peer — no orphans"
+
 # grant без backend — безопасный no-op проверяется ниже вместе с uninstall
 
 # ── Отсутствие установки: безопасные no-op ──
