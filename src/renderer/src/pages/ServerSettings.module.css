@@ -281,16 +281,14 @@
   color: var(--text-2);
 }
 
-/* --- Карточки бэкенд-профилей в списке (дубликаты стиля бэкенд-блока) --- */
-/* flex-basis: 100% + flex-wrap у .profileCard: карточка уходит на свою
-   строку под main/actions, а не встаёт третьим элементом в ряд. */
+/* --- Бэкенд-боксы профилей в списке --- */
+/* Самостоятельные боксы уровня карточки профиля (сиблинги во Fragment),
+   а не вложенные sub-rows: «основной бокс + боксы протоколов рядом». */
 .backendProfileCard {
-  flex: none;
-  flex-basis: 100%;
-  margin-top: 2px;
-  padding: 12px 14px;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
   border-radius: 12px;
-  background: var(--bg-1, rgba(127, 127, 127, 0.1));
+  padding: 12px 16px;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -660,7 +658,6 @@
 
 .profileCard {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 16px;

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import QRCode from 'qrcode'
 import { Button, TextField, Label, Input, Chip, Spinner, AlertDialog } from '@heroui/react'
 import {
@@ -1142,7 +1142,8 @@ export function ServerSettings({
               )}
               {profiles!.length === 0 && <div className={styles.empty}>{t('settings.empty')}</div>}
               {profiles!.map((profile) => (
-                <div key={profile.name} className={styles.profileCard}>
+                <Fragment key={profile.name}>
+                <div className={styles.profileCard}>
                   <div className={styles.profileMain}>
                     <div className={styles.profileNameRow}>
                       <span className={styles.profileName}>{profile.name}</span>
@@ -1255,6 +1256,7 @@ export function ServerSettings({
                       </Button>
                     )}
                   </div>
+                </div>
                   {profile.backends?.hysteria2 && (
                     <div className={styles.backendProfileCard}>
                       <div className={styles.backendProfileHead}>
@@ -1291,17 +1293,9 @@ export function ServerSettings({
                           onPress={() => openRevoke(profile)}
                         >
                           <ShieldOff size={14} />
-                          {t('keys.backendsReissue')}
+                          {t('settings.revokeBtn')}
                         </Button>
-                        {profile.multi_route ? (
-                          <span
-                            className={styles.protectedProfile}
-                            title={t('settings.mainProfileHint')}
-                          >
-                            <Lock size={13} />
-                            {t('settings.mainProfile')}
-                          </span>
-                        ) : (
+                        {!profile.multi_route && (
                           <Button
                             size="sm"
                             variant="danger-soft"
@@ -1359,17 +1353,9 @@ export function ServerSettings({
                           onPress={() => openRevoke(profile)}
                         >
                           <ShieldOff size={14} />
-                          {t('keys.backendsReissue')}
+                          {t('settings.revokeBtn')}
                         </Button>
-                        {profile.multi_route ? (
-                          <span
-                            className={styles.protectedProfile}
-                            title={t('settings.mainProfileHint')}
-                          >
-                            <Lock size={13} />
-                            {t('settings.mainProfile')}
-                          </span>
-                        ) : (
+                        {!profile.multi_route && (
                           <Button
                             size="sm"
                             variant="danger-soft"
@@ -1383,7 +1369,7 @@ export function ServerSettings({
                       </div>
                     </div>
                   )}
-                </div>
+                </Fragment>
               ))}
             </section>
 
