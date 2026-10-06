@@ -1265,8 +1265,16 @@ export function ServerSettings({
                         </span>
                         <div className={styles.backendProfileTitle}>
                           <div className={styles.backendName}>{t('settings.backendsHyst')}</div>
-                          <div className={styles.backendProfileSub}>
-                            {t('settings.backendsHystSub')}
+                          <div
+                            className={`${styles.backendState} ${
+                              hyst?.state === 'active' ? styles.backendStateOk : ''
+                            }`}
+                          >
+                            {hyst?.state === 'active'
+                              ? hyst.sni
+                                ? `${t('settings.backendsActive')} · SNI ${hyst.sni}`
+                                : `${t('settings.backendsActive')} · UDP ${hyst.port ?? '—'}`
+                              : t('settings.backendsNotInstalled')}
                           </div>
                         </div>
                       </div>
@@ -1317,8 +1325,14 @@ export function ServerSettings({
                         </span>
                         <div className={styles.backendProfileTitle}>
                           <div className={styles.backendName}>{t('settings.backendsAwg')}</div>
-                          <div className={styles.backendProfileSub}>
-                            {t('settings.backendsAwgSub')}
+                          <div
+                            className={`${styles.backendState} ${
+                              awgEntry?.state === 'active' ? styles.backendStateOk : ''
+                            }`}
+                          >
+                            {awgEntry?.state === 'active'
+                              ? `${t('settings.backendsActive')} · UDP ${awgEntry.port ?? '—'}`
+                              : t('settings.backendsNotInstalled')}
                           </div>
                         </div>
                       </div>
