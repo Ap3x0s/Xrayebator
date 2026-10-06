@@ -55,8 +55,8 @@ promise that installer and updater paths behave identically.
 | `test-legacy-udp443-migration.sh` | One-time removal of the legacy UDP/443 block |
 | `test-main-menu-numbering.sh` | Consecutive menu numbering and matching handlers (1..13 including the backend items) |
 | `test-backend-registry.sh` | Backend registry (multi-protocol stage): source-mode registry CRUD via `safe_jq_write`, installed/field reads, the lifecycle choke point as a safe no-op, `backend-status` JSON shape |
-| `test-hysteria2-lifecycle.sh` | Hysteria 2 backend: `server.yaml` renderer (userpass map, placeholder fallback), systemd unit security model, arch mapping, TLS detection, grants/revocation/expire-restore events, pure `hysteria2://` builder, CLI dispatch and subscription wiring |
-| `test-awg-lifecycle.sh` | AmneziaWG backend: the Amnezia-default junk dialect (Jc=5, Jmin=10, Jmax=50, H1–H4=1..4, S1–S4 unique), key generation, server conf renderer (PostUp MASQUERADE, no peers at install), peer address allocation, client `.conf` contents, revoke/expire/restore events, CLI dispatch |
+| `test-hysteria2-lifecycle.sh` | Hysteria 2 backend: `server.yaml` renderer (userpass map, placeholder fallback), systemd unit security model, arch mapping, TLS detection, grants/revocation/expire-restore events, deleted-regen with a pre-removed profile file, created-is-a-no-op (no auto-grant), pure `hysteria2://` builder, CLI dispatch and subscription wiring |
+| `test-awg-lifecycle.sh` | AmneziaWG backend: the Amnezia-default junk dialect (Jc=5, Jmin=10, Jmax=50, H1–H4=1..4, S1–S4 unique), key generation, server conf renderer (PostUp MASQUERADE, no peers at install), peer address allocation, client `.conf` contents, revoke/expire/restore events, deleted-regen with a pre-removed profile file, created-is-a-no-op (no auto-grant), CLI dispatch |
 | `test-main-readiness-regressions.sh` | Main-menu readiness and first-run regression checks |
 | `test-multiroute-argument-preservation.sh` | Preservation of multiroute transport arguments |
 | `test-port-change-cli.sh` | Port-change CLI scenarios, firewall moves and route selection |
