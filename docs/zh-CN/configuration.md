@@ -114,7 +114,7 @@ Xrayebator 不会更改主机的 TCP 拥塞控制算法，也不会写入或应�
 | `sudo xrayebator expire-check` | 批量应用所有已到期的有效期；幂等，无变化时不重启 Xray。由 `xrayebator-expire.timer` 每 10 分钟触发 |
 | `sudo xrayebator fp-change --name 名称 [--route R] --fp 指纹` | 修改配置档的指纹，打印 JSON 结果 |
 | `sudo xrayebator sni-change --name 名称 [--route R] --sni SNI` | 修改配置档的 SNI，并同步更新同一端口上的所有配置档，打印 JSON 结果 |
-| `sudo xrayebator sni-list` | 按类别列出 `sni_list.txt` 中的候选 SNI，打印 JSON 结果（供桌面 GUI 的 SNI 对话框使用） |
+| `sudo xrayebator sni-list` | 按类别列出 `sni_list.txt` 中的候选 SNI，打印 JSON 结果（供桌面 GUI 的 SNI 对话框使用）。`sni_list.txt` 中第一条非注释行是新配置档的默认 SNI（`www.cloudflare.com`） |
 | `sudo xrayebator port-change --name 名称 [--route R] --port 端口\|random` | 修改配置档的端口；更新入站、防火墙与订阅。客户端需要重新连接，打印 JSON 结果 |
 | `sudo xrayebator bypass list` | 按分组列出当前分流规则（JSON） |
 | `sudo xrayebator bypass add --domain D` | 向分流规则添加一个域名（JSON） |
@@ -263,8 +263,9 @@ Xrayebator 实现了 AWG 3.1 特性集：junk 参数加 `S1`–`S4`（≥ 12）�
 送进隧道，目标站点看到的依旧是 VPS 的地址。在没有级联的节点上，兜底 outbound 本来就是 `direct`，
 所以分流路由无法改变俄罗斯站点看到的结果。只有客户端配置才能让本国流量不进入隧道。
 
-配置通过响应头下发给客户端，因此较大的 `DirectSites` 列表可能超出 nginx 默认的 4k 代理缓冲区。生成的
-`location /sub/` 已调高该值（`proxy_buffer_size 32k`）；如果订阅前面还有你自己的反向代理，也需要在那里
+配置通过响应头下发给客户端，因此较大的 `DirectSites` 列表可能超出 nginx 默认的 4k 代理缓冲区。生成的订阅
+nginx 配置已调高该值（`proxy_buffer_size 32k`），域名模式的 `location /sub/` 与 IP 模式（quickstart，
+`location /`）均已覆盖；如果订阅前面还有你自己的反向代理，也需要在那里
 调高 `proxy_buffer_size`，否则 nginx 会返回 502 并在日志中记录 `upstream sent too big header`。
 
 ### 从菜单生成
