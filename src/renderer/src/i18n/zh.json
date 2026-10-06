@@ -322,18 +322,9 @@
     "backendsConfirmAwg": "移除 AmneziaWG？接口、配置与防火墙规则将被拆除（软件包与模块保留在系统中）。所有 peer 连接中断。",
     "backendsConfirm31On": "启用 AWG 3.1 模式（HeaderProtectionKey + RandomTrailers）？所有已发出的客户端 .conf 需重新下载。客户端需 AmneziaVPN ≥ 5.0.1.5。",
     "backendsConfirm31Off": "停用 AWG 3.1 模式？配置恢复 2.0 格式；所有客户端 .conf 需重新下载。",
-    "backendsConfirmReissueHyst": "重新签发 Hysteria 2 凭据？旧密码与链接将失效。",
-    "backendsConfirmReissueAwg": "重新签发 AWG peer 密钥？旧 .conf 将失效。",
     "backendsExpiryBtn": "有效期",
     "backendsExpiryChoose": "选择要更改有效期的配置档：",
     "backendsConfirmRevokeHystAll": "重新签发所有 Hysteria 2 密钥？旧密码将失效。",
-    "backendsConfirmRevokeAwgAll": "重新签发所有 AWG peer 密钥？旧 .conf 将失效。",
-    "beKeysBtn": "密钥",
-    "beKeysTitle": "后端密钥",
-    "beKeysHystNote": "UDP 传输：适用于 HAPP、Hiddify、v2rayN。该行已在订阅中——此密钥用于直接导入。",
-    "beKeysAwgNote": "AmneziaVPN —— 非 V2Ray/HAPP：请将配置导入 AmneziaWG/AmneziaVPN 应用。全隧道，客户端需 AmneziaVPN ≥ 5.0.1.5。一个密钥 = 一台设备。",
-    "beKeysGrant": "签发授权",
-    "beKeysEndpoint": "Endpoint",
-    "beKeysAddress": "地址"
+    "backendsConfirmRevokeAwgAll": "重新签发所有 AWG peer 密钥？旧 .conf 将失效。"
   }
 }

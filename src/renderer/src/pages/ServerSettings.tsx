@@ -29,7 +29,7 @@ import type {
 } from '@shared/types'
 import { describeExpire, isFutureDate, presetDate } from '@shared/expire'
 import { todayIso } from '@shared/calendar'
-import { buildAwgVpnUrl, parseAwgClientConf, stripAwgComments } from '@shared/awg'
+import { buildAwgVpnUrl, stripAwgComments } from '@shared/awg'
 import { isSshAccessReady, SshAccessForm } from '../components/SshAccessForm'
 import { CalendarPicker } from '../components/CalendarPicker'
 import { shouldAutoConnectServer } from './server-access'
@@ -103,19 +103,12 @@ export function ServerSettings({
     | 'awg-uninstall'
     | 'awg31-on'
     | 'awg31-off'
-    | 'hysteria2-regrant'
-    | 'awg-regrant'
     | 'hysteria2-revoke-all'
     | 'awg-revoke-all'
     | null
   >(null)
-  // Срез C: диалог ключей бэкендов у профиля.
-  const [keysTarget, setKeysTarget] = useState<ServerProfile | null>(null)
-  const [keysHystLink, setKeysHystLink] = useState<string | null>(null)
-  const [keysHystErr, setKeysHystErr] = useState<string | null>(null)
-  const [keysAwgConf, setKeysAwgConf] = useState<string | null>(null)
-  const [keysAwgErr, setKeysAwgErr] = useState<string | null>(null)
-  const [keysBusy, setKeysBusy] = useState(false)
+  // QR-модалка выдачи ключей бэкенд-боксов. Диалог «Ключи» убран:
+  // полное копирование только на странице Ключей (решение 2026-10-06).
   const [keysQrUrl, setKeysQrUrl] = useState<string | null>(null)
   const [keysQrData, setKeysQrData] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -670,56 +663,6 @@ export function ServerSettings({
     }
   }
 
-  // ─── Срез C: диалог ключей бэкендов ───
-  const fetchBackendKeys = async (name: string): Promise<void> => {
-    setKeysHystLink(null)
-    setKeysHystErr(null)
-    setKeysAwgConf(null)
-    setKeysAwgErr(null)
-    const hyst = await window.api.backends.hysteria2Link(server.id, access, name).catch(
-      (err: unknown): string => (err instanceof Error ? err.message : String(err))
-    )
-    if (typeof hyst === 'string') setKeysHystErr(hyst)
-    else setKeysHystLink(hyst.link ?? null)
-    const conf = await window.api.backends.awgConf(server.id, access, name).catch(
-      (err: unknown): string => (err instanceof Error ? err.message : String(err))
-    )
-    if (typeof conf === 'string') setKeysAwgErr(conf)
-    else setKeysAwgConf(conf.conf ?? null)
-  }
-
-  const openBackendKeys = (profile: ServerProfile): void => {
-    setKeysTarget(profile)
-    setKeysBusy(true)
-    void fetchBackendKeys(profile.name).finally(() => setKeysBusy(false))
-  }
-
-  const closeBackendKeys = (): void => {
-    setKeysTarget(null)
-    setKeysHystLink(null)
-    setKeysAwgConf(null)
-    setKeysQrUrl(null)
-  }
-
-  const grantBackend = async (kind: 'hysteria2' | 'awg'): Promise<void> => {
-    if (!keysTarget) return
-    setKeysBusy(true)
-    try {
-      if (kind === 'hysteria2') await window.api.backends.hysteria2Grant(server.id, access, keysTarget.name)
-      else await window.api.backends.awgGrant(server.id, access, keysTarget.name)
-      await fetchBackendKeys(keysTarget.name)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setKeysBusy(false)
-    }
-  }
-
-  const copyKeysText = async (text: string): Promise<void> => {
-    await navigator.clipboard.writeText(text)
-    toastText(t('settings.copied'))
-  }
-
   const showKeysQr = async (data: string): Promise<void> => {
     setKeysQrUrl(data)
     setKeysQrData(null)
@@ -891,7 +834,6 @@ export function ServerSettings({
 
   const hyst = backends?.backends.hysteria2
   const awgEntry = backends?.backends.awg
-  const keysAwgFields = keysAwgConf ? parseAwgClientConf(keysAwgConf) : null
 
   const transportLabel = (profile: ServerProfile): string =>
     profile.multi_route ? `${profile.transport} · ${profile.routes} ${t('settings.routes')}` : profile.transport
@@ -1210,15 +1152,6 @@ export function ServerSettings({
                         {t('settings.copy')}
                       </Button>
                     )}
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      isDisabled={busy}
-                      onPress={() => openBackendKeys(profile)}
-                    >
-                      <Zap size={14} />
-                      {t('settings.beKeysBtn')}
-                    </Button>
                     <Button
                       size="sm"
                       variant="secondary"
@@ -1565,148 +1498,6 @@ export function ServerSettings({
       </div>
 
       <AlertDialog.Root
-        isOpen={keysTarget !== null}
-        onOpenChange={(open) => {
-          if (!open) closeBackendKeys()
-        }}
-      >
-        <AlertDialog.Backdrop className={styles.blurBackdrop}>
-          <AlertDialog.Container>
-            <AlertDialog.Dialog className={`${styles.confirmDialog} ${styles.revokeWide}`}>
-              <AlertDialog.Header>
-                <AlertDialog.Icon status="success">
-                  <Zap size={20} />
-                </AlertDialog.Icon>
-                <AlertDialog.Heading>
-                  {t('settings.beKeysTitle')} — {keysTarget?.name ?? ''}
-                </AlertDialog.Heading>
-              </AlertDialog.Header>
-              <AlertDialog.Body>
-                {keysBusy ? <Spinner size="sm" /> : null}
-
-                <div className={styles.keysBlock}>
-                  <div className={styles.keysChipRow}>
-                    <Chip size="sm" color="accent">
-                      HYSTERIA2 · UDP
-                    </Chip>
-                  </div>
-                  <p className={styles.keysNote}>{t('settings.beKeysHystNote')}</p>
-                  {keysHystLink ? (
-                    <>
-                      <div className={styles.keysConfPre}>{keysHystLink}</div>
-                      <div className={styles.backendActions}>
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          onPress={() => void copyKeysText(keysHystLink)}
-                        >
-                          <Copy size={13} />
-                          {t('settings.copy')}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          onPress={() => void showKeysQr(keysHystLink)}
-                        >
-                          {t('keys.qr')}
-                        </Button>
-                      </div>
-                    </>
-                  ) : keysHystErr ? (
-                    <>
-                      <p className={styles.keysNote}>{keysHystErr}</p>
-                      <Button
-                        size="sm"
-                        variant="primary"
-                        isDisabled={keysBusy}
-                        onPress={() => void grantBackend('hysteria2')}
-                      >
-                        {t('settings.beKeysGrant')}
-                      </Button>
-                    </>
-                  ) : null}
-                </div>
-
-                <div className={styles.keysBlock}>
-                  <div className={styles.keysChipRow}>
-                    <Chip size="sm" color="default">
-                      AMNEZIAWG 3.1 · UDP
-                    </Chip>
-                  </div>
-                  <p className={styles.keysNote}>{t('settings.beKeysAwgNote')}</p>
-                  {keysAwgFields ? (
-                    <>
-                      <div className={styles.keysFields}>
-                        <div className={styles.keysField}>
-                          <span className={styles.keysFieldLabel}>
-                            {t('settings.beKeysEndpoint')}
-                          </span>
-                          <span className={styles.keysFieldValue}>{keysAwgFields.endpoint}</span>
-                        </div>
-                        <div className={styles.keysField}>
-                          <span className={styles.keysFieldLabel}>
-                            {t('settings.beKeysAddress')}
-                          </span>
-                          <span className={styles.keysFieldValue}>{keysAwgFields.address}</span>
-                        </div>
-                      </div>
-                      <div className={styles.backendActions}>
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          onPress={() => void copyKeysText(stripAwgComments(keysAwgConf ?? ''))}
-                        >
-                          <Copy size={13} />
-                          {t('settings.copy')}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          onPress={() => void showKeysQr(stripAwgComments(keysAwgConf ?? ''))}
-                        >
-                          {t('keys.backendsQrAwg')}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          onPress={async () =>
-                            void showKeysQr(
-                              await buildAwgVpnUrl(keysAwgConf ?? '', keysTarget?.name, {
-                                clientPubKey: keysTarget?.backends?.awg?.client_public_key,
-                              })
-                            )
-                          }
-                        >
-                          {t('keys.backendsQrVpn')}
-                        </Button>
-                      </div>
-                    </>
-                  ) : keysAwgErr ? (
-                    <>
-                      <p className={styles.keysNote}>{keysAwgErr}</p>
-                      <Button
-                        size="sm"
-                        variant="primary"
-                        isDisabled={keysBusy}
-                        onPress={() => void grantBackend('awg')}
-                      >
-                        {t('settings.beKeysGrant')}
-                      </Button>
-                    </>
-                  ) : null}
-                </div>
-              </AlertDialog.Body>
-              <AlertDialog.Footer>
-                <Button variant="secondary" onPress={closeBackendKeys}>
-                  {t('settings.done')}
-                </Button>
-              </AlertDialog.Footer>
-            </AlertDialog.Dialog>
-          </AlertDialog.Container>
-        </AlertDialog.Backdrop>
-      </AlertDialog.Root>
-
-      <AlertDialog.Root
         isOpen={confirmBackend !== null}
         onOpenChange={(open) => {
           if (!open) setConfirmBackend(null)
@@ -1726,8 +1517,6 @@ export function ServerSettings({
                 {confirmBackend === 'awg-uninstall' && t('settings.backendsConfirmAwg')}
                 {confirmBackend === 'awg31-on' && t('settings.backendsConfirm31On')}
                 {confirmBackend === 'awg31-off' && t('settings.backendsConfirm31Off')}
-                {confirmBackend === 'hysteria2-regrant' && t('settings.backendsConfirmReissueHyst')}
-                {confirmBackend === 'awg-regrant' && t('settings.backendsConfirmReissueAwg')}
                 {confirmBackend === 'hysteria2-revoke-all' &&
                   t('settings.backendsConfirmRevokeHystAll')}
                 {confirmBackend === 'awg-revoke-all' && t('settings.backendsConfirmRevokeAwgAll')}
@@ -1743,8 +1532,6 @@ export function ServerSettings({
                     else if (confirmBackend === 'awg-uninstall') void uninstallAwg()
                     else if (confirmBackend === 'awg31-on') void toggle31(true)
                     else if (confirmBackend === 'awg31-off') void toggle31(false)
-                    else if (confirmBackend === 'hysteria2-regrant') void grantBackend('hysteria2')
-                    else if (confirmBackend === 'awg-regrant') void grantBackend('awg')
                     else if (confirmBackend === 'hysteria2-revoke-all') void revokeBackendKeys('hysteria2')
                     else if (confirmBackend === 'awg-revoke-all') void revokeBackendKeys('awg')
                     setConfirmBackend(null)
