@@ -241,7 +241,7 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
             <div key={link} className={styles.keyCard}>
               <div className={styles.keyHeader}>
                 <Chip size="sm" color="accent">
-                  HYSTERIA2 · UDP :{hysteria2Port(link)}
+                  HYSTERIA2 · {user} · UDP :{hysteria2Port(link)}
                 </Chip>
               </div>
               <p className={styles.keyNote}>{t('keys.backendsHystNote')}</p>
