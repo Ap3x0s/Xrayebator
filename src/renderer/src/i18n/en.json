@@ -308,8 +308,6 @@
     "backendsCreateNotInstalled": "Backend is not installed — install it in the “Multi-protocol backends” section below",
     "backendsCreated": "Profiles created, backend key issued: {{count}}",
     "backendsCreatedPartial": "Profiles created, but some keys were not issued — check the backends section",
-    "backendsCardLink": "Link",
-    "backendsCardConf": "Config",
     "backendsInstall": "Install",
     "backendsInstalling": "Installing…",
     "backendsUninstall": "Uninstall",

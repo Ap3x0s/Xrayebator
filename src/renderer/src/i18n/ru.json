@@ -309,8 +309,6 @@
     "backendsCreateNotInstalled": "Бэкенд не установлен — установите его в разделе «Мультипротокольные бэкенды» ниже",
     "backendsCreated": "Профили созданы, ключ бэкенда выдан: {{count}}",
     "backendsCreatedPartial": "Профили созданы, но часть ключей не выдана — проверьте раздел бэкендов",
-    "backendsCardLink": "Ссылка",
-    "backendsCardConf": "Конфиг",
     "backendsInstall": "Установить",
     "backendsInstalling": "Установка…",
     "backendsUninstall": "Удалить",
