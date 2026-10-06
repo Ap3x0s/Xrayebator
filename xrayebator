@@ -13642,8 +13642,10 @@ profile_revoke_command() {
   local jq_expr='.sub_token = $t'
   if [[ "$full" == "true" ]]; then
     jq_args+=(--arg old "$old_uuid" --arg new "$new_uuid")
-    jq_expr+=' | .uuid = $new | (.routes // []) |= map(if .uuid? == $old then .uuid = $new else . end)'
-    # routes не хранят uuid (общий на профиль), но выражение безопасно для будущих схем.
+    # ВАЖНО: (.routes // []) |= map(...) — невалидный path в jq («Invalid path
+    # expression with result []» на single-route профилях, где routes = null).
+    # Каноничный guard has("routes") — как в update_all_profiles_on_port.
+    jq_expr+=' | .uuid = $new | if has("routes") then .routes |= map(if .uuid? == $old then .uuid = $new else . end) else . end'
 
     if ! _replace_uuid_in_config "$old_uuid" "$new_uuid" "$ports_json"; then
       echo '{"ok":false,"error":"Не удалось обновить clients в config.json"}' >&3
