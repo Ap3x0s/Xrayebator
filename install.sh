@@ -1119,14 +1119,15 @@ else
   echo -e "${YELLOW}⚠ Не удалось загрузить список SNI, создаю базовый...${NC}"
   cat > "${DATA_DIR}/sni_list.txt" << 'EOF'
 # Аварийный список: не удалось скачать sni_list.txt из репозитория.
-# Порядок по замеру 03.09.2026 (MegaFon, Москва) — перепроверьте: probe test.
+# Первая строка = SNI по умолчанию: www.cloudflare.com (выбор 2026-10-06 —
+# самый стабильный; порядок остального по замеру 03.09.2026, MegaFon).
+www.cloudflare.com|foreign|1
 api-maps.yandex.ru|yandex_cdn|1
 yandex.ru|yandex_cdn|1
 www.samsung.com|foreign|1
 dl.google.com|foreign|1
 swcdn.apple.com|foreign|1
 gateway.icloud.com|foreign|1
-www.cloudflare.com|foreign|1
 www.lovelive-anime.jp|foreign|1
 speller.yandex.net|yandex_cdn|2
 www.gosuslugi.ru|ru_whitelist|2

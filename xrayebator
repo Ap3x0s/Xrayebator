@@ -6311,9 +6311,10 @@ _default_sni_for_transport() {
     *)
       local from_list
       from_list=$(grep -v '^#' "$SNI_LIST" 2>/dev/null | grep -v '^[[:space:]]*$' | head -n 1 | cut -d'|' -f1)
-      # Замер 03.09.2026 (MegaFon): SNI по умолчанию должен быть из
-      # прошедших замер — www.ozon.ru режется ТСПУ.
-      [[ -z "$from_list" ]] && from_list="api-maps.yandex.ru"
+      # Дефолт 2026-10-06: www.cloudflare.com — самый стабильный (глобальный
+      # anycast, TLS1.3, не режется ТСПУ). Список обычно перекрывает фолбэк:
+      # берётся первая строка sni_list.txt, она держится cloudflare-first.
+      [[ -z "$from_list" ]] && from_list="www.cloudflare.com"
       echo "$from_list"
       ;;
   esac

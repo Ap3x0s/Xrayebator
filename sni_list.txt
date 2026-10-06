@@ -24,19 +24,21 @@
 #   cdn-telegram.org — не резолвится
 #
 # Первая незакомментированная строка файла = SNI по умолчанию для новых
-# профилей (_default_sni_for_transport), первые 20 строк = меню выбора SNI.
+# профилей (_default_sni_for_transport) — стоит www.cloudflare.com (выбор
+# 2026-10-06: самый стабильный, глобальный anycast); первые 20 строк = меню
+# выбора SNI.
 
 # ═══════════════════════════════════════════════════════════
 # ПРИОРИТЕТ 1 — прошли замер 03.09.2026 (MegaFon, Москва)
 # ═══════════════════════════════════════════════════════════
 
+www.cloudflare.com|foreign|1
 api-maps.yandex.ru|yandex_cdn|1
 yandex.ru|yandex_cdn|1
 www.samsung.com|foreign|1
 dl.google.com|foreign|1
 swcdn.apple.com|foreign|1
 gateway.icloud.com|foreign|1
-www.cloudflare.com|foreign|1
 www.lovelive-anime.jp|foreign|1
 
 # ═══════════════════════════════════════════════════════════
