@@ -251,6 +251,14 @@ export function ServerSettings({
       setError(t('settings.errorName'))
       return
     }
+    // Pre-check коллизии имени (см. createBackendProfiles).
+    const nameCollision = futureNames.find((nm) =>
+      (profiles ?? []).some((p) => p.name === nm)
+    )
+    if (nameCollision) {
+      setError(t('settings.errorNameExists', { name: nameCollision }))
+      return
+    }
     setBusy(true)
     setCreating(true)
     setError(null)
@@ -718,6 +726,15 @@ export function ServerSettings({
     }
     if (!name.trim()) {
       setError(t('settings.errorName'))
+      return
+    }
+    // Pre-check: удаление по имени снимает ВСЕ ключи профиля (маршруты +
+    // бэкенды), поэтому коллизию имени ловим до создания, а не после.
+    const nameCollision = futureNames.find((nm) =>
+      (profiles ?? []).some((p) => p.name === nm)
+    )
+    if (nameCollision) {
+      setError(t('settings.errorNameExists', { name: nameCollision }))
       return
     }
     if (!backends?.backends[kind]?.installed) {

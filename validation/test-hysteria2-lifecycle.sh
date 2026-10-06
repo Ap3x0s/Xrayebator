@@ -148,6 +148,15 @@ grep -q '"cleo"' "$HYSTERIA2_DIR/server.yaml" && fail "deleted: cleo still in us
 grep -q '"alice"' "$HYSTERIA2_DIR/server.yaml" || fail "deleted: alice collateral damage"
 pass "event deleted (file pre-removed) removes grant from users map"
 
+# created: авто-выдача при создании отключена — только явный grant.
+jq -n '{name:"eve", uuid:"u-eve", transport:"tcp", port:443}' \
+  > "$PROFILES_DIR/eve.json" || fail "fixture eve"
+_hysteria2_on_profile_event eve created || fail "hysteria2 event created"
+jq -e '.backends.hysteria2 == null' "$PROFILES_DIR/eve.json" >/dev/null \
+  || fail "created must not auto-grant hysteria2 keys"
+pass "event created is a no-op — keys only via explicit grant"
+rm -f "$PROFILES_DIR/eve.json"
+
 # grant_all: массовая выдача с одним регеном
 jq -n '{name:"bob", uuid:"u-bob", transport:"xhttp", port:8443, fingerprint:"firefox",
         sni:"www.example.com", sub_token:"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", created:"2026-10-04"}' \

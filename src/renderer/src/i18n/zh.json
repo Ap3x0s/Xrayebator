@@ -197,6 +197,7 @@
     "error": "错误",
     "errorPassword": "请完整填写 SSH 访问信息",
     "errorName": "请输入配置文件名称",
+    "errorNameExists": "名为“{{name}}”的配置档已存在——请删除它或换一个名称",
     "changeFingerprint": "更改指纹",
     "changingFingerprint": "正在更改指纹…",
     "fpTitle": "更改指纹",
