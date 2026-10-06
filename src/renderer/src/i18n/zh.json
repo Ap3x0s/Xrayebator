@@ -301,7 +301,7 @@
     "backendsActive": "运行中",
     "backendsNotInstalled": "未安装",
     "backendsDevBadge": "开发中 · 备用",
-    "backendsCreateHint": "配置档照常创建：名称、数量、有效期和传输方式在上方字段中。密钥按所选协议签发。",
+    "backendsCreateHint": "选择协议——普通 VLESS 或多协议——然后点击“创建配置档”。名称、数量和有效期在上方字段中。",
     "backendsCreateHystDesc": "基于 QUIC 的高速 UDP 后端：密钥自动加入订阅，一条链接——所有设备",
     "backendsCreateAwgDesc": "基于 AmneziaWG 3.1 内核的系统级 VPN：整机隧道，一个密钥——一台设备",
     "backendsCreateNotInstalled": "后端未安装——请在下方“多协议后端”部分安装",

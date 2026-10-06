@@ -123,7 +123,9 @@ export function ServerSettings({
   const [transport, setTransport] = useState('xhttp')
   const [count, setCount] = useState('1')
   const [creating, setCreating] = useState(false)
-  const [backendCreateBusy, setBackendCreateBusy] = useState<'hysteria2' | 'awg' | null>(null)
+  // Выбор мультипротокольного бэкенда в «Создать профиль»: клик по карточке
+  // = только выбор (как у VLESS-транспортов), создание — кнопкой «Создать профиль».
+  const [backendSel, setBackendSel] = useState<'hysteria2' | 'awg' | null>(null)
   const [createExpire, setCreateExpire] = useState('')
   const [createExpireOpen, setCreateExpireOpen] = useState(false)
 
@@ -723,7 +725,7 @@ export function ServerSettings({
       return
     }
     setBusy(true)
-    setBackendCreateBusy(kind)
+    setCreating(true)
     setError(null)
     const beforeNames = new Set((profiles ?? []).map((p) => p.name))
     let createdNames: string[] = []
@@ -731,7 +733,7 @@ export function ServerSettings({
     try {
       const result = await window.api.profiles.create(server.id, access, {
         name: name.trim(),
-        transport,
+        transport: 'xhttp',
         count: Math.min(Math.max(Number(count) || 1, 1), 50),
         ...(createExpire && isFutureDate(createExpire, Date.now())
           ? { expire: createExpire }
@@ -780,13 +782,14 @@ export function ServerSettings({
     if (createdNames.length > 0 && grantErrors.length === 0) {
       toastText(t('settings.backendsCreated', { count: createdNames.length }))
       setName('')
+      setBackendSel(null)
     } else if (createdNames.length > 0) {
       setError(t('settings.backendsCreatedPartial'))
     } else if (failedMessage) {
       setError(failedMessage)
     }
     setBusy(false)
-    setBackendCreateBusy(null)
+    setCreating(false)
   }
 
   // Ключи бэкенд-профиля: карточки в списке профилей (дубликаты стиля
@@ -977,7 +980,10 @@ export function ServerSettings({
                   size="lg"
                   className={styles.createBtn}
                   isDisabled={busy || !accessReady || !name.trim()}
-                  onPress={create}
+                  onPress={() => {
+                    if (backendSel) void createBackendProfiles(backendSel)
+                    else void create()
+                  }}
                 >
                   {busy && <Spinner size="sm" />}
                   {t('settings.createBtn')}
@@ -1004,7 +1010,7 @@ export function ServerSettings({
                 <p className={styles.sectionHint}>{t('settings.protocolPrompt')}</p>
                 <div className={styles.transportGrid}>
                   {PROTOCOLS.map((proto) => {
-                    const active = transport === proto.id
+                    const active = transport === proto.id && backendSel === null
                     return (
                       <button
                         key={proto.id}
@@ -1013,7 +1019,10 @@ export function ServerSettings({
                           active ? styles.transportCardActive : ''
                         }`}
                         disabled={busy}
-                        onClick={() => setTransport(proto.id)}
+                        onClick={() => {
+                          setTransport(proto.id)
+                          setBackendSel(null)
+                        }}
                       >
                         <span className={styles.transportCardName}>
                           {proto.label}
@@ -1037,18 +1046,17 @@ export function ServerSettings({
                 <div className={styles.backendCreateGrid}>
                   <button
                     type="button"
-                    className={styles.backendCreateCard}
-                    disabled={busy || backendCreateBusy !== null}
-                    onClick={() => void createBackendProfiles('hysteria2')}
+                    className={`${styles.backendCreateCard} ${
+                      backendSel === 'hysteria2' ? styles.backendCreateCardActive : ''
+                    }`}
+                    disabled={busy || creating}
+                    onClick={() => setBackendSel(backendSel === 'hysteria2' ? null : 'hysteria2')}
                   >
                     <span className={`${styles.backendIcon} ${styles.backendIconHyst}`}>
                       <img src={hystLogo} alt="Hysteria 2" className={styles.backendIconSvg} />
                     </span>
                     <span className={styles.backendCreateText}>
-                      <span className={styles.backendCreateName}>
-                        Hysteria 2
-                        {backendCreateBusy === 'hysteria2' && <Spinner size="sm" />}
-                      </span>
+                      <span className={styles.backendCreateName}>Hysteria 2</span>
                       <span className={styles.backendCreateDesc}>
                         {t('settings.backendsCreateHystDesc')}
                       </span>
@@ -1056,18 +1064,17 @@ export function ServerSettings({
                   </button>
                   <button
                     type="button"
-                    className={styles.backendCreateCard}
-                    disabled={busy || backendCreateBusy !== null}
-                    onClick={() => void createBackendProfiles('awg')}
+                    className={`${styles.backendCreateCard} ${
+                      backendSel === 'awg' ? styles.backendCreateCardActive : ''
+                    }`}
+                    disabled={busy || creating}
+                    onClick={() => setBackendSel(backendSel === 'awg' ? null : 'awg')}
                   >
                     <span className={`${styles.backendIcon} ${styles.backendIconAwg}`}>
                       <img src={amneziaLogo} alt="AmneziaWG" className={styles.backendIconImg} />
                     </span>
                     <span className={styles.backendCreateText}>
-                      <span className={styles.backendCreateName}>
-                        AmneziaWG 3.1
-                        {backendCreateBusy === 'awg' && <Spinner size="sm" />}
-                      </span>
+                      <span className={styles.backendCreateName}>AmneziaWG 3.1</span>
                       <span className={styles.backendCreateDesc}>
                         {t('settings.backendsCreateAwgDesc')}
                       </span>
@@ -1197,7 +1204,10 @@ export function ServerSettings({
                           <img src={hystLogo} alt="Hysteria 2" className={styles.backendIconSvg} />
                         </span>
                         <div className={styles.backendProfileTitle}>
-                          <div className={styles.backendName}>{t('settings.backendsHyst')}</div>
+                          <div className={styles.backendName}>{profile.name}</div>
+                          <div className={styles.backendProfileSub}>
+                            {t('settings.backendsHyst')} · {t('settings.backendsHystSub')}
+                          </div>
                           <div
                             className={`${styles.backendState} ${
                               hyst?.state === 'active' ? styles.backendStateOk : ''
@@ -1257,7 +1267,10 @@ export function ServerSettings({
                           <img src={amneziaLogo} alt="AmneziaWG" className={styles.backendIconImg} />
                         </span>
                         <div className={styles.backendProfileTitle}>
-                          <div className={styles.backendName}>{t('settings.backendsAwg')}</div>
+                          <div className={styles.backendName}>{profile.name}</div>
+                          <div className={styles.backendProfileSub}>
+                            {t('settings.backendsAwg')} · {t('settings.backendsAwgSub')}
+                          </div>
                           <div
                             className={`${styles.backendState} ${
                               awgEntry?.state === 'active' ? styles.backendStateOk : ''
