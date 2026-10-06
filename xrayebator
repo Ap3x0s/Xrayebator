@@ -2341,7 +2341,14 @@ _hysteria2_on_profile_event() {
         '.backends.hysteria2.password = $p' "$profile_file" || return 1
       _hysteria2_regen_config || return 1
       ;;
-    deleted|expired|restored)
+    deleted)
+      # Аналогично AWG: файл профиля удалён вызывающим ДО lifecycle —
+      # реген users-карты обязан пройти без удалённого гранта, иначе
+      # осиротевший пароль остаётся в server.yaml и удалённый
+      # пользователь сохраняет доступ.
+      _hysteria2_regen_config || return 1
+      ;;
+    expired|restored)
       [[ -f "$profile_file" ]] || return 0
       _hysteria2_regen_config || return 1
       ;;
@@ -3594,7 +3601,14 @@ _awg_on_profile_event() {
           client_public_key: $cb, preshared_key: $ps})' "$profile_file" || return 1
       _awg_regen_config || return 1
       ;;
-    deleted|expired|restored)
+    deleted)
+      # Файл профиля удалён вызывающим ДО lifecycle (rm в
+      # profile_delete_command) — реген по оставшимся профилям снимает
+      # peer удалённого: иначе осиротевший peer живёт вечно и удалённый
+      # пользователь сохраняет доступ. Гварда на файл здесь быть НЕ должно.
+      _awg_regen_config || return 1
+      ;;
+    expired|restored)
       [[ -f "$profile_file" ]] || return 0
       _awg_regen_config || return 1
       ;;
@@ -13495,16 +13509,18 @@ profile_delete_command() {
     return 1
   fi
 
-  local rollback_config=""
-  if ! backup_config "cli_delete_$name" rollback_config; then
-    echo '{"ok":false,"error":"Не удалось создать бэкап config.json"}'
-    return 1
-  fi
-
   # CLI-режим: статусы helpers (backup_config, safe_restart_xray, close_firewall_port)
   # печатают цветной мусор в stdout и ломали JSON-парсинг в GUI — душим их в stderr.
+  # Redirect ДО backup_config: её цветная строка тоже мусор для парсера GUI.
   exec 3>&1
   exec 1>&2
+
+  local rollback_config=""
+  if ! backup_config "cli_delete_$name" rollback_config; then
+    echo '{"ok":false,"error":"Не удалось создать бэкап config.json"}' >&3
+    exec 1>&3 3>&-
+    return 1
+  fi
 
   if ! _remove_profile_uuid_from_config "$uuid" "$ports_json"; then
     echo '{"ok":false,"error":"Ошибка обновления конфига"}' >&3
