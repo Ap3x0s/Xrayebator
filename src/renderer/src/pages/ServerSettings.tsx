@@ -130,6 +130,7 @@ export function ServerSettings({
   const [transport, setTransport] = useState('xhttp')
   const [count, setCount] = useState('1')
   const [creating, setCreating] = useState(false)
+  const [backendCreateBusy, setBackendCreateBusy] = useState<'hysteria2' | 'awg' | null>(null)
   const [createExpire, setCreateExpire] = useState('')
   const [createExpireOpen, setCreateExpireOpen] = useState(false)
 
@@ -762,6 +763,148 @@ export function ServerSettings({
     }
   }
 
+  // Создание профиля бэкенда из карточки в «Создать профиль»:
+  // тот же профиль (имя/количество/срок из общей формы), плюс сразу
+  // выдаётся ключ выбранного протокола (hysteria2/awg attach).
+  const createBackendProfiles = async (kind: 'hysteria2' | 'awg'): Promise<void> => {
+    if (!accessReady) {
+      setError(t('settings.errorPassword'))
+      return
+    }
+    if (!name.trim()) {
+      setError(t('settings.errorName'))
+      return
+    }
+    if (!backends?.backends[kind]?.installed) {
+      setError(t('settings.backendsCreateNotInstalled'))
+      return
+    }
+    setBusy(true)
+    setBackendCreateBusy(kind)
+    setError(null)
+    const beforeNames = new Set((profiles ?? []).map((p) => p.name))
+    let createdNames: string[] = []
+    let failedMessage: string | null = null
+    try {
+      const result = await window.api.profiles.create(server.id, access, {
+        name: name.trim(),
+        transport,
+        count: Math.min(Math.max(Number(count) || 1, 1), 50),
+        ...(createExpire && isFutureDate(createExpire, Date.now())
+          ? { expire: createExpire }
+          : {})
+      })
+      createdNames = result.ok ? result.names : []
+      if (!result.ok) failedMessage = result.errors[0] ?? t('settings.createFailed')
+    } catch (err) {
+      failedMessage = err instanceof Error ? err.message : String(err)
+    }
+    if (createdNames.length === 0 && failedMessage) {
+      // Профили могли создаться даже при ошибке парсинга — перечитываем список.
+      try {
+        const fresh = await window.api.profiles.list(server.id, access)
+        setProfiles(fresh.profiles ?? [])
+        const newlyAppeared = (fresh.profiles ?? []).filter(
+          (p) => futureNames.includes(p.name) && !beforeNames.has(p.name)
+        )
+        if (newlyAppeared.length > 0) {
+          createdNames = newlyAppeared.map((p) => p.name)
+          failedMessage = null
+        }
+      } catch {
+        // список не критичен, ошибку создания уже показываем
+      }
+    }
+    const grantErrors: string[] = []
+    for (const nm of createdNames) {
+      try {
+        if (kind === 'hysteria2') {
+          await window.api.backends.hysteria2Grant(server.id, access, nm)
+        } else {
+          await window.api.backends.awgGrant(server.id, access, nm)
+        }
+      } catch (err) {
+        grantErrors.push(`${nm}: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
+    try {
+      const fresh = await window.api.profiles.list(server.id, access)
+      setProfiles(fresh.profiles ?? [])
+      await reloadBackends()
+    } catch {
+      // не критично — основной результат уже показан
+    }
+    if (createdNames.length > 0 && grantErrors.length === 0) {
+      toastText(t('settings.backendsCreated', { count: createdNames.length }))
+      setName('')
+    } else if (createdNames.length > 0) {
+      setError(t('settings.backendsCreatedPartial'))
+    } else if (failedMessage) {
+      setError(failedMessage)
+    }
+    setBusy(false)
+    setBackendCreateBusy(null)
+  }
+
+  // Ключи бэкенд-профиля: карточки в списке профилей (дубликаты стиля
+  // бэкенд-блока, разделённые по протоколам).
+  const profileHystLink = async (profile: ServerProfile): Promise<string> => {
+    const res = await window.api.backends.hysteria2Link(server.id, access, profile.name)
+    if (!res.ok || !res.link) throw new Error(res.error ?? t('settings.createFailed'))
+    return res.link
+  }
+
+  const copyProfileHystLink = async (profile: ServerProfile): Promise<void> => {
+    try {
+      await copyKeysText(await profileHystLink(profile))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  const qrProfileHyst = async (profile: ServerProfile): Promise<void> => {
+    try {
+      await showKeysQr(await profileHystLink(profile))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  const profileAwgConf = async (profile: ServerProfile): Promise<string> => {
+    const res = await window.api.backends.awgConf(server.id, access, profile.name)
+    if (!res.ok || !res.conf) throw new Error(res.error ?? t('settings.createFailed'))
+    return res.conf
+  }
+
+  const copyProfileAwgConf = async (profile: ServerProfile): Promise<void> => {
+    try {
+      await copyKeysText(stripAwgComments(await profileAwgConf(profile)))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  const qrProfileAwg = async (profile: ServerProfile): Promise<void> => {
+    try {
+      await showKeysQr(stripAwgComments(await profileAwgConf(profile)))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  const qrProfileAwgVpn = async (profile: ServerProfile): Promise<void> => {
+    try {
+      const conf = await profileAwgConf(profile)
+      await showKeysQr(
+        await buildAwgVpnUrl(conf, profile.name, {
+          clientPubKey: profile.backends?.awg?.client_public_key
+        })
+      )
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
   const hyst = backends?.backends.hysteria2
   const awgEntry = backends?.backends.awg
   const keysAwgFields = keysAwgConf ? parseAwgClientConf(keysAwgConf) : null
@@ -962,6 +1105,50 @@ export function ServerSettings({
                   })}
                 </div>
               </div>
+              <div className={styles.backendCreate}>
+                <span className={styles.fieldLabel}>{t('settings.backendsTitle')}</span>
+                <p className={styles.sectionHint}>{t('settings.backendsCreateHint')}</p>
+                <div className={styles.backendCreateGrid}>
+                  <button
+                    type="button"
+                    className={styles.backendCreateCard}
+                    disabled={busy || backendCreateBusy !== null}
+                    onClick={() => void createBackendProfiles('hysteria2')}
+                  >
+                    <span className={`${styles.backendIcon} ${styles.backendIconHyst}`}>
+                      <img src={hystLogo} alt="Hysteria 2" className={styles.backendIconSvg} />
+                    </span>
+                    <span className={styles.backendCreateText}>
+                      <span className={styles.backendCreateName}>
+                        Hysteria 2
+                        {backendCreateBusy === 'hysteria2' && <Spinner size="sm" />}
+                      </span>
+                      <span className={styles.backendCreateDesc}>
+                        {t('settings.backendsCreateHystDesc')}
+                      </span>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.backendCreateCard}
+                    disabled={busy || backendCreateBusy !== null}
+                    onClick={() => void createBackendProfiles('awg')}
+                  >
+                    <span className={`${styles.backendIcon} ${styles.backendIconAwg}`}>
+                      <img src={amneziaLogo} alt="AmneziaWG" className={styles.backendIconImg} />
+                    </span>
+                    <span className={styles.backendCreateText}>
+                      <span className={styles.backendCreateName}>
+                        AmneziaWG 3.1
+                        {backendCreateBusy === 'awg' && <Spinner size="sm" />}
+                      </span>
+                      <span className={styles.backendCreateDesc}>
+                        {t('settings.backendsCreateAwgDesc')}
+                      </span>
+                    </span>
+                  </button>
+                </div>
+              </div>
             </section>
 
             <section className={styles.listCard}>
@@ -1084,13 +1271,134 @@ export function ServerSettings({
                       </Button>
                     )}
                   </div>
+                  {profile.backends?.hysteria2 && (
+                    <div className={styles.backendProfileCard}>
+                      <div className={styles.backendProfileHead}>
+                        <span className={`${styles.backendIcon} ${styles.backendIconHyst}`}>
+                          <img src={hystLogo} alt="Hysteria 2" className={styles.backendIconSvg} />
+                        </span>
+                        <div className={styles.backendProfileTitle}>
+                          <div className={styles.backendName}>{t('settings.backendsHyst')}</div>
+                          <div className={styles.backendProfileSub}>{profile.name} · UDP</div>
+                        </div>
+                        <Chip size="sm" color={hyst?.state === 'active' ? 'accent' : 'default'}>
+                          {hyst?.state === 'active'
+                            ? t('settings.backendsActive')
+                            : t('settings.backendsNotInstalled')}
+                        </Chip>
+                      </div>
+                      <div className={styles.backendActions}>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          isDisabled={busy || hyst?.state !== 'active'}
+                          onPress={() => void copyProfileHystLink(profile)}
+                        >
+                          <Copy size={13} />
+                          {t('settings.backendsCardLink')}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          isDisabled={busy || hyst?.state !== 'active'}
+                          onPress={() => void qrProfileHyst(profile)}
+                        >
+                          {t('keys.qr')}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          isDisabled={busy}
+                          onPress={() => openExpire(profile)}
+                        >
+                          <CalendarClock size={14} />
+                          {t('settings.backendsExpiryBtn')}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          isDisabled={busy || hyst?.state !== 'active'}
+                          onPress={() => openRevoke(profile)}
+                        >
+                          <ShieldOff size={14} />
+                          {t('settings.backendsReissue')}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                  {profile.backends?.awg && (
+                    <div className={styles.backendProfileCard}>
+                      <div className={styles.backendProfileHead}>
+                        <span className={`${styles.backendIcon} ${styles.backendIconAwg}`}>
+                          <img src={amneziaLogo} alt="AmneziaWG" className={styles.backendIconImg} />
+                        </span>
+                        <div className={styles.backendProfileTitle}>
+                          <div className={styles.backendName}>{t('settings.backendsAwg')}</div>
+                          <div className={styles.backendProfileSub}>{profile.name} · AWG 3.1</div>
+                        </div>
+                        <Chip size="sm" color={awgEntry?.state === 'active' ? 'accent' : 'default'}>
+                          {awgEntry?.state === 'active'
+                            ? t('settings.backendsActive')
+                            : t('settings.backendsNotInstalled')}
+                        </Chip>
+                      </div>
+                      <div className={styles.backendActions}>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          isDisabled={busy || awgEntry?.state !== 'active'}
+                          onPress={() => void copyProfileAwgConf(profile)}
+                        >
+                          <Copy size={13} />
+                          {t('settings.backendsCardConf')}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          isDisabled={busy || awgEntry?.state !== 'active'}
+                          onPress={() => void qrProfileAwg(profile)}
+                        >
+                          {t('keys.qr')}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          isDisabled={busy || awgEntry?.state !== 'active'}
+                          onPress={() => void qrProfileAwgVpn(profile)}
+                        >
+                          {t('keys.backendsQrVpn')}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          isDisabled={busy}
+                          onPress={() => openExpire(profile)}
+                        >
+                          <CalendarClock size={14} />
+                          {t('settings.backendsExpiryBtn')}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          isDisabled={busy || awgEntry?.state !== 'active'}
+                          onPress={() => openRevoke(profile)}
+                        >
+                          <ShieldOff size={14} />
+                          {t('settings.backendsReissue')}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
             </section>
 
             <section>
               <div className={styles.listCard}>
-                <h2 className={styles.sectionTitle}>{t('settings.backendsTitle')}</h2>
+                <h2 className={styles.sectionTitle}>
+                  {t('settings.backendsTitle')}
+                  <Chip size="sm" color="default">{t('settings.backendsDevBadge')}</Chip>
+                </h2>
                 <p className={styles.sectionHint}>{t('settings.backendsHint')}</p>
                 {backendsError !== null ? (
                   <p className={styles.hint}>{t('settings.backendsUnsupported')}</p>
