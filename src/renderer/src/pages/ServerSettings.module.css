@@ -282,8 +282,12 @@
 }
 
 /* --- Карточки бэкенд-профилей в списке (дубликаты стиля бэкенд-блока) --- */
+/* flex-basis: 100% + flex-wrap у .profileCard: карточка уходит на свою
+   строку под main/actions, а не встаёт третьим элементом в ряд. */
 .backendProfileCard {
-  margin-top: 10px;
+  flex: none;
+  flex-basis: 100%;
+  margin-top: 2px;
   padding: 12px 14px;
   border-radius: 12px;
   background: var(--bg-1, rgba(127, 127, 127, 0.1));
@@ -656,6 +660,7 @@
 
 .profileCard {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
