@@ -1265,7 +1265,9 @@ export function ServerSettings({
                         </span>
                         <div className={styles.backendProfileTitle}>
                           <div className={styles.backendName}>{t('settings.backendsHyst')}</div>
-                          <div className={styles.backendProfileSub}>{profile.name} · UDP</div>
+                          <div className={styles.backendProfileSub}>
+                            {t('settings.backendsHystSub')}
+                          </div>
                         </div>
                       </div>
                       <div className={styles.backendActions}>
@@ -1295,17 +1297,15 @@ export function ServerSettings({
                           <ShieldOff size={14} />
                           {t('settings.revokeBtn')}
                         </Button>
-                        {!profile.multi_route && (
-                          <Button
-                            size="sm"
-                            variant="danger-soft"
-                            isDisabled={busy}
-                            onPress={() => setConfirmRemove(profile)}
-                          >
-                            <Trash2 size={14} />
-                            {t('settings.deleteKey')}
-                          </Button>
-                        )}
+                        <Button
+                          size="sm"
+                          variant="danger-soft"
+                          isDisabled={busy}
+                          onPress={() => setConfirmRemove(profile)}
+                        >
+                          <Trash2 size={14} />
+                          {t('settings.deleteKey')}
+                        </Button>
                       </div>
                     </div>
                   )}
@@ -1317,7 +1317,9 @@ export function ServerSettings({
                         </span>
                         <div className={styles.backendProfileTitle}>
                           <div className={styles.backendName}>{t('settings.backendsAwg')}</div>
-                          <div className={styles.backendProfileSub}>{profile.name} · AWG 3.1</div>
+                          <div className={styles.backendProfileSub}>
+                            {t('settings.backendsAwgSub')}
+                          </div>
                         </div>
                       </div>
                       <div className={styles.backendActions}>
@@ -1355,17 +1357,15 @@ export function ServerSettings({
                           <ShieldOff size={14} />
                           {t('settings.revokeBtn')}
                         </Button>
-                        {!profile.multi_route && (
-                          <Button
-                            size="sm"
-                            variant="danger-soft"
-                            isDisabled={busy}
-                            onPress={() => setConfirmRemove(profile)}
-                          >
-                            <Trash2 size={14} />
-                            {t('settings.deleteKey')}
-                          </Button>
-                        )}
+                        <Button
+                          size="sm"
+                          variant="danger-soft"
+                          isDisabled={busy}
+                          onPress={() => setConfirmRemove(profile)}
+                        >
+                          <Trash2 size={14} />
+                          {t('settings.deleteKey')}
+                        </Button>
                       </div>
                     </div>
                   )}
