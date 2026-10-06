@@ -205,6 +205,16 @@ grep -qF "10.8.1.2/32" "$AWG_CONF_FILE" && fail "deleted peer still in conf (reg
 grep -qF "10.8.1.3/32" "$AWG_CONF_FILE" || fail "active peer lost on deleted event"
 pass "event deleted (file pre-removed) removes peer — no orphans"
 
+# created: авто-выдача ключей при создании отключена — ключ бэкенда
+# выдаётся только явным grant (выбор протокола в GUI / меню 11-13).
+jq -n '{name:"eve", uuid:"u-eve", transport:"tcp", port:443}' > "$PROFILES_DIR/eve.json" \
+  || fail "fixture eve"
+_awg_on_profile_event eve created || fail "awg event created"
+jq -e '.backends.awg == null' "$PROFILES_DIR/eve.json" >/dev/null \
+  || fail "created must not auto-grant awg keys"
+pass "event created is a no-op — keys only via explicit grant"
+rm -f "$PROFILES_DIR/eve.json"
+
 # grant без backend — безопасный no-op проверяется ниже вместе с uninstall
 
 # ── Отсутствие установки: безопасные no-op ──

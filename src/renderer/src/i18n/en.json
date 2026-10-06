@@ -198,6 +198,7 @@
     "error": "Error",
     "errorPassword": "Complete the SSH access details",
     "errorName": "Enter profile name",
+    "errorNameExists": "A profile named “{{name}}” already exists — delete it or pick another name",
     "changeFingerprint": "Change fingerprint",
     "changingFingerprint": "Changing fingerprint…",
     "fpTitle": "Change fingerprint",

@@ -2330,7 +2330,10 @@ _hysteria2_on_profile_event() {
   local profile_file="$PROFILES_DIR/$name.json"
   case "$event" in
     created)
-      _hysteria2_grant_profile "$name" || return 1
+      # Авто-выдача при создании отключена (см. _awg_on_profile_event):
+      # протокол ключа выбирает оператор, иначе новый профиль получал
+      # ключи всех установленных бэкендов сразу.
+      return 0
       ;;
     revoked)
       [[ -f "$profile_file" ]] || return 0
@@ -3587,7 +3590,10 @@ _awg_on_profile_event() {
   local profile_file="$PROFILES_DIR/$name.json"
   case "$event" in
     created)
-      _awg_grant_profile "$name" || return 1
+      # Авто-выдача ключей при создании УМЫШЛЕННО отключена: протокол ключа
+      # выбирает оператор (GUI «Создать профиль» / меню 11-13 / grant CLI).
+      # Иначе каждый новый профиль получал ключи ВСЕХ установленных бэкендов.
+      return 0
       ;;
     revoked)
       # Ротация ключей peer-а: старые клиентские конфиги перестают подключаться.

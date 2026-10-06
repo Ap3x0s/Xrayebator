@@ -199,6 +199,7 @@
     "error": "Ошибка",
     "errorPassword": "Заполните данные SSH-доступа",
     "errorName": "Введите имя профиля",
+    "errorNameExists": "Профиль с именем «{{name}}» уже существует — удалите его или выберите другое имя",
     "changeFingerprint": "Сменить fingerprint",
     "changingFingerprint": "Сменяю fingerprint…",
     "fpTitle": "Сменить fingerprint",
