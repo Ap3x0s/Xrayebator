@@ -910,7 +910,7 @@ export function ServerSettings({
                     disabled={busy}
                     onClick={() => void updateServer('main')}
                   >
-                    main
+                    {t('settings.updateBranchMain')}
                     <span className={styles.updateMenuHint}>
                       {t('settings.updateBranchMainHint')}
                     </span>
@@ -920,7 +920,7 @@ export function ServerSettings({
                     disabled={busy}
                     onClick={() => void updateServer('dev')}
                   >
-                    dev · {t('settings.updateBranchDev')}
+                    {t('settings.updateBranchDev')}
                     <span className={styles.updateMenuHint}>
                       {t('settings.updateBranchDevHint')}
                     </span>
