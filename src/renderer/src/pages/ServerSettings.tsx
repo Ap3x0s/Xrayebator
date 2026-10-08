@@ -130,6 +130,7 @@ export function ServerSettings({
   const [createExpireOpen, setCreateExpireOpen] = useState(false)
 
   const [updating, setUpdating] = useState(false)
+  const [updateMenuOpen, setUpdateMenuOpen] = useState(false)
   const [uninstalling, setUninstalling] = useState(false)
   const [confirmUninstall, setConfirmUninstall] = useState(false)
   const [confirmRemove, setConfirmRemove] = useState<ServerProfile | null>(null)
@@ -558,13 +559,13 @@ export function ServerSettings({
    */
   const expireSupported = (profiles ?? []).some((p) => p.expire_supported === true)
 
-  const updateServer = async (): Promise<void> => {
+  const updateServer = async (branch?: 'main' | 'dev' | 'experimental'): Promise<void> => {
     if (!accessReady) return
     setBusy(true)
     setUpdating(true)
     setError(null)
     try {
-      const result = await window.api.server.update(server.id, access)
+      const result = await window.api.server.update(server.id, access, branch)
       if (result.ok) {
         toastText(t('settings.updated'))
       } else {
@@ -575,6 +576,7 @@ export function ServerSettings({
     } finally {
       setBusy(false)
       setUpdating(false)
+      setUpdateMenuOpen(false)
     }
   }
 
@@ -878,18 +880,54 @@ export function ServerSettings({
         <span className={styles.serverName}>{server.name}</span>
         {connected && (
           <div className={styles.headerActions}>
-            <Button
-              variant="secondary"
-              size="sm"
-              isDisabled={busy}
-              onPress={updateServer}
-            >
-              <CloudDownload
-                size={16}
-                className={updating ? styles.iconDownloading : undefined}
-              />
-              {updating ? t('settings.updating') : t('settings.updateServer')}
-            </Button>
+            <div className={styles.updateMenuWrap}>
+              <Button
+                variant="secondary"
+                size="sm"
+                isDisabled={busy}
+                onPress={() => setUpdateMenuOpen((open) => !open)}
+              >
+                <CloudDownload
+                  size={16}
+                  className={updating ? styles.iconDownloading : undefined}
+                />
+                {updating ? t('settings.updating') : t('settings.updateServer')}
+              </Button>
+              {updateMenuOpen && (
+                <div className={styles.updateMenu}>
+                  <button
+                    className={styles.updateMenuItem}
+                    disabled={busy}
+                    onClick={() => void updateServer()}
+                  >
+                    {t('settings.updateBranchAuto')}
+                    <span className={styles.updateMenuHint}>
+                      {t('settings.updateBranchAutoHint')}
+                    </span>
+                  </button>
+                  <button
+                    className={styles.updateMenuItem}
+                    disabled={busy}
+                    onClick={() => void updateServer('main')}
+                  >
+                    main
+                    <span className={styles.updateMenuHint}>
+                      {t('settings.updateBranchMainHint')}
+                    </span>
+                  </button>
+                  <button
+                    className={`${styles.updateMenuItem} ${styles.updateMenuBeta}`}
+                    disabled={busy}
+                    onClick={() => void updateServer('dev')}
+                  >
+                    dev · {t('settings.updateBranchDev')}
+                    <span className={styles.updateMenuHint}>
+                      {t('settings.updateBranchDevHint')}
+                    </span>
+                  </button>
+                </div>
+              )}
+            </div>
             <Button
               variant="danger-soft"
               size="sm"
