@@ -106,10 +106,12 @@ export function normalizeInspection(
 
   // Публичный, но недосягаемый URL сохраняем как metadata — карточка помнит
   // endpoint; Keys-страница ориентируется на diagnostics.subscription.
-  // http_tls-fallback тоже сохраняет URL: Keys использует его как подпись,
-  // а реальная загрузка ключей идёт через SSH.
+  // http_tls-fallback URL НЕ сохраняем: снаружи на него никто не слушает,
+  // мёртвый https-URL вводит в заблуждение (реальный канал — SSH).
   const subscriptionUrl =
-    subscription === 'localOnly' || subscription === 'missing' ? '' : publicUrl || snapshot.subscription_url?.trim() || ''
+    subscription === 'localOnly' || subscription === 'missing' || subscription === 'fallback'
+      ? ''
+      : publicUrl
 
   return {
     setupStatus: ready ? 'ready' : 'partial',
