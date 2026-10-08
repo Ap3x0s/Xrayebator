@@ -49,6 +49,10 @@ polish. **0.6.5 is in testing — if you need a proven build, stay on 0.6.0.**
 - `validation/` grew from 28 to 34 scripts: backend registry, Hysteria 2 lifecycle,
   AmneziaWG junk/renderers/lifecycle, HAPP client routing, legacy profile port sync,
   quickstart `http_tls` fallback, apt-lock race, profile revoke/expire CLI.
+- Branch choice for server updates: the "Update Xrayebator" button became a menu —
+  "Auto — as pinned on the server" (previous behavior), "main — latest stable release",
+  "dev — every feature first" (may be unstable): a server can be moved to the dev
+  manager before the merge without polluting main; switching back is an update from main.
 
 ### Fixed
 
