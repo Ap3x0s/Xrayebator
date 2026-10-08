@@ -15,7 +15,7 @@ for test_file in validation/*.sh; do bash "$test_file" || exit; done
 
 ## 测试覆盖范围
 
-`validation/` 中有 31 个静态与本地回归测试：
+`validation/` 中有 34 个静态与本地回归测试：
 
 | 测试 | 检查内容 |
 |---|---|
@@ -50,6 +50,7 @@ for test_file in validation/*.sh; do bash "$test_file" || exit; done
 | `test-quickstart-email-and-inspect.sh` | `quickstart` 的显式 email 模式（`--without-email` 不使用虚假地址）以及 `inspect --json` 的只读不变量 |
 | `test-quickstart-migration-parity.sh` | `quickstart` 执行与 `main_menu` 相同的关键迁移 |
 | `test-quickstart-subscription-port.sh` | 确认 `quickstart` 使用规范的订阅基础地址 helper，不回退到无关的硬编码 URL |
+| `test-quickstart-tls-fallback.sh` | `http_tls` 优雅降级分支：SUB_TLS_MODE 切换、HTTP-only vhost（无 ssl/无 proxy）、按模式写入标记、仅 ip_tls 设置续期定时器以及 JSON 的 degraded 元数据 |
 | `test-audit-functional.sh` | HowDeploy 审计（P0/P1）的功能回归检查 |
 | `test-audit-privilege-regressions.sh` | 权限边界回归 |
 
@@ -107,7 +108,7 @@ npm test              # Vitest 单元测试
 
 三个独立 workflow：
 
-- **ci-linux.yml** — Bash validation：在 ubuntu-24.04 上对所有脚本执行 `bash -n`，并运行全部 31 个
+- **ci-linux.yml** — Bash validation：在 ubuntu-24.04 上对所有脚本执行 `bash -n`，并运行全部 34 个
   `validation/test-*.sh`；在 push 到 `main`、`dev`、`experimental` 以及 pull request 时运行。
 - **release.yml** — Electron 构建（Windows/macOS/Linux）。只在 `v*` tag 和手动触发时运行；先由
   `preflight` 检查发布说明 `docs/releases/<tag>.en.md` 是否存在，以及仓库密钥 `AP3X0`（若已设置）

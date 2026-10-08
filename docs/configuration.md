@@ -118,6 +118,7 @@ is a client-side profile/route setting; changing it does not restart Xray or alt
 | `sudo xrayebator quickstart --without-email` | Same new-server path without an ACME contact email; Certbot uses `--register-unsafely-without-email`, so no renewal notices or email-based account recovery are available |
 | `sudo xrayebator inspect --json` | Read-only GUI import probe: reports manager, Xray, profile and subscription markers without installing, migrating or changing services/configuration |
 | `sudo xrayebator happ-setup` | Reduced existing-install HAPP path: ensures the subscription service and a usable multi-route profile, but does not replace the endpoint prerequisite; when `.subscription_domain` or `.subscription_port` is missing, it verifies a real public TLS endpoint before writing markers and otherwise fails |
+| `quickstart` http_tls mode | If Let's Encrypt cannot validate the IP over http-01 (`Connection reset by peer` from validation hosts — usually the hoster filters port 80 for foreign sources), the deploy does not fail: the subscription is published over HTTP (port 8080 outbound, token gate and 404 without token preserved), a self-signed certificate is generated for future backends, and the result JSON carries `degraded:true`, `tls_mode:"http_tls"` and the Certbot reason. The GUI stores the server as *Partially configured* and loads keys over SSH from the loopback handler; the ACME challenge location on port 80 stays in place — rerunning quickstart after the port is unblocked issues the LE certificate and switches the subscription back to HTTPS |
 | `sudo xrayebator profiles` | Print all server profiles as a JSON array for the desktop GUI Server Settings page; expiry includes both epoch seconds (`expire`) for enforcement and the server-local calendar date (`expire_date`) for display, so clients in another timezone still see the selected date |
 | `sudo xrayebator profile-create --name NAME [--transport tcp\|tcp-utls\|tcp-xudp\|tcp-mux\|grpc\|xhttp] [--port P] [--count N] [--expire DATE]` | Create one or more profiles non-interactively; `--expire` accepts `YYYY-MM-DD[ HH:MM]`, epoch seconds or 13-digit milliseconds. A date without time is inclusive through `23:59:59` in the server's local timezone; an explicit time uses that server-local time. Past expiries are rejected; existing names are never overwritten — they are reported in `errors` (the GUI also pre-checks a name collision before creating, since deletion is per-profile and unique names keep it precise); prints `{"ok":true,"names":[...],"errors":[...]}` |
 | `sudo xrayebator profile-delete --name NAME` | Delete a profile non-interactively; the deleted profile's backend grants are revoked immediately (the AWG peer is dropped from `awg0.conf`, the Hysteria password from `server.yaml` — no orphaned credentials) and the name is free for reuse; prints `{"ok":true,"name":"..."}` |
@@ -173,6 +174,18 @@ routes, including `xhttp-legacy` and `xhttp-pq`. Migration calls in this non-int
 best-effort; verify markers, the profile JSON and service status after deployment.
 
 `quickstart --without-email` performs the same broad setup and endpoint provisioning as the email form, but registers the ACME account with `--register-unsafely-without-email`; Certbot renewal notices and email-based account recovery are unavailable.
+
+If Let's Encrypt cannot validate the IP over http-01 — the deployment log shows
+`Connection reset by peer` for the challenge fetch, typically because the hoster
+filters port 80 for foreign sources — quickstart does not fail: it degrades to
+`http_tls` mode. The subscription handler is published on plain HTTP (port 8080
+outbound, still token-gated and 404 without the token), a self-signed
+certificate is generated for future backends, and the result JSON carries
+`degraded:true`, `tls_mode:"http_tls"` and the Certbot reason. The GUI stores the
+server as *Partially configured*, loads keys over SSH from the loopback handler,
+and the ACME challenge location on port 80 stays in place — rerunning quickstart
+after the hoster unblocks port 80 issues the Let's Encrypt certificate and
+switches the subscription back to HTTPS (the path is idempotent).
 
 `inspect --json` is the GUI's read-only import probe. It reports whether this is an Xrayebator installation, Xray/profile/service markers and saved subscription metadata; it does not run migrations, create profiles, change configuration, restart services or edit firewall rules.
 

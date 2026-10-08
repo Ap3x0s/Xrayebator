@@ -106,12 +106,17 @@ Fingerprint Reality — клиентское значение, хранящее�
 ```text
 https://<domain>/sub/<32-hex-token>       # public TLS на 443
 https://<domain>:8443/sub/<32-hex-token>  # public TLS на другом порту
+http://<IP>:8080/sub/<token>              # http_tls-fallback (LE не смог проверить http-01)
 http://127.0.0.1:8080/sub/<token>         # local-only запасной
 ```
 
 Интерактивная настройка HAPP может выбрать публичный порт, а `_subscription_base_url` сохраняет этот
 выбор. Нон-интерактивные IP-TLS пути `quickstart --email <address>` и `quickstart --without-email`
 создают nginx, сертификат и маркеры на `8443`, затем возвращают JSON с `subscription_url` для endpoint.
+Если Let's Encrypt не может проверить http-01 (хостер фильтрует порт 80 для зарубежных источников),
+quickstart деградирует в `http_tls`: маркеры получают этот режим, подписка публикуется по HTTP с
+loopback-хендлера, а JSON несёт `degraded:true`; повторный деплой после разблокировки :80 возвращает
+ip_tls.
 Без email Certbot регистрирует ACME-аккаунт без контактного адреса: уведомления о продлении и восстановление
 по email недоступны. Токен хранится в профиле как `sub_token`; revoke меняет его и аннулирует старый URL,
 а полный отзыв (`profile-revoke --full`) дополнительно меняет uuid во всех inbound'ах профиля, поэтому

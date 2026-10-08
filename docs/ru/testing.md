@@ -16,7 +16,7 @@ for test_file in validation/*.sh; do bash "$test_file" || exit; done
 
 ## Что покрывают тесты
 
-В `validation/` лежат 31 статический и локальный регрессионный тест:
+В `validation/` лежат 34 статических и локальных регрессионных теста:
 
 | Тест | Что проверяет |
 |---|---|
@@ -51,6 +51,7 @@ for test_file in validation/*.sh; do bash "$test_file" || exit; done
 | `test-quickstart-email-and-inspect.sh` | Явный email-режим `quickstart` (`--without-email` без фиктивного адреса) и read-only инварианты `inspect --json` |
 | `test-quickstart-migration-parity.sh` | `quickstart` гоняет те же критичные миграции, что и `main_menu` |
 | `test-quickstart-subscription-port.sh` | `quickstart` использует canonical helper базы подписки и не возвращается к несвязанному hardcode URL |
+| `test-quickstart-tls-fallback.sh` | Ветку graceful-degradation `http_tls`: переключение SUB_TLS_MODE, HTTP-only vhost (без ssl и proxy), маркеры с учётом режима, renew-таймер только в ip_tls и degraded-метаданные JSON |
 | `test-audit-functional.sh` | Функциональные regression-проверки аудита HowDeploy (P0/P1) |
 | `test-audit-privilege-regressions.sh` | Regression границ привилегий |
 
@@ -110,7 +111,7 @@ npm test              # Vitest unit-тесты
 
 Три независимых workflow:
 
-- **ci-linux.yml** — Bash validation: `bash -n` всех скриптов + все 31 `validation/test-*.sh` на
+- **ci-linux.yml** — Bash validation: `bash -n` всех скриптов + все 34 `validation/test-*.sh` на
   ubuntu-24.04. Запускается на push в `main`, `dev`, `experimental` и на pull request.
 - **release.yml** — Electron сборка (Windows/macOS/Linux). Запускается только на теги `v*` и manual
   dispatch. Сначала `preflight`: проверяет наличие текста релиза `docs/releases/<tag>.en.md` и
