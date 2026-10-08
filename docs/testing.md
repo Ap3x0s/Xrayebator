@@ -36,7 +36,7 @@ promise that installer and updater paths behave identically.
 
 ## Validation suite
 
-`validation/` contains exactly 31 scripts. Run every `validation/test-*.sh`; the current set is:
+`validation/` contains exactly 34 scripts. Run every `validation/test-*.sh`; the current set is:
 
 | Script | What it checks |
 |---|---|
@@ -66,6 +66,7 @@ promise that installer and updater paths behave identically.
 | `test-quickstart-email-and-inspect.sh` | Explicit `quickstart` email mode (`--without-email` without a fake address) and the read-only invariants of `inspect --json` |
 | `test-quickstart-migration-parity.sh` | Parity between quickstart and main-menu migrations |
 | `test-quickstart-subscription-port.sh` | Ensures quickstart uses the canonical subscription base helper and does not regress to an unrelated hardcoded URL |
+| `test-quickstart-tls-fallback.sh` | The http_tls graceful-degradation branch: SUB_TLS_MODE switching, HTTP-only vhost (no ssl, no proxy), mode-aware markers, the ip_tls-only renew timer and degraded JSON metadata |
 | `test-sni-change-cli.sh` | SNI-change JSON output, transport fields, profile sync and rollback |
 | `test-subscription-server-name.sh` | HAPP subscription display name |
 | `test-transaction-safety.sh` | Transactional safety of configuration operations |
@@ -162,7 +163,7 @@ provide useful local coverage, while CI runs the Electron typecheck and unit sui
 The workflows have separate responsibilities:
 
 - `.github/workflows/ci-linux.yml` is the Bash core gate on `ubuntu-24.04`: it installs `jq`,
-  `uuid-runtime` and `ripgrep`, runs all four Bash syntax checks, then runs all 31 validation
+  `uuid-runtime` and `ripgrep`, runs all four Bash syntax checks, then runs all 34 validation
   scripts.
 - `.github/workflows/release.yml` is the active Electron release path for `v*` tags or manual runs.
   A `preflight` job first checks that the release notes file `docs/releases/<tag>.en.md` exists and

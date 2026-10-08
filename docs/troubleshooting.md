@@ -326,6 +326,21 @@ token itself was rotated.
 
 On a freshly provisioned Ubuntu VPS, `unattended-upgrades` may hold the apt/dpkg lock for ~10 minutes and invoke `dpkg` separately for every package, so a plain flock check slips into the gap between packages. The quickstart path now also waits for an active `unattended-upgrade` worker (12-minute budget) and passes `-o DPkg::Lock::Timeout=180` to `apt-get install`. Rerun the deployment when it reports the lock is still busy, or wait for the queue to finish. `validation/test-apt-lock-race.sh` locks these behaviors.
 
+## Quickstart reports `certbot failed: ... Connection reset by peer` but still succeeds
+
+Let's Encrypt could not fetch the http-01 challenge — most often the hoster's
+network filters port 80 for foreign sources (verified with tcpdump and
+multi-node probes: our firewall and nginx are fine, the reset happens upstream).
+Since this degradation the deploy finishes in `http_tls` fallback mode: the
+result JSON carries `degraded:true` and `tls_mode:"http_tls"`, the GUI shows the
+server as *Partially configured*, and keys are loaded over SSH. The subscription
+URL stays an HTTP bearer link — do not paste it into public chats. To restore
+HTTPS, ask the hoster to unblock port 80 for Let's Encrypt validation ranges
+(or point a domain at the server and use the domain TLS mode), then re-run the
+deploy; the run is idempotent and issues the LE certificate when the challenge
+becomes reachable. `validation/test-quickstart-tls-fallback.sh` locks the
+fallback structure.
+
 ## An error appeared during installation or use
 
 Copy the full error text from the terminal. For installation failures, include the relevant

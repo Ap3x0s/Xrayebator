@@ -110,13 +110,17 @@ The base is built from the saved subscription markers:
 ```text
 https://<domain>/sub/<32-hex-token>       # public TLS on 443
 https://<domain>:8443/sub/<32-hex-token>  # public TLS on another port
+http://<IP>:8080/sub/<token>              # http_tls fallback (LE could not validate http-01)
 http://127.0.0.1:8080/sub/<token>         # local-only fallback
 ```
 
 The interactive HAPP setup can select the public port and `_subscription_base_url` preserves that
 choice. The non-interactive `quickstart --email <address>` and `quickstart --without-email` IP-TLS paths
 provision nginx, certificate and markers on `8443`, then emit JSON containing `subscription_url` for that
-endpoint. Without an email, Certbot is explicitly told to register without an ACME contact; renewal
+endpoint. When Let's Encrypt cannot validate http-01 (the hoster filters port 80 for foreign sources),
+quickstart degrades to `http_tls`: the markers switch to that mode, the subscription is published over
+HTTP from the loopback handler and the JSON carries `degraded:true`; rerunning the deploy after port 80
+is unblocked restores ip_tls. Without an email, Certbot is explicitly told to register without an ACME contact; renewal
 notices and email-based recovery are unavailable. The token is stored in the profile as `sub_token`;
 revoke rotates it and invalidates the previous URL, while a full revoke (`profile-revoke --full`) also
 changes the uuid in every inbound of the profile so already-downloaded configurations stop connecting.
