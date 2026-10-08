@@ -243,8 +243,8 @@ URL 返回 `404` 属于预期——令牌本身已轮换。
 Let's Encrypt 无法获取 http-01 challenge——最常见原因是服务商网络对境外来源过滤 80 端口
 （已用 tcpdump 与多节点探测验证：本机防火墙与 nginx 正常，reset 发生在上游）。在此降级
 模式下部署以 `http_tls` 回退结束：结果 JSON 携带 `degraded:true` 与 `tls_mode:"http_tls"`，
-GUI 将服务器标记为「配置不完整」，密钥通过 SSH 加载。订阅 URL 仍是 HTTP bearer 链接——
-不要公开粘贴。恢复 HTTPS 的方式：请服务商为 Let's Encrypt validation 网段解除 80 端口
+GUI 将服务器标记为「配置不完整」，密钥通过 SSH 加载。此模式下不存在公共订阅
+URL——不会出现可泄露的 HTTP 链接。恢复 HTTPS 的方式：请服务商为 Let's Encrypt validation 网段解除 80 端口
 封锁（或将域名解析到服务器并使用域名 TLS 模式），然后重新部署；流程幂等，challenge
 可达后即签发 LE 证书。回退结构由 `validation/test-quickstart-tls-fallback.sh` 锁定。
 
