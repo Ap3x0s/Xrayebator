@@ -311,6 +311,11 @@ nginx 配置已调高该值（`proxy_buffer_size 32k`），域名模式的 `loca
 - **`LastUpdated` 必须递增。** 只有当该值大于已保存的值时，HAPP 才会重新导入配置。
 - **geo 数据库必须能被客户端访问。** 托管的默认配置指向 `/sub/<token>/geoip.dat`，该路径与具体订阅者
   绑定。上面的占位符解决了这个问题；否则请把数据库放在任何客户端都能下载的位置。
+- **数据库 URL 里的国家可能标错。** 各家的 ASN 地理标注并不一致：ipinfo.io 与 ipwho.is/ip-api 会把
+  同一网段划到不同国家（例如 NODE HOST LIMITED：芬兰 vs 德国/法兰克福）。托管的 HAPP 配置让客户端
+  通过同一订阅的 `{{GEOIP_URL}}`/`{{GEOSITE_URL}}` 下载 geo 数据库，因此在 http_tls 回退（公共订阅
+  不可用）时，没有预载数据库的客户端无法下载，HAPP 会显示「无数据」。解决方法：手工修正
+  `/usr/local/etc/xray/.server_country`（`代码|国家|城市`）并通过 SSH 导入密钥，或恢复公共订阅。
 
 客户端下载新的 geo 数据库期间，先前的配置继续生效，因此下载失败只会保持路由不变，而不会使其损坏。
 

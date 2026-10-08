@@ -385,6 +385,13 @@ Three things are easy to get wrong:
 - **Geo databases must be reachable by the client.** The managed default points at
   `/sub/<token>/geoip.dat`, which is per-subscriber. The placeholders above resolve this; without
   them, host the databases somewhere every client can fetch them.
+- **The country in the base URL can be wrong.** ASN geolocation differs between providers: ipinfo.io
+  and ipwho.is/ip-api may place the same range in different countries (e.g. NODE HOST LIMITED:
+  Finland vs Germany/Frankfurt). The managed HAPP profile sends the client to fetch geo databases
+  through `{{GEOIP_URL}}`/`{{GEOSITE_URL}}` of the same subscription, so under the http_tls fallback
+  (public subscription unavailable) a client without pre-cached databases cannot download them and
+  HAPP shows "no data". Fix by hand-writing `/usr/local/etc/xray/.server_country`
+  (`code|country|city`) and importing keys over SSH, or by restoring the public subscription.
 
 While a client downloads new geo databases the previous profile keeps running, so a failed download
 leaves routing unchanged rather than broken.
