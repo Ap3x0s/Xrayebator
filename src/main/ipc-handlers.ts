@@ -18,7 +18,9 @@ import type {
 } from '@shared/types'
 import type { ServerConnectionMetadata, ServerStore } from './core/servers'
 import { Deployer } from './core/deployer'
-import { fetchSubscription } from './core/subscription'
+import { fetchSubscription, parseSubscription } from './core/subscription'
+import { shellCommand } from './core/shell-command'
+import { SshClient } from './core/ssh-client'
 import { ProfileManager } from './core/profiles'
 import { BackendManager } from './core/backend-manager'
 import { ServerManager } from './core/server-manager'
@@ -269,6 +271,8 @@ export function registerIpcHandlers({ store }: IpcContext): void {
           privateKeyPersisted: access.privateKeyPersisted ?? null,
           passwordCredentialId: access.passwordCredentialId ?? null,
           passwordPersisted: access.passwordPersisted ?? null,
+          setupStatus: result.degraded ? 'partial' : 'ready',
+          degraded: result.degraded,
           hostKeyFingerprint: store.getHostKey(payload.host, payload.port) ?? null
         })
 
@@ -289,10 +293,49 @@ export function registerIpcHandlers({ store }: IpcContext): void {
     })()
   })
 
+  // http_tls-fallback: ключи грузятся curl'ом на самом server'е (loopback).
+  // Переиспользуем resolveStoredSshPassword через credentialsFor — как SSH-страницы.
+  const fetchSubscriptionViaServer = async (
+    serverId: string,
+    url: string
+  ): Promise<{ keys: ReturnType<typeof parseSubscription>; hysteria2Links: string[] }> => {
+    const server = store.get(serverId)
+    if (!server) throw new Error('Сервер не найден')
+    const access: SshAccessInput = {
+      username: server.username,
+      authMethod: server.authMethod ?? 'password',
+      passwordCredentialId: server.passwordCredentialId ?? undefined,
+      passwordPersisted: server.passwordPersisted ?? false,
+      privilegeMode: server.privilegeMode ?? 'root'
+    }
+    const { credentials } = await credentialsFor(server, server, access)
+    const client = new SshClient(credentials)
+    try {
+      await client.connect()
+      const res = await client.exec(
+        shellCommand('curl', ['-sS', '--connect-timeout', '5', '--max-time', '30', url])
+      )
+      if (res.code !== 0 || !res.stdout.trim()) {
+        throw new Error(
+          `Subscription недоступна локально на сервере (curl код ${res.code}): ${res.stderr.trim() || 'пусто'}`
+        )
+      }
+      const keys = parseSubscription(res.stdout)
+      if (!keys.length) throw new Error('Subscription вернул пустой список ключей')
+      return { keys, hysteria2Links: [] }
+    } finally {
+      client.close()
+    }
+  }
+
   ipcMain.handle('subscription:fetch', async (_e, serverId: string) => {
     const server = store.get(serverId)
     if (!server) throw new Error('Сервер не найден')
-    const { keys, hysteria2Links } = await fetchSubscription(server.subscriptionUrl)
+    // http_tls-fallback: публичный URL недоступен с клиента — ключи тянутся
+    // curl'ом на самом server'е (loopback 127.0.0.1:8080).
+    const { keys, hysteria2Links } = server.degraded
+      ? await fetchSubscriptionViaServer(serverId, server.subscriptionUrl)
+      : await fetchSubscription(server.subscriptionUrl)
     store.updateKeys(serverId, keys)
     // hysteria2-ключи персистятся рядом с vless — страница «Ключи» открывается мгновенно.
     const updated = store.updateBackendKeys(serverId, { hysteria2Keys: hysteria2Links })

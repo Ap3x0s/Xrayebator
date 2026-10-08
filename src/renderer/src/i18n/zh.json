@@ -16,6 +16,7 @@
       "partial": "配置不完整",
       "unknown": "已导入"
     },
+    "degradedHint": "公共 TLS 不可用（Let's Encrypt 无法验证 IP：端口 80 被服务商拦截）。订阅仍然可用：密钥通过 SSH 从服务器加载。待服务商解除 80 端口封锁后重新部署即可启用 HTTPS。",
     "empty": "添加第一台服务器",
     "routes_other": "{{count}} 条路线",
     "keys": "密钥",

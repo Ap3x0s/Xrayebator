@@ -16,6 +16,7 @@
       "partial": "Partially configured",
       "unknown": "Imported"
     },
+    "degradedHint": "Public TLS is unavailable (Let's Encrypt could not verify the IP: port 80 is blocked by the hoster). The subscription works: keys are loaded over SSH from the server. Re-run the deploy after port 80 is unblocked to enable HTTPS.",
     "empty": "Add your first server",
     "routes_one": "{{count}} route",
     "routes_other": "{{count}} routes",

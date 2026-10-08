@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { app } from 'electron'
 import { SshClient, SshCredentials } from './ssh-client'
 import { shellCommand, shellQuote } from './shell-command'
-import { fetchSubscription } from './subscription'
+import { fetchSubscription, parseSubscription } from './subscription'
 import { maskSubscriptionUrl } from './server-inspector'
 import type { DeployStep, EmailMode, VlessLink } from '@shared/types'
 
@@ -23,6 +23,8 @@ export interface DeployResult {
   country: string | null
   city: string | null
   flag: string | null
+  /** true — подписка в http_tls-fallback (LE не смог проверить http-01). */
+  degraded: boolean
 }
 
 /** Путь к сценариям: в собранном приложении — resources/scripts, в dev — корень проекта. */
@@ -182,10 +184,25 @@ export class Deployer {
 
       this.onStep('save', 'Сохраняю результат...')
       const subUrl = payload.subscription_url
-      const fetched = subUrl ? await fetchSubscription(subUrl) : { keys: [], hysteria2Links: [] }
+      // http_tls-fallback: публичного HTTPS нет (LE не смог проверить http-01 —
+      // обычно порт 80 фильтруется хостером), но на сервере всё работает. GUI
+      // вытягивает ключи по SSH (curl на 127.0.0.1:8080 — loopback в firewall
+      // не нуждается), сервер сохраняется с setupStatus=partial.
+      const degraded = payload.degraded === true || payload.tls_mode === 'http_tls'
+      const fetched = degraded && subUrl
+        ? await fetchSubscriptionOverSsh(client, subUrl)
+        : subUrl
+          ? await fetchSubscription(subUrl)
+          : { keys: [], hysteria2Links: [] }
       const keys = fetched.keys
       if (!keys.length && subUrl) {
         throw new Error('Subscription вернул пустой список ключей')
+      }
+      if (degraded) {
+        this.onLog(
+          `Подписка в http_tls-fallback: ${subUrl ? maskSubscriptionUrl(subUrl) : '—'}; ` +
+            `причина: ${payload.certbot_reason ?? 'LE validation недоступна'}`
+        )
       }
       this.onLog(
         `Подписка: ${subUrl ? maskSubscriptionUrl(subUrl) : '—'}; маршрутов получено: ${keys.length}`
@@ -197,7 +214,8 @@ export class Deployer {
         os: payload.os ?? null,
         country: payload.country ?? null,
         city: payload.city ?? null,
-        flag: payload.flag ?? null
+        flag: payload.flag ?? null,
+        degraded
       }
     } finally {
       client.close()
@@ -213,6 +231,9 @@ interface QuickstartJson {
   city?: string
   flag?: string
   os?: string
+  degraded?: boolean
+  tls_mode?: string
+  certbot_reason?: string
 }
 
 function parseQuickstartJson(raw: string): QuickstartJson {
@@ -223,4 +244,26 @@ function parseQuickstartJson(raw: string): QuickstartJson {
   } catch {
     throw new Error('Не удалось разобрать ответ quickstart')
   }
+}
+
+/**
+ * Ключи по SSH в http_tls-fallback: subscription URL указывает на публичный
+ * http://IP:8080 (недоступен из сети пользователя, если провайдер режет HTTP
+ * или хостер фильтрует порт). С server'а loopback работает всегда — curl
+ * 127.0.0.1:8080 и парсинг тела локально. Тело уходит в base64, чтобы не
+ * ломаться на unicode-фрагментах ключей.
+ */
+async function fetchSubscriptionOverSsh(
+  client: SshClient,
+  url: string
+): Promise<{ keys: VlessLink[]; hysteria2Links: string[] }> {
+  const res = await client.exec(
+    shellCommand('curl', ['-sS', '--connect-timeout', '5', '--max-time', '30', url])
+  )
+  if (res.code !== 0 || !res.stdout.trim()) {
+    throw new Error(
+      `Subscription недоступна локально на сервере (curl код ${res.code}): ${res.stderr.trim() || 'пусто'}`
+    )
+  }
+  return { keys: parseSubscription(res.stdout), hysteria2Links: [] }
 }
