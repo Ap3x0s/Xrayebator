@@ -1723,7 +1723,7 @@ export function ServerSettings({
                     </Button>
                     {revokeStep === 'confirm' && (
                       <Button
-                        variant="danger"
+                        variant="danger-soft"
                         isDisabled={revokeBusy}
                         onPress={() => void runRevoke('full')}
                       >
