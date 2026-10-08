@@ -638,8 +638,13 @@ export function registerIpcHandlers({ store }: IpcContext): void {
 
   ipcMain.handle(
     'server:update',
-    async (_e, serverId: string, access: SshAccessInput): Promise<ServerMaintenanceResult> => {
-      return (await serverManagerFor(serverId, access)).update()
+    async (
+      _e,
+      serverId: string,
+      access: SshAccessInput,
+      branch?: string
+    ): Promise<ServerMaintenanceResult> => {
+      return (await serverManagerFor(serverId, access)).update(branch)
     }
   )
 

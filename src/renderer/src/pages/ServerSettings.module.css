@@ -61,6 +61,61 @@
   }
 }
 
+/* Выбор ветки обновления: обычная (закреплённая/main) и бета (dev). */
+.updateMenuWrap {
+  position: relative;
+}
+
+.updateMenu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  min-width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-2);
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--text) 18%, transparent);
+}
+
+.updateMenuItem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.updateMenuItem:hover {
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.updateMenuItem:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.updateMenuBeta {
+  color: var(--warning);
+}
+
+.updateMenuHint {
+  font-size: 11px;
+  opacity: 0.65;
+  color: var(--text);
+}
+
 .header {
   display: flex;
   align-items: center;

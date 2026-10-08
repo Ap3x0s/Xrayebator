@@ -492,9 +492,15 @@ export interface ElectronAPI {
     ) => Promise<ProfileExpireResult>
   }
   server: {
+    /**
+     * Обновить менеджер на сервере. Без branch — закреплённая на сервере ветка
+     * (.current_branch) или main. Явная ветка (main | dev | experimental) —
+     * управляемая бета: обновиться с dev, не дожидаясь вливания в main.
+     */
     update: (
       serverId: string,
-      access: SshAccessInput
+      access: SshAccessInput,
+      branch?: 'main' | 'dev' | 'experimental'
     ) => Promise<ServerMaintenanceResult>
     uninstall: (
       serverId: string,

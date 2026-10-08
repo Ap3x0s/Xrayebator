@@ -182,9 +182,10 @@ const api: ElectronAPI = {
   server: {
     update: (
       serverId: string,
-      access: SshAccessInput
+      access: SshAccessInput,
+      branch?: string
     ): Promise<ServerMaintenanceResult> =>
-      ipcRenderer.invoke('server:update', serverId, access),
+      ipcRenderer.invoke('server:update', serverId, access, branch),
     uninstall: (serverId: string, access: SshAccessInput): Promise<ServerMaintenanceResult> =>
       ipcRenderer.invoke('server:uninstall', serverId, access)
   }
