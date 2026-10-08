@@ -117,8 +117,9 @@ describe('http_tls fallback (hoster-блокировка http-01)', () => {
   it('treats http_tls as a working fallback subscription, not a public one', () => {
     const result = normalizeInspection(fallbackInspection, routes)
     expect(result.diagnostics.subscription).toBe('fallback')
-    // URL сохраняется как metadata (Keys показывает его, загрузка — по SSH).
-    expect(result.subscriptionUrl).toBe('http://203.0.113.10:8080/sub/token')
+    // Мёртвый публичный URL не сохраняется: снаружи на него никто не слушает,
+    // реальный канал доставки ключей — SSH.
+    expect(result.subscriptionUrl).toBe('')
     expect(result.keys).toHaveLength(1)
     expect(result.setupStatus).toBe('partial')
   })

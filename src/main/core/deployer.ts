@@ -183,14 +183,15 @@ export class Deployer {
       }
 
       this.onStep('save', 'Сохраняю результат...')
-      const subUrl = payload.subscription_url
       // http_tls-fallback: публичного HTTPS нет (LE не смог проверить http-01 —
       // обычно порт 80 фильтруется хостером), но на сервере всё работает. GUI
       // вытягивает ключи по SSH (curl на 127.0.0.1:8080 — loopback в firewall
-      // не нуждается), сервер сохраняется с setupStatus=partial.
+      // не нуждается), сервер сохраняется с setupStatus=partial. Мёртвый
+      // публичный URL не сохраняем и не пробуем fetch'ить.
       const degraded = payload.degraded === true || payload.tls_mode === 'http_tls'
-      const fetched = degraded && subUrl
-        ? await fetchSubscriptionOverSsh(client, subUrl)
+      const subUrl = degraded ? '' : payload.subscription_url ?? ''
+      const fetched = degraded
+        ? await fetchSubscriptionOverSsh(client, payload.subscription_url ?? '')
         : subUrl
           ? await fetchSubscription(subUrl)
           : { keys: [], hysteria2Links: [] }
@@ -200,7 +201,7 @@ export class Deployer {
       }
       if (degraded) {
         this.onLog(
-          `Подписка в http_tls-fallback: ${subUrl ? maskSubscriptionUrl(subUrl) : '—'}; ` +
+          `Подписка в http_tls-fallback (только SSH, публичного URL нет); ` +
             `причина: ${payload.certbot_reason ?? 'LE validation недоступна'}`
         )
       }
@@ -247,11 +248,9 @@ function parseQuickstartJson(raw: string): QuickstartJson {
 }
 
 /**
- * Ключи по SSH в http_tls-fallback: subscription URL указывает на публичный
- * http://IP:8080 (недоступен из сети пользователя, если провайдер режет HTTP
- * или хостер фильтрует порт). С server'а loopback работает всегда — curl
- * 127.0.0.1:8080 и парсинг тела локально. Тело уходит в base64, чтобы не
- * ломаться на unicode-фрагментах ключей.
+ * Ключи по SSH в http_tls-fallback: публичный URL подписки недоступен из сети
+ * пользователя (хостер фильтрует HTTP/порты), но с server'а loopback работает
+ * всегда — curl 127.0.0.1:8080 и парсинг тела локально.
  */
 async function fetchSubscriptionOverSsh(
   client: SshClient,
