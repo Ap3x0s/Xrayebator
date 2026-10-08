@@ -12,7 +12,19 @@ export type XrayState = 'running' | 'stopped' | 'missing' | 'unknown'
 
 export type ProfilesState = 'available' | 'empty' | 'missing' | 'unknown'
 
-export type SubscriptionState = 'public' | 'localOnly' | 'missing' | 'unreachable' | 'unknown'
+/**
+ * Состояние подписки с сервера (inspect/normalize):
+ * public — HTTPS endpoint работает; fallback — http_tls-режим (endpoint с
+ * server'а работает, из интернета может быть недоступен: hoster-фильтр :80);
+ * localOnly — только 127.0.0.1; missing/unreachable — проблемные.
+ */
+export type SubscriptionState =
+  | 'public'
+  | 'fallback'
+  | 'localOnly'
+  | 'missing'
+  | 'unreachable'
+  | 'unknown'
 
 export interface PrivateKeyReference {
   credentialId: string
@@ -109,6 +121,12 @@ export interface Server {
   setupStatus?: ServerSetupStatus
   diagnostics?: ServerDiagnostics | null
   hostKeyFingerprint?: string | null
+  /**
+   * http_tls-fallback (quickstart при hoster-блокировке http-01): подписка
+   * работает с server'а, но публичного HTTPS нет. Карточка помечается
+   * «Настроен частично», Keys грузит ключи по SSH.
+   */
+  degraded?: boolean
 }
 
 export interface VlessLink {

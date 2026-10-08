@@ -22,6 +22,8 @@ export interface ServerConnectionMetadata {
   privateKeyPersisted?: boolean | null
   passwordCredentialId?: string | null
   passwordPersisted?: boolean | null
+  /** Персистит http_tls-fallback (подписка работает только с server'а). */
+  degraded?: boolean | null
 }
 
 export interface ServerStore {
@@ -65,7 +67,10 @@ function normalizeServer(server: StoredServer, hostKeys: Record<string, string>)
     privateKeyPersisted: server.privateKeyPersisted ?? null,
     passwordCredentialId: server.passwordCredentialId ?? null,
     passwordPersisted: server.passwordPersisted ?? null,
-    setupStatus: server.setupStatus ?? (server.subscriptionUrl ? 'ready' : 'unknown'),
+    setupStatus:
+      server.setupStatus ??
+      (server.subscriptionUrl ? 'ready' : 'unknown'),
+    degraded: server.degraded ?? false,
     diagnostics: server.diagnostics ?? null,
     hostKeyFingerprint:
       hostKeys[hostKeyId(server.host, server.port)] ?? server.hostKeyFingerprint ?? null,
@@ -143,6 +148,9 @@ export function createServerStore(): ServerStore {
         subscriptionUrl: input.subscriptionUrl || existing?.subscriptionUrl || '',
         keys: input.keys?.length ? input.keys : existing?.keys ?? [],
         routesCount: input.routesCount ?? existing?.routesCount ?? null,
+        setupStatus: input.setupStatus ?? existing?.setupStatus ?? undefined,
+        diagnostics: input.diagnostics ?? existing?.diagnostics ?? null,
+        degraded: input.degraded ?? existing?.degraded ?? false,
         id: existing?.id ?? randomUUID(),
         createdAt: existing?.createdAt ?? new Date().toISOString(),
         hostKeyFingerprint: existingNormalized?.hostKeyFingerprint ?? input.hostKeyFingerprint ?? null
