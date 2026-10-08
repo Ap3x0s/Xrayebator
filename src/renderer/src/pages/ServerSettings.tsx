@@ -1359,6 +1359,7 @@ export function ServerSettings({
                   <Chip size="sm" color="default">{t('settings.backendsDevBadge')}</Chip>
                 </h2>
                 <p className={styles.sectionHint}>{t('settings.backendsHint')}</p>
+                <p className={styles.hint}>{t('settings.backendsDevNote')}</p>
                 {backendsError !== null ? (
                   <p className={styles.hint}>{t('settings.backendsUnsupported')}</p>
                 ) : backendsLoading || backends === null ? (
