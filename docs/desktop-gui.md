@@ -54,7 +54,7 @@ Server settings first authenticates over SSH. When the card already has a keycha
 - choose `xhttp`, `tcp`, `tcp-utls`, `tcp-xudp`, `tcp-mux`, or `grpc` transports — or select one of the two multi-protocol backends (Hysteria 2 / AmneziaWG 3.1 cards below the transport grid). Clicking a backend card only selects the protocol (selected VLESS transports deselect it and vice versa); the profile is created by the «Create profile» button, and only the selected backend issues its key — the underlying VLESS profile uses the recommended `xhttp` transport;
 - change a profile fingerprint, choose an SNI from `sni-list`, or enter an SNI;
 - change a profile route's port or choose a random port;
-- update the server installation;
+- update the server installation (a branch menu: "As pinned on the server" — `.current_branch`, otherwise main; **main is the latest stable release**; **dev is the latest build with every feature but may be unstable**; switch back from dev by updating to main);
 - uninstall the server installation after confirmation;
 - reset the pinned SSH host key after explicit confirmation;
 - manage the multi-protocol backends (menu parity with items 11–13): the combined panel "additional protocols" (they are in development — the interface and behavior may change) shows the Hysteria 2 and AmneziaWG state (version, port, TLS mode / interface, junk summary) with install/uninstall, the subscription kill switch for `hysteria2://` lines and the AWG 3.1 toggle — the last two with explicit confirmation;
