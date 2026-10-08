@@ -1009,60 +1009,6 @@ _subscription_public_tls_endpoint_verified() {
 # {"name":"xrayebator-default","rules":[]} payload is valid JSON, but it is not
 # a HAPP routing profile and leaves the client with a broken, locked profile.
 _happ_validate_routing_json() {
-  local port=$1 domain=$2 addr=$3 mode=$4
-  printf '%s' "$port" > /usr/local/etc/xray/.subscription_port
-  printf '%s' "$domain" > /usr/local/etc/xray/.subscription_domain
-  printf '%s' "$addr" > /usr/local/etc/xray/.subscription_server_addr
-  printf '%s' "$mode" > /usr/local/etc/xray/.subscription_mode
-  chown root:root \
-    /usr/local/etc/xray/.subscription_port \
-    /usr/local/etc/xray/.subscription_domain \
-    /usr/local/etc/xray/.subscription_server_addr \
-    /usr/local/etc/xray/.subscription_mode 2>/dev/null || true
-}
-
-# Публичный TLS endpoint подписки реально подтверждён (P1-happ-fix)?
-# Проверяем, что наш nginx vhost xrayebator-sub слушает 8443 ssl И сертификат для
-# сервера выпущен и действует. Используется happ_setup_command вместо фабрикации
-# маркеров: если endpoint не подтверждён — happ-setup вернёт ошибку, а не мёртвый URL.
-# Args: $1=server_addr (IPv4/hostname)
-_subscription_public_tls_endpoint_verified() {
-  local server_addr="${1:-}"
-  [[ -z "$server_addr" ]] && return 1
-  # 1) Наш nginx vhost с TLS на 8443 существует.
-  local vhost="/etc/nginx/sites-available/xrayebator-sub"
-  if [[ ! -f "$vhost" ]] || ! grep -q "listen 8443 ssl" "$vhost" 2>/dev/null; then
-    return 1
-  fi
-  # 2) Сертификат для адреса выпущен и файлы на месте.
-  local cert_dir="/etc/letsencrypt/live/${server_addr}"
-  if [[ ! -f "$cert_dir/fullchain.pem" || ! -f "$cert_dir/privkey.pem" ]]; then
-    return 1
-  fi
-  # 3) nginx реально слушает 8443 (не просто конфиг).
-  if command -v ss >/dev/null 2>&1; then
-    if ! ss -ltn 2>/dev/null | grep -q ':8443'; then
-      return 1
-    fi
-  fi
-  # 4) Сертификат не истёк (openssl доступен).
-  if command -v openssl >/dev/null 2>&1; then
-    local end
-    end=$(openssl x509 -enddate -noout -in "$cert_dir/fullchain.pem" 2>/dev/null | sed 's/notAfter=//')
-    local now_epoch end_epoch
-    now_epoch=$(date -u +%s)
-    end_epoch=$(date -u -d "$end" +%s 2>/dev/null || echo 0)
-    if [[ -z "$end_epoch" || "$end_epoch" -eq 0 || "$end_epoch" -le "$now_epoch" ]]; then
-      return 1
-    fi
-  fi
-  return 0
-}
-# Validate the documented HAPP routing-profile schema before broadcasting it to
-# every subscriber. Plain `jq -e .` is not enough: the legacy
-# {"name":"xrayebator-default","rules":[]} payload is valid JSON, but it is not
-# a HAPP routing profile and leaves the client with a broken, locked profile.
-_happ_validate_routing_json() {
   jq -e '
     def boolean_string: . == "true" or . == "false";
     def dns_type: . == "DoH" or . == "DoT" or . == "DoU";
