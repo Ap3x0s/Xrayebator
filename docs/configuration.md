@@ -178,12 +178,13 @@ best-effort; verify markers, the profile JSON and service status after deploymen
 If Let's Encrypt cannot validate the IP over http-01 — the deployment log shows
 `Connection reset by peer` for the challenge fetch, typically because the hoster
 filters port 80 for foreign sources — quickstart does not fail: it degrades to
-`http_tls` mode. The subscription handler is published on plain HTTP (port 8080
-outbound, still token-gated and 404 without the token), a self-signed
+`http_tls` mode. The subscription handler stays loopback-only: there is **no
+public subscription URL at all** — the GUI loads keys over SSH from
+`http://127.0.0.1:8080/sub/<token>` on the server itself. A self-signed
 certificate is generated for future backends, and the result JSON carries
-`degraded:true`, `tls_mode:"http_tls"` and the Certbot reason. The GUI stores the
-server as *Partially configured*, loads keys over SSH from the loopback handler,
-and the ACME challenge location on port 80 stays in place — rerunning quickstart
+`degraded:true`, `tls_mode:"http_tls"` and the Certbot reason. The server stays
+in the panel as *Partially configured* with a degraded badge, and the ACME
+challenge location on port 80 stays in place — rerunning quickstart
 after the hoster unblocks port 80 issues the Let's Encrypt certificate and
 switches the subscription back to HTTPS (the path is idempotent).
 

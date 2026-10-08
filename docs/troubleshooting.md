@@ -333,8 +333,9 @@ network filters port 80 for foreign sources (verified with tcpdump and
 multi-node probes: our firewall and nginx are fine, the reset happens upstream).
 Since this degradation the deploy finishes in `http_tls` fallback mode: the
 result JSON carries `degraded:true` and `tls_mode:"http_tls"`, the GUI shows the
-server as *Partially configured*, and keys are loaded over SSH. The subscription
-URL stays an HTTP bearer link — do not paste it into public chats. To restore
+server as *Partially configured*, and keys are loaded over SSH. There is **no
+public subscription URL at all** in this mode — no leakable HTTP link exists.
+To restore
 HTTPS, ask the hoster to unblock port 80 for Let's Encrypt validation ranges
 (or point a domain at the server and use the domain TLS mode), then re-run the
 deploy; the run is idempotent and issues the LE certificate when the challenge
