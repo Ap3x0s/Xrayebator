@@ -2,7 +2,7 @@
 
 User-facing Xrayebator changes. The server manager and Electron application are published from the canonical `howdeploy/Xrayebator` repository.
 
-## [0.6.5] - UNRELEASED (beta)
+## [0.6.5-beta.1] - 2026-10-08
 
 Multi-protocol stage: Xray Reality is joined by Hysteria 2 (UDP/QUIC) and AmneziaWG 3.1
 (system VPN), a neutral backend registry with per-profile grants and lifecycle, a
