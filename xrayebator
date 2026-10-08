@@ -12839,6 +12839,9 @@ NGINXHTTP
   # A8-fix: переиспользуем существующий действующий сертификат вместо повторного
   # certonly — иначе повторный quickstart упирается в Let's Encrypt rate-limit.
   # IP-серты shortlived (~6 дн.); renew-таймер продлевает их в фоне.
+  # SUB_TLS_MODE: ip_tls (LE-серт, HTTPS :8443) | http_tls (degraded fallback —
+  # HTTP :8080 наружу). Оба проксируют один и тот же локальный handler.
+  local SUB_TLS_MODE="ip_tls"
   local cert_dir="/etc/letsencrypt/live/$server_ip"
   local cert_expiry_ok=0
   local cert_end="" cert_now="" cert_epoch=""
@@ -12886,22 +12889,43 @@ NGINXHTTP
         >/tmp/certbot-ip.log 2>&1; then
       local certbot_reason
       certbot_reason=$(_certbot_failure_reason /tmp/certbot-ip.log)
-      # Fallback: certonly упёрся в rate limit (или временную сетевую ошибку), но
+      # Fallback 1: certonly упёрся в rate limit (или временную сетевую ошибку), но
       # старый серт всё ещё числится действительным — переиспользуем его, чтобы
       # quickstart не падал, а renew-таймер продолжит попытки продления в фоне.
       if [[ -f "$cert_dir/fullchain.pem" && -f "$cert_dir/privkey.pem" ]] && \
          [[ -n "$cert_epoch" && "$cert_epoch" -gt "$cert_now" ]]; then
         echo "  -> certbot не смог выпустить новый серт, но действующий есть — переиспользую его (${cert_end})" >&2
       else
-        if [[ -n "$certbot_reason" ]]; then
-          echo "{\"ok\":false,\"error\":\"certbot failed: ${certbot_reason}\"}"
-        else
-          echo '{"ok":false,"error":"certbot failed. Log: /tmp/certbot-ip.log"}'
+        # Fallback 2 (http_tls): hoster-уровневая блокировка http-01 (LE validation
+        # получает "Connection reset by peer" — порт 80 фильтруется upstream до нашего
+        # стека; подтверждено tcpdump + check-host на VPS 150.241.65.101, 2026-10-08).
+        # Вместо dead-end: поднимаем подписку по HTTP (handler на 8080 открыт наружу,
+        # 404 без токена, токен — bearer) с self-signed сертом для Hysteria и честным
+        # маркером degraded в JSON. Повторный quickstart ПОСЛЕ разблокировки :80 у
+        # хостера выдаст LE-серт и вернёт ip_tls (идемпотентен).
+        SUB_TLS_MODE="http_tls"
+        mkdir -p "/etc/letsencrypt/selfsigned/${server_ip}"
+        if ! openssl ecparam -genkey -name prime256v1 \
+              -out "/etc/letsencrypt/selfsigned/${server_ip}/privkey.pem" 2>/dev/null || \
+           ! openssl req -new -x509 -days 3650 \
+              -key "/etc/letsencrypt/selfsigned/${server_ip}/privkey.pem" \
+              -out "/etc/letsencrypt/selfsigned/${server_ip}/fullchain.pem" \
+              -subj "/CN=${server_ip}" 2>/dev/null; then
+          echo '{"ok":false,"error":"certbot failed и self-signed fallback не создался. Log: /tmp/certbot-ip.log"}'
+          _qs_nginx_rollback
+          return 1
         fi
-        _qs_nginx_rollback
-        return 1
+        chmod 600 "/etc/letsencrypt/selfsigned/${server_ip}/privkey.pem" 2>/dev/null || true
+        if [[ -n "$certbot_reason" ]]; then
+          echo "  -> certbot: ${certbot_reason}" >&2
+        fi
+        echo "  ⚠ LE не смог проверить http-01 (порт 80 заблокирован upstream хостера)." >&2
+        echo "  ⚠ Подписка разворачивается по HTTP (fallback): http://${server_ip}:8080/sub/<token>" >&2
+        echo "    Токен URL остаётся bearer-credential; повторите quickstart после разблокировки :80 —" >&2
+        echo "    тогда будет выпущен LE-серт и подписка вернётся на HTTPS." >&2
       fi
     else
+      SUB_TLS_MODE="ip_tls"
       echo "  TLS сертификат получен" >&2
       # P0-certbot-fix: регистрируем cert в root-owned манифесте (uninstall удалит только его).
       _certbot_register "$server_ip"
@@ -12924,7 +12948,27 @@ NGINXHTTP
     fi
   fi
 
-  # Nginx HTTPS config (проксирует на subscription server, порт 8443 — Xray на 443)
+  # Nginx config: https (ip_tls: LE-серт, прокси на 8080) или http (http_tls
+  # fallback: 8080 открыт напрямую, ACME-challenge на :80 остаётся для
+  # будущего апгрейда до LE-серта повторным quickstart).
+  if [[ "$SUB_TLS_MODE" == "http_tls" ]]; then
+  cat > "$NGINX_SITES_AVAILABLE/xrayebator-sub" << NGINXHTTPSUB
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${server_ip_bracketed};
+    # MUST serve ACME http-01 challenge: повторный quickstart после разблокировки
+    # :80 выпустит LE-серт и переведёт подписку обратно на HTTPS (ip_tls).
+    location ^~ /.well-known/acme-challenge/ {
+        root ${webroot};
+        default_type text/plain;
+    }
+    location / {
+        return 404;
+    }
+}
+NGINXHTTPSUB
+  else
   cat > "$NGINX_SITES_AVAILABLE/xrayebator-sub" << NGINXHTTPS
 limit_req_zone \$binary_remote_addr zone=xrayebator_sub:10m rate=30r/m;
 
@@ -12971,19 +13015,25 @@ server {
     }
 }
 NGINXHTTPS
-  nginx -t >/dev/null 2>&1 || { echo '{"ok":false,"error":"nginx HTTPS config failed"}'; _qs_nginx_rollback; return 1; }
+  fi
+  nginx -t >/dev/null 2>&1 || { echo '{"ok":false,"error":"nginx config failed"}'; _qs_nginx_rollback; return 1; }
   if ! systemctl reload nginx >/dev/null 2>&1; then
-    echo '{"ok":false,"error":"nginx не перечитал HTTPS config — подписка недоступна"}'
+    echo '{"ok":false,"error":"nginx не перечитал config — подписка недоступна"}'
     _qs_nginx_rollback
     return 1
   fi
 
-  # Пишем маркеры подписки (ip_tls mode) — иначе _subscription_base_url вернёт
-  # локальный http://127.0.0.1:8080 и GUI/happ-setup покажут неверный URL и mode "unknown".
-  _subscription_write_markers "8443" "$server_ip" "$server_ip" "ip_tls"
+  # Пишем маркеры подписки: ip_tls (LE-серт на :8443) или http_tls (fallback —
+  # handler 8080 напрямую). Иначе _subscription_base_url вернёт локальный
+  # http://127.0.0.1:8080 и GUI/happ-setup покажут неверный URL и mode "unknown".
+  _subscription_write_markers "8443" "$server_ip" "$server_ip" "$SUB_TLS_MODE"
 
-  # Автопродление shortlived IP-сертификатов (~6 дней).
-  _install_ip_cert_renew_timer "$certbot_bin" "$server_ip" "$webroot"
+  # Автопродление shortlived IP-сертификатов (~6 дней) — только в ip_tls:
+  # в http_tls серта нет, и таймер certbot renew каждый раз падал бы по тому же
+  # upstream-фильтру, который и вызвал fallback.
+  if [[ "$SUB_TLS_MODE" == "ip_tls" ]]; then
+    _install_ip_cert_renew_timer "$certbot_bin" "$server_ip" "$webroot"
+  fi
 
   # 4. Создание профиля
   echo "=== Профиль ===" >&2
@@ -13033,7 +13083,7 @@ NGINXHTTPS
   fi
   subscription_url="${base}/sub/${result_sub_token}"
 
-# «Сторона» сервера для GUI (country/city/flag) + ОС (PRETTY_NAME) — полезно "Мои серверы".
+  # «Сторона» сервера для GUI (country/city/flag) + ОС (PRETTY_NAME) — полезно "Мои серверы".
   local result_country result_city result_flag result_os
   result_country=$(_geo_country_name)
   result_city=$(_geo_city)
@@ -13048,6 +13098,21 @@ NGINXHTTPS
   QS_DEFAULT_REMOVED=false
   QS_DEFAULT_BACKUP_CREATED=false
 
+  # degraded=true только в http_tls-fallback: сервер работает, но подписка по HTTP
+  # (LE не смог проверить http-01 — обычно порт 80 фильтруется хостером). GUI
+  # сохраняет сервер с setupStatus=partial и показывает понятную причину.
+  if [[ "$SUB_TLS_MODE" == "http_tls" ]]; then
+    jq -n \
+      --arg url "$subscription_url" --arg base "$base" \
+      --arg profile "$HAPP_DEFAULT_PROFILE" --argjson routes "$route_count" \
+      --arg country "$result_country" --arg city "$result_city" \
+      --arg flag "$result_flag" --arg os "$result_os" \
+      --arg cert_reason "${certbot_reason:-}" \
+      '{ok:true, degraded:true, tls_mode:"http_tls", certbot_reason:$cert_reason,
+        subscription_url:$url, base_url:$base, profile:$profile, routes:$routes,
+        country:$country, city:$city, flag:$flag, os:$os}'
+    return 0
+  fi
   echo "{\"ok\":true,\"subscription_url\":\"${subscription_url}\",\"base_url\":\"${base}\",\"profile\":\"${HAPP_DEFAULT_PROFILE}\",\"routes\":${route_count},\"country\":\"${result_country}\",\"city\":\"${result_city}\",\"flag\":\"${result_flag}\",\"os\":\"${result_os}\"}"
   return 0
 }
