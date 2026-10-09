@@ -149,6 +149,36 @@ Xrayebator 不会更改主机的 TCP 拥塞控制算法，也不会写入或应�
 
 桌面 GUI 的 Server Settings 调用 `xrayebator update <branch>`，不会调用完整的 `xrayebator-update` workflow。
 
+## HAPP 预配路径
+
+`quickstart --email <邮箱>` 是宽泛的迁移路径：执行新部署所需的设置，在 `8443` 配置 IP-TLS 订阅
+endpoint 及其证书，然后创建或复用受管理的 HAPP 配置档。新建的标准配置档使用 `schema_version: 3`
+和 7 条线路，包括 `xhttp-legacy` 与 `xhttp-pq`。该非交互路径中的迁移调用是 best-effort，部署后
+请检查标记、配置档 JSON 与服务状态。
+
+`quickstart --without-email` 执行与带邮箱形式相同的宽泛设置和 endpoint 配置，但以
+`--register-unsafely-without-email` 注册 ACME 账户；无法收到 Certbot 续期通知，也没有邮箱恢复。
+
+若 Let's Encrypt 无法对 IP 执行 http-01 验证——部署日志中 challenge 抓取报
+`Connection reset by peer`，通常是服务商对境外来源过滤 80 端口——quickstart 不会失败，而是降级为
+`http_tls` 模式。订阅处理器保持仅回环访问：**完全不存在公共订阅 URL**——GUI 通过 SSH 从服务器
+本机的 `http://127.0.0.1:8080/sub/<token>` 加载密钥；并为后续后端生成自签证书，结果 JSON 携带
+`degraded:true`、`tls_mode:"http_tls"` 与 Certbot 原因。服务器以「配置不完整」并带降级标记保存；
+80 端口上的 ACME challenge location 保持原位——解除封锁后重新运行 quickstart 即签发 LE 证书并把
+订阅切回 HTTPS（该路径幂等）。
+
+`inspect --json` 是 GUI 的只读导入探测：报告本机是否为 Xrayebator 安装、Xray/配置档/服务标记和
+已保存的订阅元数据；不运行迁移、不创建配置档、不修改配置、不重启服务、不编辑防火墙规则。
+
+`happ-setup` 是已有安装的精简路径：只运行关键迁移、恢复订阅服务并确保存在多线路配置档；它不能
+替代初次 endpoint 配置。若缺少 `.subscription_domain` 或 `.subscription_port`，它会先验证公共
+TLS endpoint 再写入标记，拒绝凭空生成。已有标记会被复用而不一定重新验证，因此陈旧的已保存标记
+仍需要运维人员核验或重新运行相应的设置路径。
+
+该辅助程序可能复用满足七条活线路最低要求的现有配置档，未必包含全部标准标签或当前 schema。请检查
+实际 JSON；迁移不会向现有配置档补建缺失线路。当缺少 `xhttp-legacy`、`xhttp-pq` 或预期的七线路
+形态时，请使用菜单或 `quickstart` 重新配置受管理的 HAPP 配置档。
+
 ## 桌面图形界面
 
 活跃的 Electron 桌面应用（`src/`）是通过 SSH 调用 CLI 的前端，不是终端菜单的完整替代品。它从不直接修改
