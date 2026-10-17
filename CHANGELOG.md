@@ -118,7 +118,7 @@ Next `0.6.5` cut: the server manager plus the GUI traffic-limit card.
 
 - **Default SNI could be unreachable from the VPS, killing most channels.** Reality serves the client a
   certificate fetched from the SNI's real site (`dest`), so an unreachable `dest` hangs the handshake
-  even though the config is perfectly valid. On a live German VPS the first line of `sni_list.txt`
+  even though the config is perfectly valid. On a live deployment the first line of `sni_list.txt`
   (`www.ozon.ru`) was unreachable, and **5 of 7 routes of a fresh deployment were dead**: `channel-test`
   showed 12-second timeouts for exactly those routes, while `grpc` and `tcp-xudp` (reachable SNIs)
   worked instantly; after switching the SNI to a reachable host all 7 worked. `_default_sni_for_transport`
@@ -196,8 +196,8 @@ cleanup. **Still a beta: if you need a proven build, stay on 0.6.0.**
   subscription, plus 1 deploy on a hoster filtering inbound port 80 — the
   `http_tls` fallback completes the install, keys over SSH, a self-signed cert
   for future backends, quickstart re-run stays idempotent.
-- Both TLS branches (`ip_tls` and `http_tls`) confirmed live, including two
-  German VPSes; the CLI self-update main→dev lands on the dev HEAD with
+- Both TLS branches (`ip_tls` and `http_tls`) confirmed live, including on a
+  hoster that filters inbound :80; the CLI self-update main→dev lands on the dev HEAD with
   `backend-status` / `profiles` responding (the 0.6.5 GUI contract).
 
 ### Documentation

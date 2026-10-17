@@ -445,7 +445,7 @@ Three things are easy to get wrong:
   `/sub/<token>/geoip.dat`, which is per-subscriber. The placeholders above resolve this; without
   them, host the databases somewhere every client can fetch them.
 - **The country in the base URL can be wrong.** ASN geolocation differs between providers: ipinfo.io
-  and ipwho.is/ip-api may place the same range in different countries (e.g. one hoster:
+  and ipwho.is/ip-api may place the same range in different countries (e.g. one hoster's range:
   Finland vs Germany/Frankfurt). The managed HAPP profile sends the client to fetch geo databases
   through `{{GEOIP_URL}}`/`{{GEOSITE_URL}}` of the same subscription, so under the http_tls fallback
   (public subscription unavailable) a client without pre-cached databases cannot download them and

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Regression test: graceful-degradation quickstart при блокировке http-01.
-# Root cause (живой VPS 203.0.113.10, 2026-10-08): Let's Encrypt validation
+# Root cause (реальное развёртывание, 2026-10-08): Let's Encrypt validation
 # получает "Connection reset by peer" на http://IP/.well-known/acme-challenge/ —
 # порт 80 фильтруется UPSTREAM хостера (RST инжектится до нашего стека; ufw
 # открыт, nginx отвечает 200 тем, чьи SYN доходят). Раньше quickstart на этом
