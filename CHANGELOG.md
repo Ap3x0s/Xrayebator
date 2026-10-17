@@ -131,6 +131,14 @@ Next `0.6.5` cut: the server manager plus the GUI traffic-limit card.
     deploy path did not. It now reports an existing PQ route instead of adding a second one, and names
     the real reason when it cannot add one (the ML-KEM wording was printed even when keys were
     present).
+- **A suffixed certificate lineage produced a dead subscription and a vague error.** If
+  `/etc/letsencrypt/live/<ip>` is missing while the lineage is still registered, certbot issues into
+  `/live/<ip>-0001` (observed up to `-0004` during live testing). The nginx vhost expects exactly
+  `/live/<ip>`, so `nginx -t` failed and the deployment ended with
+  `{"ok":false,"error":"nginx config failed"}` *after* a successful issuance, with a dead subscription
+  and no hint. `quickstart` now checks the certificate directory right after issuance, prints the
+  existing lineage names to stderr and tells the operator to remove the extra lineages
+  (`certbot delete --cert-name <ip>-000N`) and re-run.
 - **Clash subscriptions blamed sing-box for skipped routes.** `_vless_url_to_record` shares one
   `reason` string with the header of the Clash body, and the xhttp branch appended "xhttp не
   поддержан sing-box" to it — a reason that belongs to the other client. A user of mihomo/Clash read
