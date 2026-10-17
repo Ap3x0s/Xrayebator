@@ -2707,7 +2707,7 @@ tls:
 
 # Per-profile гранты: карта собрана из .backends.hysteria2 живых профилей.
 # ВАЖНО: поле называется userpass (не users!) — с "users" hysteria падает
-# с "empty auth userpass" (живой тест 203.0.113.11).
+# с "empty auth userpass" (живой тест).
 auth:
   type: userpass
   userpass: ${users}
@@ -2786,7 +2786,7 @@ _hysteria2_grants_count() {
 }
 
 # Placeholder-пользователь: Hysteria отвергает ПУСТУЮ userpass-карту
-# ("empty auth userpass", живой тест 203.0.113.11). Пока нет грантов —
+# ("empty auth userpass", живой тест). Пока нет грантов —
 # в карте висит _xrayebator_placeholder со случайным паролем (0600 root).
 _hysteria2_ensure_placeholder() {
   local pfile="$HYSTERIA2_DIR/.placeholder_pass"
@@ -3210,7 +3210,7 @@ EOF
   chown root:"$HYSTERIA2_USER" "$HYSTERIA2_DIR/server.yaml" "$HYSTERIA2_DIR/cert.pem" "$HYSTERIA2_DIR/key.pem" 2>/dev/null
   chmod 750 "$HYSTERIA2_DIR"
   # Каталог должен быть читаем сервисом: без chown он остаётся root:root
-  # и CHDIR юнита падает с Permission denied (живой тест 203.0.113.11).
+  # и CHDIR юнита падает с Permission denied (живой тест).
   chown root:"$HYSTERIA2_USER" "$HYSTERIA2_DIR" 2>/dev/null
   chmod 640 "$HYSTERIA2_DIR/server.yaml" "$HYSTERIA2_DIR/cert.pem" "$HYSTERIA2_DIR/key.pem" 2>/dev/null
 
@@ -3813,7 +3813,7 @@ EOF
 
   # 5) Интерфейс
   # Юнит awg-quick@awg0 ищет конфиг в /etc/amnezia/amneziawg/ (живой тест
-  # 203.0.113.11) — линкуем наш файл; источник правды остаётся в backends/awg/.
+  # живой тест) — линкуем наш файл; источник правды остаётся в backends/awg/.
   mkdir -p /etc/amnezia/amneziawg
   ln -sfn "$AWG_CONF_FILE" /etc/amnezia/amneziawg/awg0.conf
   systemctl daemon-reload 2>/dev/null
