@@ -111,7 +111,32 @@ Next `0.6.5` cut: the server manager plus the GUI traffic-limit card.
   `_happ_ensure_default_multiroute_profile`: the route was appended to a profile that did not exist
   yet, after which the deployment returned `1` anyway. The block now runs after the managed HAPP
   profile is created, and the result is reported in the JSON as `pq_route` (a server without ML-KEM
-  keys keeps deploying, just without PQ).
+  keys keeps deploying, just without PQ). Found and fixed on a live Ubuntu 22.04 deployment; two more
+  defects of the same feature surfaced there and are fixed as well:
+  - **The PQ route pointed at an inbound that was never created.** `build_transport_defaults` only
+    picks a free port — it does not create anything, despite what its name (and the test seam)
+    suggested, so `profile-pq` returned `ok:true` with an empty `link`, the port never listened and
+    UFW never opened it. `_pq_add_route_for_profile` now creates the inbound through `add_inbound`
+    (with a config backup), sets its `decryption`, opens the firewall port and calls
+    `safe_restart_xray`, rolling the route and the port back if Xray refuses the config.
+  - **`label: $label` is a jq 1.6 syntax error.** Ubuntu 22.04 and Debian 12 ship jq 1.6, where
+    `label` is a keyword: the object pair `label: $label` fails to compile
+    (`syntax error, unexpected label, expecting IDENT`) while jq 1.7 accepts it — so the whole PQ
+    feature silently did nothing on two supported systems and CI (jq 1.7) stayed green. The variable
+    is renamed to `$lbl`, the jq error is no longer swallowed by `2>/dev/null` (that is what turned
+    the real cause into a cheerful "check config.json and free ports"), and
+    `validation/test-jq-keyword-compat.sh` now guards the whole `keyword: $keyword` class.
+  - **`quickstart --pq` duplicated PQ routes.** Re-running the deploy (or the GUI wizard) with the
+    toggle on appended another `tcp-pq` route and port every time — the CLI refuses duplicates, the
+    deploy path did not. It now reports an existing PQ route instead of adding a second one, and names
+    the real reason when it cannot add one (the ML-KEM wording was printed even when keys were
+    present).
+- **Clash subscriptions blamed sing-box for skipped routes.** `_vless_url_to_record` shares one
+  `reason` string with the header of the Clash body, and the xhttp branch appended "xhttp не
+  поддержан sing-box" to it — a reason that belongs to the other client. A user of mihomo/Clash read
+  "VLESS Encryption (post-quantum)…; xhttp не поддержан sing-box" for the PQ route, although xhttp
+  *is* supported by Clash (it only needs `?xhttp=1`). Clash adds its own note, sing-box simply does
+  not render such routes, and the shared reason now stays client-agnostic.
 - **Per-profile traffic accounting counted nothing on a real server.** The feature enabled only
   `policy.system.statsInboundUplink/Downlink`, but Xray registers the per-user counters
   (`user>>>NAME>>>traffic>>>uplink`) solely from `policy.levels."0".statsUserUplink/Downlink`
