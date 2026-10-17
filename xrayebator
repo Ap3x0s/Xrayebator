@@ -1338,6 +1338,229 @@ _subscription_render_singbox_pure() {
 # return: 0 всегда (даже при отсутствии маркеров — отдаёт default http://127.0.0.1:8080).
 # Единственный источник истины для Plan 7.3 (manage_subscription_menu / create_profile
 # success-screen / happ_subscription_menu status-line) и для subhttp.sh self-test.
+# ───────────────────────── channel-test ─────────────────────────
+# xrayebator channel-test [--name NAME] [--url URL] [--timeout SEC] [--transport T]
+#
+# Проверяет, что каналы профиля РЕАЛЬНО работают: для каждого маршрута поднимает
+# настоящий клиент Xray (SOCKS5 на loopback) с параметрами из ссылки подписки и
+# прогоняет через него запрос в интернет. Сертификаты Let's Encrypt тут не нужны:
+# Reality и VLESS Encryption шифруют сами по себе, поэтому проверка работает даже
+# на http_tls-подписке и до выпуска сертификата.
+#
+# Зачем: конфиг может быть валиден, а канал — мёртвым. Живой случай (2026-10-17):
+# дефолтный SNI www.ozon.ru оказался недоступен с самого VPS, и 5 из 7 маршрутов
+# свежего деплоя висели на рукопожатии — ни один статический тест этого не видит.
+#
+# Печатает только JSON на stdout (прогресс — в stderr).
+
+# Клиентский конфиг Xray из записи ссылки (pure — тестируется без сети).
+# Args: record-json, socks_port
+_channel_client_config_pure() {
+  local record="$1" socks_port="$2"
+  jq -n --argjson r "$record" --argjson socks "$socks_port" '
+    def net: (if ($r.network | startswith("tcp")) then "tcp" else $r.network end);
+    {
+      log: {loglevel: "warning"},
+      inbounds: [{
+        listen: "127.0.0.1", port: $socks, protocol: "socks",
+        settings: {udp: false, auth: "noauth"}
+      }],
+      outbounds: [{
+        protocol: "vless",
+        settings: {vnext: [{
+          address: $r.server, port: $r.port,
+          users: [({id: $r.uuid, encryption: (if $r.encryption == "" then "none" else $r.encryption end), level: 0}
+                  + (if $r.flow != "" then {flow: $r.flow} else {} end))]
+        }]},
+        streamSettings: ({network: net, security: $r.security}
+          + (if $r.security == "reality" then
+               {realitySettings: {serverName: $r.sni, fingerprint: $r.fp, publicKey: $r.pbk,
+                                  shortId: $r.sid, spiderX: "/"}}
+             else {} end)
+          + (if (net == "grpc" and $r.service != "") then {grpcSettings: {serviceName: $r.service}} else {} end)
+          + (if net == "xhttp" then
+               {xhttpSettings: ({path: (if $r.path != "" then $r.path else "/" end)}
+                 + (if $r.host != "" then {host: $r.host} else {} end)
+                 + (if $r.mode != "" then {mode: $r.mode} else {} end))}
+             else {} end))
+      }]
+    }'
+}
+
+# Свободный loopback-порт для SOCKS клиента (в диапазоне 12080-12179).
+_channel_free_socks_port() {
+  local p
+  for p in $(seq 12080 12179); do
+    if ! ss -ltn "sport = :$p" 2>/dev/null | grep -q LISTEN; then
+      echo "$p"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Ждём, пока SOCKS-инбаунд клиента начнёт слушать.
+# ВАЖНО: без трюков с файловыми дескрипторами. Первая версия открывала /dev/tcp
+# через `exec 3<>` и закрывала fd 3 в основном шелле — это рушило последующий
+# `exec 1>&3` в channel_test_command, и итоговый JSON уезжал в stderr.
+_channel_wait_socks() {
+  local port="$1" deadline=$((SECONDS + 8))
+  while (( SECONDS < deadline )); do
+    if ss -ltn "sport = :$port" 2>/dev/null | grep -q LISTEN; then
+      return 0
+    fi
+    sleep 0.2
+  done
+  return 1
+}
+
+# Один замер: HTTP-код и время через SOCKS клиента.
+_channel_probe() {
+  local port="$1" url="$2" timeout="$3"
+  local out code start end
+  out=$(curl -sS -o /dev/null -w '%{http_code}' --max-time "$timeout" \
+    --socks5-hostname "127.0.0.1:$port" "$url" 2>/dev/null) || out="000"
+  code="${out:-000}"
+  CHANNEL_LAST_CODE="$code"
+  [[ "$code" =~ ^(200|204)$ ]]
+}
+
+channel_test_command() {
+  export TERM=dumb
+  export XRAYEBATOR_NONINTERACTIVE=1
+
+  local name="$HAPP_DEFAULT_PROFILE" url="https://api.ipify.org" timeout=12 only_transport=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --name) name="${2:-}"; shift 2 ;;
+      --url) url="${2:-}"; shift 2 ;;
+      --timeout) timeout="${2:-}"; shift 2 ;;
+      --transport) only_transport="${2:-}"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+
+  if [[ -z "$name" || ! "$name" =~ ^[a-zA-Z0-9_-]{1,48}$ ]]; then
+    echo '{"ok":false,"error":"Укажите --name профиля"}'
+    return 1
+  fi
+  if [[ ! "$timeout" =~ ^[0-9]+$ ]] || (( timeout < 3 || timeout > 120 )); then
+    echo '{"ok":false,"error":"--timeout: целое 3-120 секунд"}'
+    return 1
+  fi
+  if [[ "$url" != http://* && "$url" != https://* ]]; then
+    echo '{"ok":false,"error":"--url должен начинаться с http:// или https://"}'
+    return 1
+  fi
+  local profile_file="$PROFILES_DIR/$name.json"
+  if [[ ! -f "$profile_file" ]]; then
+    echo '{"ok":false,"error":"Профиль не найден"}'
+    return 1
+  fi
+  local xray_bin="${XRAY_BIN:-/usr/local/bin/xray}"
+  if [[ ! -x "$xray_bin" ]]; then
+    xray_bin=$(command -v xray 2>/dev/null || true)
+  fi
+  if [[ -z "$xray_bin" || ! -x "$xray_bin" ]]; then
+    echo '{"ok":false,"error":"Бинарник Xray не найден — проверка каналов невозможна"}'
+    return 1
+  fi
+  if ! command -v curl >/dev/null 2>&1; then
+    echo '{"ok":false,"error":"Нужен curl для проверки каналов"}'
+    return 1
+  fi
+
+  local exec_out exec_err
+  exec_out=$(mktemp) || { echo '{"ok":false,"error":"mktemp недоступен"}'; return 1; }
+  exec_err=$(mktemp) || { rm -f "$exec_out"; echo '{"ok":false,"error":"mktemp недоступен"}'; return 1; }
+
+  # Прогресс — в stderr: stdout обязан остаться чистым JSON.
+  exec 3>&1
+  exec 1>&2
+
+  local links
+  if ! links=$(_subscription_links_json "$profile_file"); then
+    exec 1>&3; exec 3>&-
+    rm -f "$exec_out" "$exec_err"
+    echo '{"ok":false,"error":"Не удалось собрать ссылки профиля (профиль повреждён?)"}'
+    return 1
+  fi
+
+  local total working results="[]" idx=0
+  total=$(jq 'length' <<<"$links")
+  working=0
+  echo "  Проверяю каналы профиля $name (запрос: $url, таймаут ${timeout}s)"
+
+  local rec label transport port enc pq
+  while IFS= read -r rec; do
+    [[ -n "$rec" ]] || continue
+    label=$(jq -r '.name' <<<"$rec")
+    transport=$(jq -r '.network' <<<"$rec")
+    port=$(jq -r '.port' <<<"$rec")
+    enc=$(jq -r '.encryption // "none"' <<<"$rec")
+    pq=false
+    [[ "$enc" != "none" && -n "$enc" ]] && pq=true
+    if [[ -n "$only_transport" && "$transport" != "$only_transport" ]]; then
+      continue
+    fi
+
+    local socks cfg log client_pid started ok=false code ms start_ms
+    socks=$(_channel_free_socks_port) || { echo "  ✗ $label: нет свободного локального порта"; continue; }
+    cfg="$exec_out-$idx.json"
+    log="$exec_err-$idx.log"
+    _channel_client_config_pure "$rec" "$socks" > "$cfg" || { echo "  ✗ $label: не собрался клиентский конфиг"; continue; }
+    # Запуск без `if ! cmd &`: в такой форме bash не проверяет код возврата, а
+    # фоновый процесс теряется. Клиент может умереть сразу (битый конфиг) — это
+    # ловит ожидание SOCKS-порта ниже, а лог клиента попадает в JSON.
+    "$xray_bin" run -c "$cfg" > "$log" 2>&1 &
+    client_pid=$!
+    started=false
+    if _channel_wait_socks "$socks"; then
+      started=true
+      start_ms=$(date +%s%3N)
+      if _channel_probe "$socks" "$url" "$timeout"; then
+        ok=true
+      fi
+      code="$CHANNEL_LAST_CODE"
+      ms=$(( $(date +%s%3N) - start_ms ))
+    fi
+    kill "$client_pid" 2>/dev/null || true
+    wait "$client_pid" 2>/dev/null || true
+
+    if [[ "$started" != "true" ]]; then
+      code="000"
+      ms=0
+    fi
+    [[ "$ok" == "true" ]] && working=$((working + 1))
+    results=$(jq -c --arg lbl "$label" --arg transport "$transport" --argjson port "$port" \
+      --argjson pq "$pq" --argjson ok "$ok" --arg code "${code:-000}" --argjson ms "${ms:-0}" \
+      --arg err "$(tail -1 "$log" 2>/dev/null | cut -c1-200)" \
+      '. + [{label: $lbl, transport: $transport, port: $port, pq: $pq,
+             ok: $ok, http: $code, ms: $ms, client_log_tail: $err}]' <<<"$results")
+    if [[ "$ok" == "true" ]]; then
+      echo "  ✓ $label ($transport:$port${pq:+, PQ}): http=$code, ${ms} мс"
+    elif [[ "$started" != "true" ]]; then
+      echo "  ✗ $label ($transport:$port): SOCKS-инбаунд клиента не поднялся"
+    else
+      echo "  ✗ $label ($transport:$port): http=$code (таймаут ${timeout}s) — канал не работает"
+    fi
+    rm -f "$cfg" "$log"
+    idx=$((idx + 1))
+  done < <(jq -c '.[]' <<<"$links")
+
+  exec 1>&3
+  exec 3>&-
+  rm -f "$exec_out" "$exec_err"
+
+  local checked
+  checked=$(jq 'length' <<<"$results")
+  jq -n --arg name "$name" --arg url "$url" --argjson total "$total" \
+    --argjson checked "$checked" --argjson working "$working" --argjson routes "$results" \
+    '{ok: ($working == $checked and $checked > 0), name: $name, probe_url: $url,
+      working: $working, checked: $checked, total: $total, routes: $routes}'
+  [[ "$checked" -gt 0 && "$working" -eq "$checked" ]]
+}
+
 _subscription_base_url() {
   local domain port
   domain=$(cat /usr/local/etc/xray/.subscription_domain 2>/dev/null || echo "127.0.0.1")
@@ -6681,6 +6904,46 @@ _reality_dest_for_sni() {
   echo "$sni:443"
 }
 
+# Кэш проверок доступности SNI в пределах запуска менеджера: одна проба на SNI.
+declare -A _SNI_REACH_CACHE=()
+# Таймаут пробы SNI при выборе дефолта (короче мониторингового: это интерактивный путь).
+SNI_REACH_TIMEOUT="${SNI_REACH_TIMEOUT:-6}"
+
+# Доступен ли SNI с ЭТОГО сервера. Критерий — как у probe-test и мониторинга
+# (_monitor_sni_reachable: openssl Verify return code: 0, иначе HTTP-код curl).
+# Нужен потому, что Reality отдаёт клиенту сертификат, полученный у dest: если
+# dest недоступен с VPS, рукопожатие у клиента висит, хотя конфиг валиден.
+_sni_reachable_from_here() {
+  local sni="$1"
+  [[ -n "$sni" ]] || return 1
+  # Гарантируем ассоциативный массив: если его сбросили (unset), bash посчитал бы
+  # индекс арифметикой и упал на «invalid arithmetic operator (www.ozon.ru)» —
+  # ровно это поймал validation/test-sni-reachability.sh.
+  if [[ "$(declare -p _SNI_REACH_CACHE 2>/dev/null)" != "declare -A"* ]]; then
+    unset _SNI_REACH_CACHE 2>/dev/null || true
+    declare -gA _SNI_REACH_CACHE=()
+  fi
+  local cached="${_SNI_REACH_CACHE[$sni]:-}"
+  if [[ -n "$cached" ]]; then
+    [[ "$cached" == "1" ]]
+    return
+  fi
+
+  local ok=0 saved="${ALERTS_SNI_TIMEOUT-__unset__}"
+  ALERTS_SNI_TIMEOUT="$SNI_REACH_TIMEOUT"
+  if _monitor_sni_reachable "$sni"; then
+    ok=1
+  fi
+  if [[ "$saved" == "__unset__" ]]; then
+    unset ALERTS_SNI_TIMEOUT
+  else
+    ALERTS_SNI_TIMEOUT="$saved"
+  fi
+
+  _SNI_REACH_CACHE[$sni]="$ok"
+  (( ok == 1 ))
+}
+
 _default_sni_for_transport() {
   local transport="$1"
   local selfsteal_domain=""
@@ -6690,23 +6953,49 @@ _default_sni_for_transport() {
     return 0
   fi
 
+  local primary=""
   case "$transport" in
     grpc)
-      echo "www.cloudflare.com"
+      primary="www.cloudflare.com"
       ;;
     tcp-xudp)
-      echo "api-maps.yandex.ru"
+      primary="api-maps.yandex.ru"
       ;;
     *)
-      local from_list
-      from_list=$(grep -v '^#' "$SNI_LIST" 2>/dev/null | grep -v '^[[:space:]]*$' | head -n 1 | cut -d'|' -f1)
+      primary=$(grep -v '^#' "$SNI_LIST" 2>/dev/null | grep -v '^[[:space:]]*$' | head -n 1 | cut -d'|' -f1)
       # Дефолт 2026-10-06: www.cloudflare.com — самый стабильный (глобальный
       # anycast, TLS1.3, не режется ТСПУ). Список обычно перекрывает фолбэк:
       # берётся первая строка sni_list.txt, она держится cloudflare-first.
-      [[ -z "$from_list" ]] && from_list="www.cloudflare.com"
-      echo "$from_list"
+      [[ -z "$primary" ]] && primary="www.cloudflare.com"
       ;;
   esac
+
+  # SNI обязан быть доступен С ЭТОГО сервера: Reality отдаёт клиенту сертификат,
+  # полученный у dest, поэтому недоступный dest — это висящее рукопожатие у клиента,
+  # хотя конфиг валиден. Живой случай (VPS в Германии, 2026-10-17): дефолтный
+  # www.ozon.ru недоступен, и 5 из 7 маршрутов свежего деплоя не работали —
+  # проверка каналов клиентом Xray показала таймауты, а после смены SNI на
+  # доступный заработали все 7. Критерий тот же, что у probe-test и мониторинга.
+  # Кандидаты: пер-транспортный дефолт, затем список sni_list.txt, затем глобальные
+  # фолбэки. Если недоступен НИ ОДИН (нет сети/DNS) — возвращаем прежний дефолт:
+  # проба не должна ломать развёртывание на изолированном хосте.
+  local -a candidates=("$primary")
+  local line
+  while IFS= read -r line; do
+    line="${line%%|*}"
+    [[ -n "$line" ]] && candidates+=("$line")
+  done < <(grep -v '^#' "$SNI_LIST" 2>/dev/null | grep -v '^[[:space:]]*$')
+  candidates+=("www.cloudflare.com" "api-maps.yandex.ru" "www.google.com")
+
+  local candidate
+  for candidate in "${candidates[@]}"; do
+    if _sni_reachable_from_here "$candidate"; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+  echo "$primary"
+  return 0
 }
 
 _selfsteal_ensure_443_inbound() {
@@ -17576,6 +17865,10 @@ if [[ "$XRAYEBATOR_SOURCED" -eq 0 ]]; then
       shift
       profile_limit_command "$@"
       ;;
+    channel-test)
+      shift
+      channel_test_command "$@"
+      ;;
     profile-pq)
       shift
       profile_pq_command "$@"
@@ -17716,6 +18009,7 @@ if [[ "$XRAYEBATOR_SOURCED" -eq 0 ]]; then
       echo -e "                               — HTTPS-подписка по домену без порта 80 (DNS-01) (JSON)"
       echo -e "  ${CYAN}sudo xrayebator dns01-status${NC} — состояние DNS-01, домен, срок сертификата (JSON)"
       echo -e "  ${CYAN}sudo xrayebator repair-dns01 --domain D --provider cloudflare|route53${NC} — заменить http_tls-подписку на DNS-01 (JSON)"
+      echo -e "  ${CYAN}sudo xrayebator channel-test [--name ИМЯ] [--url URL] [--timeout S]${NC} — проверить каналы профиля клиентом Xray (JSON)"
       echo -e "  ${CYAN}sudo xrayebator sni-list${NC} — список допустимых SNI (JSON)"
       echo -e "  ${CYAN}sudo xrayebator sni-change --name N [--route R] --sni S${NC} — сменить SNI (JSON; обновит все профили на порту)"
       echo -e "  ${CYAN}sudo xrayebator port-change --name N [--route R] --port P|random${NC} — сменить порт (JSON; reconnect клиентов)"
