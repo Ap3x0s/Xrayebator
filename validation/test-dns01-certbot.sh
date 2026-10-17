@@ -220,6 +220,15 @@ pq_line=$(grep -n 'if \[\[ "$deploy_pq" == "true" \]\]' xrayebator | head -1 | c
 (( profile_line > resume_line )) || fail "профиль создаётся не в ожидаемом порядке"
 (( pq_line > profile_line )) || fail "PQ-блок стоит до создания профиля — --pq снова мёртвый код"
 
+# Идемпотентность: повторный quickstart --pq (обновление, повторный прогон визарда)
+# не должен плодить PQ-маршруты и порты — проверка наличия маршрута обязана стоять
+# ДО вызова _pq_add_route_for_profile. Живой прогон давал два tcp-pq маршрута.
+dup_line=$(grep -n 'any((\.routes // \[\])\[\]; \.pq_enabled == true and \.transport == "tcp")' xrayebator | head -1 | cut -d: -f1)
+[[ -n "$dup_line" ]] || fail "quickstart --pq не проверяет уже существующий PQ-маршрут (дубли портов)"
+pq_call_line=$(grep -n '_pq_add_route_for_profile "$PROFILES_DIR/$HAPP_DEFAULT_PROFILE.json" tcp' xrayebator | head -1 | cut -d: -f1)
+[[ -n "$pq_call_line" ]] || fail "не найден вызов _pq_add_route_for_profile в quickstart"
+(( pq_call_line > dup_line )) || fail "проверка существующего PQ-маршрута должна идти до добавления нового"
+
 # B1: DNS-01 как фолбэк развёртывания — флаги парсятся и валидируются ДО системных вызовов.
 grep -q -- '--dns01-domain) dns01_domain=' xrayebator || fail "quickstart не парсит --dns01-domain"
 grep -q -- '--dns01-provider) dns01_provider=' xrayebator || fail "quickstart не парсит --dns01-provider"

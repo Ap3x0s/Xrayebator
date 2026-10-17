@@ -41,6 +41,10 @@ XRAYEBATOR_SERVER_ADDR_OVERRIDE="203.0.113.10"
 mkdir -p "$PROFILES_DIR"
 printf '%s' 'test-public-key' > "$PUBLIC_KEY_FILE"
 printf '%s' 'test-private-key' > "$PRIVATE_KEY_FILE"
+# add_inbound собирает inbound из heredoc и подставляет ключи из переменных
+# (в бою их выставляет install.sh/миграция), в тесте задаём их явно.
+PRIVATE_KEY='test-private-key'
+PUBLIC_KEY='test-public-key'
 printf '%s' 'mlkem768x25519plus.native.test-encryption' > "$VLESS_ENCRYPTION_FILE"
 printf '%s' 'mlkem768x25519plus.native.test-decryption' > "$VLESS_DECRYPTION_FILE"
 
@@ -62,16 +66,39 @@ cat > "$PROFILES_DIR/sample.json" <<'JSON'
  "routes": [{"label": "tcp-vision", "transport": "tcp", "port": 10001, "sni": "www.ozon.ru", "fingerprint": "chrome"}]}
 JSON
 
-# build_transport_defaults создаёт инбаунд на сервере — в тесте подменяем на
-# существующий PQ-инбаунд 20001, чтобы проверять остальную логику герметично.
-build_transport_defaults() { printf '%s\n' "20001||"; }
+# build_transport_defaults только ПОДБИРАЕТ свободный порт — инбаунд создаёт сам
+# _pq_add_route_for_profile через add_inbound. Поэтому подменяем его на СВОБОДНЫЙ
+# порт: тест обязан пройти реальный путь создания инбаунда, иначе он снова закроет
+# регрессию, на которой маршрут добавлялся, а порт не слушал (живой Ubuntu 22.04).
+build_transport_defaults() { printf '%s\n' "30001||"; }
 reserve_port() { return 0; }
 _default_sni_for_transport() { printf '%s\n' "www.ozon.ru"; }
+# В CI нет root/systemd: фиксируем вызовы, но систему не трогаем.
+BACKUP_CALLED=""
+RESTART_CALLED=""
+FIREWALL_OPENED=""
+backup_config() { BACKUP_CALLED="$1"; printf -v "$2" '%s' "$WORKDIR/backup-$1.json"; return 0; }
+safe_restart_xray() { RESTART_CALLED="$1"; return 0; }
+open_firewall_port() { FIREWALL_OPENED="$1"; return 0; }
+close_firewall_port() { return 0; }
 
 _pq_add_route_for_profile "$PROFILES_DIR/sample.json" "tcp" || fail "PQ-маршрут не создан"
 
+# 0) Инбаунд под PQ-порт действительно создан. Регрессия живого теста: раньше маршрут
+#    добавлялся на порт, которого нет в config.json — порт не слушал, UFW не
+#    открывался, а profile-pq отдавал ok:true с пустым link.
+jq -e '.inbounds | map(select(.port == 30001)) | length == 1' "$CONFIG_FILE" >/dev/null \
+  || fail "PQ-инбаунд не создан в config.json"
+jq -e '.inbounds[] | select(.port == 30001) | .protocol == "vless" and .streamSettings.security == "reality"' \
+  "$CONFIG_FILE" >/dev/null || fail "PQ-инбаунд не vless/reality"
+jq -e 'any(.inbounds[] | select(.port == 30001) | .settings.clients[]?; .id == "11111111-2222-3333-4444-555555555555")' \
+  "$CONFIG_FILE" >/dev/null || fail "в PQ-инбаунд не добавлен клиент профиля"
+[[ "$FIREWALL_OPENED" == "30001" ]] || fail "порт PQ не открыт в firewall"
+[[ "$RESTART_CALLED" == "$WORKDIR/backup-pq_route_tcp.json" ]] \
+  || fail "Xray не перезапущен с бэкапом операции (получено: '$RESTART_CALLED')"
+
 # 1) инбаунд стал PQ (decryption != none), обычный инбаунд не тронут
-jq -e '.inbounds[] | select(.port == 20001) | .settings.decryption == "mlkem768x25519plus.native.test-decryption"' \
+jq -e '.inbounds[] | select(.port == 30001) | .settings.decryption == "mlkem768x25519plus.native.test-decryption"' \
   "$CONFIG_FILE" >/dev/null || fail "PQ-инбаунд не получил decryption"
 jq -e '.inbounds[] | select(.port == 10001) | .settings.decryption == "none"' \
   "$CONFIG_FILE" >/dev/null || fail "обычный инбаунд не должен становиться PQ"
@@ -79,7 +106,7 @@ jq -e '.inbounds[] | select(.port == 10001) | .settings.decryption == "none"' \
 # 2) в профиле появился PQ-маршрут
 jq -e '.routes | map(select(.pq_enabled == true and .transport == "tcp")) | length == 1' \
   "$PROFILES_DIR/sample.json" >/dev/null || fail "PQ-маршрут не добавлен в профиль"
-jq -e '.routes[-1].port == 20001 and .routes[-1].label == "tcp-pq"' "$PROFILES_DIR/sample.json" >/dev/null \
+jq -e '.routes[-1].port == 30001 and .routes[-1].label == "tcp-pq"' "$PROFILES_DIR/sample.json" >/dev/null \
   || fail "PQ-маршрут указывает не на тот порт/label"
 
 # 3) ссылки: PQ-маршрут с encryption=mlkem…, обычный — encryption=none

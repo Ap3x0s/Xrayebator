@@ -1047,8 +1047,12 @@ _vless_url_to_record() {
     grpc) ;;
     xhttp)
       xhttp=true
+      # reason — общая причина пропуска, и в шапку Clash она попадает целиком.
+      # Поэтому про sing-box здесь НЕ дописываем: на живом сервере PQ-маршрут
+      # помечался в Clash-подписке как «VLESS Encryption…; xhttp не поддержан
+      # sing-box», хотя xhttp в Clash поддержан (нужен лишь ?xhttp=1). Clash
+      # добавляет свою заметку сам, sing-box такие маршруты просто не рендерит.
       singbox=false
-      reason="${reason:+${reason}; }xhttp не поддержан sing-box"
       ;;
     *)
       clash=false
@@ -9986,13 +9990,6 @@ _pq_add_route_for_profile() {
   [[ "$port" =~ ^[0-9]+$ ]] || return 1
   reserve_port "$port" || return 1
 
-  # Инбаунд этого транспорта становится PQ: клиенты без ML-KEM к порту не подключатся.
-  if ! safe_jq_write --argjson p "$port" --arg d "$decryption" '
-    .inbounds |= map(if .port == $p then .settings.decryption = $d else . end)
-  ' "$CONFIG_FILE"; then
-    return 1
-  fi
-
   # serviceName/path берём из того же defaults, что использует build_transport_defaults.
   local grpc_service_name="" xhttp_path=""
   case "$transport" in
@@ -10006,22 +10003,78 @@ _pq_add_route_for_profile() {
   [[ -n "$sni" ]] || sni=$(_default_sni_for_transport "tcp" 2>/dev/null || echo "")
   [[ -n "$sni" ]] || return 1
 
-  local tmp
+  local uuid fingerprint
+  uuid=$(jq -r '.uuid // ""' "$profile_file" 2>/dev/null)
+  [[ -n "$uuid" ]] || return 1
+  fingerprint=$(jq -r '.fingerprint // "chrome"' "$profile_file" 2>/dev/null)
+  [[ -n "$fingerprint" && "$fingerprint" != "null" ]] || fingerprint="chrome"
+
+  # ИНБАУНД ОБЯЗАТЕЛЕН, и это отдельный шаг: build_transport_defaults только подбирает
+  # свободный порт и НИЧЕГО не создаёт (его имя вводит в заблуждение, на что и купился
+  # прежний код). Без add_inbound PQ-маршрут указывал на порт, которого нет в
+  # config.json: порт не слушал, в UFW не открывался, а ссылка не генерировалась —
+  # на живом Ubuntu 22.04 profile-pq возвращал ok:true с пустым link.
+  local rollback_config=""
+  if ! backup_config "pq_route_${transport}" rollback_config; then
+    return 1
+  fi
+  if ! add_inbound "$uuid" "$transport" "$port" "$sni" "$fingerprint" \
+       "$grpc_service_name" "$xhttp_path" "true"; then
+    echo -e "${RED}✗ PQ: не удалось создать inbound на порту $port${NC}" >&2
+    return 1
+  fi
+
+  # Инбаунд этого транспорта становится PQ: клиенты без ML-KEM к порту не подключатся.
+  # Для xhttp decryption уже прописал add_inbound, для остальных транспортов — здесь
+  # (VLESS decryption живёт на уровне инбаунда, а не маршрута).
+  if ! safe_jq_write --argjson p "$port" --arg d "$decryption" '
+    .inbounds |= map(if .port == $p then .settings.decryption = $d else . end)
+  ' "$CONFIG_FILE"; then
+    return 1
+  fi
+
+  local tmp jq_err
   tmp=$(mktemp) || return 1
+  jq_err=$(mktemp) || return 1
+  # Переменная называется $lbl, а НЕ $label: в jq 1.6 (Ubuntu 22.04, Debian 12) пара
+  # `label: $label` не парсится — `label` там ключевое слово, и парсер уходит в
+  # label-выражение («syntax error, unexpected label, expecting IDENT»). Из-за этого
+  # PQ-маршрут молча не добавлялся на двух поддерживаемых системах, а CI на jq 1.7
+  # этого не видел. Ошибку jq больше не глушим: именно `2>/dev/null` превращал
+  # реальную причину в бодрое «проверьте config.json и свободные порты».
   if ! jq --argjson port "$port" --arg transport "$transport" --arg sni "$sni" \
-       --arg label "${transport}-pq" --arg gs "$grpc_service_name" --arg xp "$xhttp_path" \
+       --arg lbl "${transport}-pq" --arg gs "$grpc_service_name" --arg xp "$xhttp_path" \
        '.routes = ((.routes // []) + [{
-          label: $label, transport: $transport, port: $port, sni: $sni,
+          label: $lbl, transport: $transport, port: $port, sni: $sni,
           fingerprint: (.fingerprint // "chrome"), pq_enabled: true, schema_version: 2
         }
         + (if $gs != "" then {grpc_service_name: $gs} else {} end)
         + (if $xp != "" then {xhttp_path: $xp} else {} end)])' \
-       "$profile_file" > "$tmp" 2>/dev/null; then
-    rm -f "$tmp"
+       "$profile_file" > "$tmp" 2>"$jq_err"; then
+    echo -e "${RED}✗ PQ: jq не собрал маршрут профиля: $(head -1 "$jq_err" 2>/dev/null)${NC}" >&2
+    rm -f "$tmp" "$jq_err"
     return 1
   fi
+  rm -f "$jq_err"
   chmod 644 "$tmp" 2>/dev/null || true
   mv "$tmp" "$profile_file" || { rm -f "$tmp"; return 1; }
+
+  # Без перезапуска новый инбаунд не поднимется, а маршрут останется мёртвым.
+  if ! safe_restart_xray "$rollback_config"; then
+    # config.json откатил сам safe_restart_xray; маршрут и порт убираем следом,
+    # иначе профиль показывал бы PQ-маршрут на несуществующем инбаунде.
+    local tmp_rollback
+    tmp_rollback=$(mktemp) || return 1
+    if jq --argjson p "$port" '.routes = ((.routes // []) | map(select(.port != $p)))' \
+         "$profile_file" > "$tmp_rollback" 2>/dev/null; then
+      chmod 644 "$tmp_rollback" 2>/dev/null || true
+      mv "$tmp_rollback" "$profile_file" || rm -f "$tmp_rollback"
+    else
+      rm -f "$tmp_rollback"
+    fi
+    close_firewall_port "$port" >/dev/null 2>&1 || true
+    return 1
+  fi
   return 0
 }
 
@@ -14218,11 +14271,23 @@ NGINXHTTPS
   local pq_route_added=false
   if [[ "$deploy_pq" == "true" ]]; then
     run_migration "mlkem_keys" "PQ keys" _migrate_mlkem_keys >/dev/null 2>&1 || true
-    if _pq_add_route_for_profile "$PROFILES_DIR/$HAPP_DEFAULT_PROFILE.json" tcp >/dev/null 2>&1; then
+    # Идемпотентность: повторный quickstart с --pq (обновление, повторный прогон
+    # визарда) не должен плодить PQ-маршруты и порты — у профиля их может быть
+    # только один на транспорт. CLI profile-pq дубль отклоняет, quickstart раньше нет.
+    if jq -e 'any((.routes // [])[]; .pq_enabled == true and .transport == "tcp")' \
+         "$PROFILES_DIR/$HAPP_DEFAULT_PROFILE.json" >/dev/null 2>&1; then
+      pq_route_added=true
+      echo "  -> PQ-маршрут (tcp) уже есть в профиле — не дублирую" >&2
+    elif [[ ! -f "$VLESS_DECRYPTION_FILE" ]] || \
+         ! grep -q '^mlkem768x25519plus\.' "$VLESS_DECRYPTION_FILE" 2>/dev/null; then
+      # Причина называется точно: раньше здесь всегда писалось «нет ключей ML-KEM?»,
+      # даже когда ключи были, а падало что-то другое (так и прятался баг с jq).
+      echo "  ⚠ PQ-маршрут не добавлен: нет ключей ML-KEM (нужен Xray-core 25.9.5+ и миграция mlkem_keys)" >&2
+    elif _pq_add_route_for_profile "$PROFILES_DIR/$HAPP_DEFAULT_PROFILE.json" tcp >/dev/null 2>&1; then
       pq_route_added=true
       echo "  ✓ PQ-маршрут (VLESS Encryption) добавлен на tcp" >&2
     else
-      echo "  ⚠ PQ-маршрут не добавлен (нет ключей ML-KEM?) — профиль без PQ" >&2
+      echo "  ⚠ PQ-маршрут не добавлен: смотрите причину в 'xrayebator profile-pq --name $HAPP_DEFAULT_PROFILE --transport tcp'" >&2
     fi
   fi
 

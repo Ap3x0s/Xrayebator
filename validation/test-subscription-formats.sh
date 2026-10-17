@@ -137,6 +137,13 @@ jq -e '.[] | select(.name == "sample-xhttp-pq") |
   .clash == false and .singbox == false and (.reason | test("post-quantum"))' <<<"$links" >/dev/null \
   || fail "PQ route must be skipped for both clients with a reason"
 
+# reason — общая причина (в шапку Clash уходит как есть), поэтому xhttp-специфичная
+# причина sing-box в неё не дописывается; иначе Clash-клиент видит чужую причину.
+jq -e '.[] | select(.name == "sample-xhttp-pq") | (.reason | test("sing-box") | not)' <<<"$links" >/dev/null \
+  || fail "reason PQ+xhttp не должен упоминать sing-box"
+jq -e '.[] | select(.name == "sample-xhttp-legacy") | (.reason | test("sing-box") | not)' <<<"$links" >/dev/null \
+  || fail "reason legacy xhttp не должен упоминать sing-box"
+
 jq -e '.[] | select(.protocol == "hysteria2") |
   .auth == "sample:deadbeef" and .sni == "www.ozon.ru" and .insecure == true and
   .port == 8443 and .clash == true and .singbox == true' <<<"$links" >/dev/null \
@@ -245,6 +252,14 @@ pq_clash=$(_subscription_render_clash_pure "$PROFILES_DIR/pqonly.json" "" false 
 grep -q -- '- DIRECT' <<<"$pq_clash" || fail "clash: пустая группа должна получать DIRECT"
 if grep -q 'type: vless' <<<"$pq_clash"; then
   fail "clash: PQ-маршрут не должен превращаться в прокси"
+fi
+# Причина пропуска в шапке Clash — общая для всех клиентов, поэтому причина
+# sing-box в неё попадать не должна: на живом сервере PQ-маршрут помечался
+# «VLESS Encryption (post-quantum)…; xhttp не поддержан sing-box», хотя xhttp
+# в Clash поддержан (нужен только ?xhttp=1) и пользователь читал чужую причину.
+grep -q 'post-quantum' <<<"$pq_clash" || fail "clash: PQ-маршрут должен попасть в skipped с причиной"
+if grep '^# skipped:' <<<"$pq_clash" | grep -q 'sing-box'; then
+  fail "clash: шапка skipped не должна содержать причину sing-box"
 fi
 if python3 -c 'import yaml' 2>/dev/null; then
   python3 - "$pq_clash" <<'PY' || fail "clash YAML (PQ-only) не парсится"
