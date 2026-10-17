@@ -333,6 +333,7 @@
     "dns01Cert": "Certificate",
     "dns01Days": "days",
     "dns01Degraded": "The subscription runs over HTTP (http_tls): Let's Encrypt could not validate http-01, usually because port 80 is filtered. DNS-01 moves it back to HTTPS without using port 80.",
+    "dns01Staging": "The subscription uses a Let's Encrypt staging certificate: clients will not trust it. Re-issue the certificate without --staging.",
     "dns01Btn": "Set up DNS-01",
     "dns01RepairBtn": "Fix with DNS-01",
     "dns01Active": "DNS-01 active",

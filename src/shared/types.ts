@@ -484,6 +484,12 @@ export interface Dns01StatusResult {
   cert_expiry: number
   days_left: number
   deploy_hook: boolean
+  /**
+   * true — подписка стоит на сертификате staging-контура Let's Encrypt
+   * (проверочный выпуск `--staging`/`XRAYEBATOR_ACME_STAGING`): клиенты его не
+   * примут, нужен перевыпуск без staging.
+   */
+  staging?: boolean
   error?: string
 }
 

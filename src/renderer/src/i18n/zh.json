@@ -332,6 +332,7 @@
     "dns01Cert": "证书",
     "dns01Days": "天",
     "dns01Degraded": "订阅通过 HTTP 工作（http_tls）：Let's Encrypt 无法验证 http-01，通常是 80 端口被过滤。DNS-01 可在不使用 80 端口的情况下恢复 HTTPS。",
+    "dns01Staging": "订阅使用 Let's Encrypt 测试环境证书：客户端不会信任它。请在不带 --staging 的情况下重新签发证书。",
     "dns01Btn": "配置 DNS-01",
     "dns01RepairBtn": "用 DNS-01 修复",
     "dns01Active": "DNS-01 已启用",

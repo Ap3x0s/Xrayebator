@@ -1920,6 +1920,9 @@ export function ServerSettings({
               {dns01Status?.tls_mode === 'http_tls' && (
                 <p className={styles.serverTooOld}>{t('settings.dns01Degraded')}</p>
               )}
+              {dns01Status?.staging === true && (
+                <p className={styles.serverTooOld}>{t('settings.dns01Staging')}</p>
+              )}
 
               <div className={styles.profileActions}>
                 <Button
