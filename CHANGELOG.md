@@ -45,8 +45,13 @@ Next `0.6.5` cut: the server manager plus the GUI traffic-limit card.
   `--staging` (or `XRAYEBATOR_ACME_STAGING=1`) now switches the ACME paths of `dns01-setup`,
   `repair-dns01` and `quickstart` to the staging environment (`--test-cert`), where the same limit is
   30000 orders per week; the run reports `staging:true`, warns that the certificate is signed by an
-  untrusted test root, and records the contour in `/usr/local/etc/xray/.acme_staging` so `dns01-status`
-  keeps telling the truth after the fact (a production issuance clears the mark). The production path
+  untrusted test root, and records the contour in `/usr/local/etc/xray/.acme_staging`.
+  `dns01-status` reports the contour from the **certificate itself** (an issuer containing
+  `(STAGING)`), using the mark only as a fallback when the certificate is unreadable: renewals go
+  through `certbot renew` outside xrayebator and would otherwise leave the mark stale — verified live,
+  where a staging run against an engineered precondition left a mark while `live/<ip>` already held
+  the production certificate, and the status command (and therefore the GUI badge) claimed the
+  subscription was untrusted. The production path
   now always names the ACME endpoint explicitly (`--server https://acme-v02…`): without it a repeat
   issuance under the same `--cert-name` inherits the server from its renewal configuration and a
   "production" run would silently stay in staging. The new `xrayebator dns01-test --domain D
@@ -221,6 +226,13 @@ Next `0.6.5` cut: the server manager plus the GUI traffic-limit card.
   `--ip-address` but no DNS plugins — so a `PATH` with `/snap/bin` first would fail the DNS-01 issuance
   with `unrecognized arguments: --dns-cloudflare`. The DNS-01 path now picks the binary that actually
   reports the provider plugin (`certbot plugins`), and falls back with a warning.
+- **The reported certbot failure reason could be pure boilerplate.** `_certbot_failure_reason` looked
+  for a rate limit or a bracketed ACME `urn:` error and otherwise returned the last non-empty log line —
+  which, for an ACME refusal that carries no `urn` link (a domain the CA will not issue for, or a DNS
+  plugin error), is certbot's "Ask for help or search for solutions … See the logfile" footer. Verified
+  live: `dns01-test` reported that footer instead of the actual
+  `Error creating new order :: Cannot issue for "<domain>": … forbidden by policy`. The parser now also
+  reads the line after `An unexpected error occurred:` and filters the boilerplate out of the fallback.
 
 ## [0.6.5-beta.2] - 2026-10-14
 

@@ -1858,8 +1858,27 @@ _certbot_failure_reason() {
     return 0
   fi
 
-  # Fallback: последняя непустая строка лога.
-  reason=$(grep -v '^[[:space:]]*$' "$logfile" | tail -1)
+  # certbot не всегда даёт urn-ссылку: «An unexpected error occurred:» + строка
+  # причины. Именно так выглядит отказ ACME по политике (домен, для которого CA не
+  # выдаёт сертификаты) — на живом прогоне dns01-test это оставляло оператора с
+  # бесполезным «Ask for help…» в reason.
+  reason=$(awk '
+    /An unexpected error occurred/ { found = 1; next }
+    found && /^[[:space:]]*$/ { next }
+    found { print; exit }
+  ' "$logfile" 2>/dev/null)
+  if [[ -n "$reason" ]]; then
+    printf '%s' "$reason"
+    return 0
+  fi
+
+  # Fallback: последняя непустая строка лога — но без служебной «воды» certbot,
+  # которая ничего не объясняет.
+  reason=$(grep -v '^[[:space:]]*$' "$logfile" 2>/dev/null \
+    | grep -v 'Ask for help or search for solutions' \
+    | grep -v 'See the logfile' \
+    | grep -v 'Saving debug log' \
+    | tail -1)
   [[ -n "$reason" ]] && printf '%s' "$reason"
   return 0
 }
@@ -9688,17 +9707,31 @@ dns01_status_command() {
   domain=$(cat "$DNS01_STATE_DIR/.subscription_domain" 2>/dev/null || true)
   port=$(_dns01_current_subscription_port)
   [[ "$port" =~ ^[0-9]+$ ]] || port=0
-  _acme_staging_marked && staging=true
 
+  # Источник истины по контуру — сам сертификат на диске: продление идёт через
+  # certbot renew мимо наших команд и метку .acme_staging не снимает, поэтому маркер
+  # может устареть (на живом сервере после staging-прогона в live/<ip> лежал уже
+  # боевой серт, а dns01-status показывал staging:true — GUI пугал бы зря).
+  # Маркер остаётся запасным вариантом, когда сертификат недоступен.
   local cert="$DNS01_LIVE_DIR/${domain}/fullchain.pem"
+  local cert_readable=false cert_staging=false
   if [[ -n "$domain" && -f "$cert" ]] && command -v openssl >/dev/null 2>&1; then
     local end
     end=$(openssl x509 -enddate -noout -in "$cert" 2>/dev/null | sed 's/notAfter=//')
     expiry=$(date -d "$end" +%s 2>/dev/null || echo 0)
+    if openssl x509 -issuer -noout -in "$cert" 2>/dev/null | grep -q '(STAGING)'; then
+      cert_staging=true
+    fi
+    cert_readable=true
   fi
   [[ "$expiry" =~ ^[0-9]+$ ]] || expiry=0
   if (( expiry > 0 )); then
     days_left=$(( (expiry - $(date +%s)) / 86400 ))
+  fi
+  if [[ "$cert_readable" == "true" ]]; then
+    [[ "$cert_staging" == "true" ]] && staging=true
+  elif _acme_staging_marked; then
+    staging=true
   fi
   # certbot пишет --deploy-hook в renewal-конфиг как renew_hook: проверяем оба имени.
   _dns01_renewal_has_hook "$domain" && deploy_hook=true

@@ -384,10 +384,81 @@ assert_json "$out" '.ok == true and .provider == "cloudflare" and .tls_mode == "
   "dns01-status на доменной подписке"
 printf 'staging\n' > "$ACME_STAGING_MARKER_FILE"
 out=$(dns01_status_command) || true
-assert_json "$out" '.staging == true' "dns01-status показывает staging-контур"
+assert_json "$out" '.staging == true' "dns01-status показывает staging-контур (запасной путь: серта нет, есть маркер)"
 rm -f "$ACME_STAGING_MARKER_FILE" "$DNS01_MARKER_FILE"
 rm -f "$DNS01_STATE_DIR/.subscription_mode" "$DNS01_STATE_DIR/.subscription_domain" "$DNS01_STATE_DIR/.subscription_port"
 rm -f "$DNS01_RENEWAL_DIR/sub.example.com.conf"
+
+# ═══════════ 10б. Контур staging определяется по самому сертификату ═══════════
+# Маркер .acme_staging снимается только нашим выпуском: продление идёт через
+# `certbot renew` мимо xrayebator, поэтому после staging-прогона метка устаревает.
+# На живом сервере это давало staging:true при боевом серте в live/<ip> — GUI пугал
+# бы зря. Источник истины — издатель сертификата, маркер только запасной вариант.
+CERTDIR="$DNS01_LIVE_DIR/sub.example.com"
+mkdir -p "$CERTDIR"
+openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=(STAGING) Test Issuer" \
+  -keyout "$WORKDIR/staging-key.pem" -out "$WORKDIR/staging-cert.pem" >/dev/null 2>&1 \
+  || fail "не удалось сгенерировать staging-сертификат для теста"
+cp "$WORKDIR/staging-cert.pem" "$CERTDIR/fullchain.pem"
+printf 'domain_tls' > "$DNS01_STATE_DIR/.subscription_mode"
+printf 'sub.example.com' > "$DNS01_STATE_DIR/.subscription_domain"
+printf '8443' > "$DNS01_STATE_DIR/.subscription_port"
+out=$(dns01_status_command) || true
+assert_json "$out" '.staging == true and .domain == "sub.example.com"' \
+  "staging должен определяться по издателю сертификата (без маркера)"
+
+openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=R11" \
+  -keyout "$WORKDIR/prod-key.pem" -out "$WORKDIR/prod-cert.pem" >/dev/null 2>&1 \
+  || fail "не удалось сгенерировать боевой сертификат для теста"
+cp "$WORKDIR/prod-cert.pem" "$CERTDIR/fullchain.pem"
+printf 'staging\n' > "$ACME_STAGING_MARKER_FILE"
+out=$(dns01_status_command) || true
+assert_json "$out" '.staging == false' \
+  "устаревший маркер не должен объявлять боевой сертификат staging-сертификатом"
+
+# Сертификат недоступен — остаётся маркер.
+rm -rf "$CERTDIR"
+out=$(dns01_status_command) || true
+assert_json "$out" '.staging == true' "без сертификата контур берётся из маркера"
+rm -f "$ACME_STAGING_MARKER_FILE"
+rm -f "$DNS01_STATE_DIR/.subscription_mode" "$DNS01_STATE_DIR/.subscription_domain" "$DNS01_STATE_DIR/.subscription_port"
+
+# ═══════════ 10в. _certbot_failure_reason: человеческая причина отказа ═══════════
+# На живом прогоне dns01-test reason оказался служебным «Ask for help or search for
+# solutions…», потому что отказ ACME по политике приходит без urn-ссылки. Оператор
+# должен видеть причину, а не воду certbot.
+FAIL_LOG="$WORKDIR/fail.log"
+printf 'too many certificates (5) already issued for this exact set of identifiers in the last 168h0m0s, retry after 2026-10-19 02:02:28 UTC\n' > "$FAIL_LOG"
+reason=$(_certbot_failure_reason "$FAIL_LOG")
+grep -q "Let's Encrypt rate limit" <<<"$reason" || fail "rate limit не распознан: $reason"
+grep -q '2026-10-19 02:02:28 UTC' <<<"$reason" || fail "в причине нет времени повтора: $reason"
+
+printf '[urn:ietf:params:acme:error:unauthorized] Invalid token\n' > "$FAIL_LOG"
+reason=$(_certbot_failure_reason "$FAIL_LOG")
+grep -q 'unauthorized' <<<"$reason" || fail "urn-ошибка не распознана: $reason"
+
+cat > "$FAIL_LOG" <<'EOF'
+Saving debug log to /var/log/letsencrypt/letsencrypt.log
+Requesting a certificate for nope.example.com
+An unexpected error occurred:
+The server will not issue certificates for the identifier :: Error creating new order :: Cannot issue for "nope.example.com"
+Ask for help or search for solutions at https://community.letsencrypt.org. See the logfile
+EOF
+reason=$(_certbot_failure_reason "$FAIL_LOG")
+grep -q 'will not issue certificates' <<<"$reason" || fail "ошибка без urn-ссылки не распознана: $reason"
+if grep -q 'Ask for help' <<<"$reason"; then
+  fail "служебная вода certbot не должна попадать в reason: $reason"
+fi
+
+printf 'Saving debug log to X\nAsk for help or search for solutions at Y. See the logfile Z\n' > "$FAIL_LOG"
+reason=$(_certbot_failure_reason "$FAIL_LOG")
+if grep -q 'Ask for help' <<<"$reason"; then
+  fail "fallback не должен отдавать служебную строку: $reason"
+fi
+
+printf '' > "$FAIL_LOG"
+reason=$(_certbot_failure_reason "$FAIL_LOG") || fail "пустой лог не должен ломать разбор"
+[[ -z "$reason" ]] || fail "пустой лог должен давать пустую причину: $reason"
 
 # ═══════════ 11. apt certbot.timer при snap-продлении ═══════════
 # apt-certbot 1.x не умеет --ip-address, а его certbot.timer продлевает все линии —
