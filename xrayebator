@@ -14131,6 +14131,22 @@ NGINXHTTP
       echo "  TLS сертификат получен" >&2
       # P0-certbot-fix: регистрируем cert в root-owned манифесте (uninstall удалит только его).
       _certbot_register "$server_ip"
+      # certbot мог выпустить линию с суффиксом (/live/<ip>-0001), если каталог
+      # /live/<ip> отсутствовал, а линия уже зарегистрирована. Nginx-vhost ниже ждёт
+      # ровно /live/<ip>/fullchain.pem, поэтому без этой проверки пользователь получал
+      # невнятное «nginx config failed» уже ПОСЛЕ успешного выпуска сертификата, а
+      # подписка оставалась мёртвой (воспроизведено на живом сервере: линии -0001…-0004).
+      if [[ ! -f "$cert_dir/fullchain.pem" || ! -f "$cert_dir/privkey.pem" ]]; then
+        local _cert_lines
+        _cert_lines=$(certbot certificates 2>/dev/null \
+          | grep -oP "Certificate Name: \K${server_ip}(-[0-9]+)?" | tr '\n' ' ')
+        echo "  ✗ certbot выпустил сертификат, но каталог $cert_dir пуст." >&2
+        echo "    Линии certbot: ${_cert_lines:-неизвестно}" >&2
+        echo "    Vhost ждёт ровно /live/$server_ip: удалите лишние линии (certbot delete --cert-name <имя>) и повторите quickstart" >&2
+        echo '{"ok":false,"error":"certbot выпустил сертификат, но /etc/letsencrypt/live/'"$server_ip"' отсутствует — создана линия с суффиксом (<ip>-000N). Удалите лишние линии (certbot delete --cert-name <ip>-000N) и повторите quickstart"}'
+        _qs_nginx_rollback
+        return 1
+      fi
     fi
   fi
 

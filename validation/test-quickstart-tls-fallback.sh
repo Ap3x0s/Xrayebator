@@ -82,4 +82,16 @@ if grep -q 'degraded' <<< "$ip_tls_result"; then
   fail "ip_tls-итог не должен содержать degraded"
 fi
 
+# 7) Диагностика линии сертификата с суффиксом. certbot создаёт /live/<ip>-0001,
+# если каталог /live/<ip> отсутствовал, а линия зарегистрирована; vhost ждёт ровно
+# /live/<ip>, поэтому quickstart обязан проверить каталог сразу после выпуска и
+# назвать причину — иначе на живом сервере видно невнятное «nginx config failed»
+# и мёртвую подписку (воспроизведено на VPS: линии -0001…-0004).
+grep -q 'создана линия с суффиксом' xrayebator \
+  || fail "quickstart не диагностирует линию сертификата с суффиксом"
+certdir_line=$(grep -n 'if \[\[ ! -f "$cert_dir/fullchain.pem" || ! -f "$cert_dir/privkey.pem" \]\]; then' xrayebator | head -1 | cut -d: -f1)
+nginx_line=$(grep -nF "nginx -t >/dev/null 2>&1 || { echo '{\"ok\":false,\"error\":\"nginx config failed\"}'" xrayebator | head -1 | cut -d: -f1)
+[[ -n "$certdir_line" && -n "$nginx_line" ]] || fail "не найдены якоря «проверка каталога сертификата» / «nginx -t»"
+(( nginx_line > certdir_line )) || fail "проверка каталога сертификата должна идти до nginx -t"
+
 echo "✓ quickstart graceful-degradation (http_tls fallback) guards ok"
