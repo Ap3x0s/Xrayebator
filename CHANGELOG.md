@@ -37,6 +37,24 @@ Next `0.6.5` cut: the server manager plus the GUI traffic-limit card.
   convention. Menu item `6` → `8` runs the same flow interactively, `uninstall.sh` removes the
   credential files, and the certificate stays covered by the root-owned `.certbot_owned` manifest,
   so third-party domains are never touched.
+- **An ACME staging contour, and `dns01-test` to prove a domain and a token before spending
+  production quota.** Let's Encrypt limits a single exact set of identifiers to 5 certificates per
+  168 hours (refilling one every 34 hours) and one account to 5 *failed* validations per identifier per
+  hour; a session of debug issuances can therefore exhaust the budget and block the next meaningful
+  run — which is exactly what happened on a live server (`retry after 2026-10-19 02:02:28 UTC`).
+  `--staging` (or `XRAYEBATOR_ACME_STAGING=1`) now switches the ACME paths of `dns01-setup`,
+  `repair-dns01` and `quickstart` to the staging environment (`--test-cert`), where the same limit is
+  30000 orders per week; the run reports `staging:true`, warns that the certificate is signed by an
+  untrusted test root, and records the contour in `/usr/local/etc/xray/.acme_staging` so `dns01-status`
+  keeps telling the truth after the fact (a production issuance clears the mark). The production path
+  now always names the ACME endpoint explicitly (`--server https://acme-v02…`): without it a repeat
+  issuance under the same `--cert-name` inherits the server from its renewal configuration and a
+  "production" run would silently stay in staging. The new `xrayebator dns01-test --domain D
+  --provider P [--token T | --aws-*]` performs a *verification-only* issuance — staging, its own
+  certificate lineage, no deploy hook — and touches neither the subscription, nor nginx, nor the
+  markers, nor the firewall; it returns `issuer`, `not_after`, the TXT name to check, and, on failure,
+  the parsed certbot reason. Packaged as `_dns01_test_run` / `_dns01_test_certbot_args_pure` and
+  guarded by `validation/test-dns01-certbot.sh`.
 - **Clash/mihomo and sing-box subscription formats.** One subscription token now serves four bodies
   instead of two: the HAPP body, the base64 v2ray body, **Clash/mihomo YAML** and **sing-box JSON**.
   The format is negotiated per request — `?target=clash|mihomo|singbox|sing-box|v2ray|base64|happ`
@@ -181,6 +199,28 @@ Next `0.6.5` cut: the server manager plus the GUI traffic-limit card.
   seeded runs the old code collided 19 times, so roughly every 160th install got equal `S1`/`S2` and
   CI failed at random. The legacy `_awg_ensure_31_params` upgrade path also generated `S3`/`S4` in
   `12..150` instead of the `12..64` Amnezia validator limit.
+- **`dns01-status` reported `deploy_hook:false` on a correctly configured domain.** Certbot writes the
+  `--deploy-hook` into the renewal configuration as `renew_hook`, but the check grepped for the literal
+  `deploy-hook`, so the field lied on every real installation (visible on a live renewal file:
+  `renew_hook = systemctl reload nginx`). Both spellings are recognised now, and — since renewal of a
+  domain certificate depends on that hook — `validation/test-dns01-certbot.sh` pins the behaviour.
+- **Switching a subscription to DNS-01 silently moved it to another port.** `repair-dns01` reused the
+  current subscription port, while `dns01-setup` (and the GUI "Set up DNS-01" button) defaulted to
+  `443`: on a server whose subscription lived on `:8443` the published URL changed host *and* port
+  without the operator asking. Both paths now share one rule — explicit `--port`, else the current
+  subscription port, else `443` — so the URL keeps its port and only the host changes.
+- **The distribution `certbot.timer` fought the shortlived IP certificate.** On servers where the
+  IP certificate is renewed by snap certbot (apt certbot 1.x cannot do `--ip-address`), the apt timer
+  still tried to renew that lineage twice a day and failed every time — log noise and a failed unit.
+  It is now disabled **only** when the renewal is snap-driven, recorded in
+  `/usr/local/etc/xray/.apt_certbot_timer_disabled`, re-enabled by `_dns01_install` (a domain
+  certificate is renewed by that same timer) and by `uninstall.sh`. A timer the operator disabled
+  himself is never touched or claimed.
+- **`certbot` was resolved by `command -v`, whatever it found.** Two builds coexist on a real server —
+  apt certbot 1.x with the `python3-certbot-dns-*` plugins, and snap certbot 5.x which has
+  `--ip-address` but no DNS plugins — so a `PATH` with `/snap/bin` first would fail the DNS-01 issuance
+  with `unrecognized arguments: --dns-cloudflare`. The DNS-01 path now picks the binary that actually
+  reports the provider plugin (`certbot plugins`), and falls back with a warning.
 
 ## [0.6.5-beta.2] - 2026-10-14
 

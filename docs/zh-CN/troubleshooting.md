@@ -330,9 +330,17 @@ curl -s "http://127.0.0.1:8080/sub/<token>?target=singbox" | jq '.outbounds | le
 
 ```bash
 sudo xrayebator dns01-status                 # 提供商、域名、证书有效期、deploy-hook
+sudo xrayebator dns01-test --domain sub.example.com --provider cloudflare --token T \
+     --without-email                         # 在 LE 测试环境验证域名与令牌——不消耗生产配额
 tail -30 /tmp/certbot-dns01.log              # certbot 输出：失败原因
 dig +short TXT _acme-challenge.sub.example.com   # 签发期间应出现 TXT 记录
 ```
+
+在消耗 Let's Encrypt 生产限额（每个精确标识符集合 168 小时内 5 张证书、每个标识符每小时 5 次验证
+失败）之前，先用 `dns01-test` 验证域名与令牌：它只在测试环境签发、使用独立的证书 lineage，且不改动
+订阅。真实签发也可以走测试环境——`dns01-setup --staging`（或 `XRAYEBATOR_ACME_STAGING=1`）——但客户
+端不信任这样的证书：它由测试根证书签发，`dns01-status` 会报告 `staging:true`，下一次不带 `--staging`
+的签发会清除该状态。
 
 - **Cloudflare：`Invalid token` / `unauthorized`** —— 令牌没有被授予针对该区域的 `DNS:Edit` 权限
   （Zone → API → Tokens）。全局 API key 不适用：需要 API Token。

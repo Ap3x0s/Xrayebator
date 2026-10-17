@@ -140,8 +140,9 @@ Xrayebator 不会更改主机的 TCP 拥塞控制算法，也不会写入或应�
 | `sudo xrayebator awg-grant --name N` | 为配置档签发 peer（密钥对 + 预共享密钥 + `10.8.1.x` 地址，存入 `.backends.awg`）；重新生成 `awg0.conf`；JSON |
 | `sudo xrayebator awg-conf --name N` | 输出配置档 peer 的客户端 `.conf`（JSON `{ok, name, conf}`）——全隧道 AllowedIPs、服务端 junk 参数、endpoint；导入 AmneziaWG/AmneziaVPN 客户端 |
 | `sudo xrayebator awg-31 --on\|--off` | 切换 AWG 3.1 配置格式（`HeaderProtectionKey`、`RandomTrailers`、`S3`/`S4`）；新安装默认开启 3.1，切换会在原地补齐缺失的服务端参数，警告所有已签发的客户端 `.conf` 必须重新下载（AmneziaVPN ≥ 5.0.1.5），并带回滚地重新生成接口 |
-| `sudo xrayebator dns01-setup --domain sub.example.com --provider cloudflare\|route53` | 通过 DNS-01 实现按域名的 HTTPS 订阅：不需要 80 端口，证书由 TXT 记录验证。写入 `0600` 凭据、用带 deploy-hook 的 certbot 签发证书、生成不含 `listen 80` 的 nginx vhost，并把标记切换为 `domain_tls`；打印 JSON |
-| `sudo xrayebator dns01-status` | DNS-01 状态：提供商、模式、域名、端口、凭据是否存在、证书剩余天数以及 deploy-hook 是否存在；打印 JSON |
+| `sudo xrayebator dns01-setup --domain sub.example.com --provider cloudflare\|route53 [--port P] [--staging]` | 通过 DNS-01 实现按域名的 HTTPS 订阅：不需要 80 端口，证书由 TXT 记录验证。写入 `0600` 凭据、用带 deploy-hook 的 certbot 签发证书、生成不含 `listen 80` 的 nginx vhost，并把标记切换为 `domain_tls`；打印 JSON。端口默认沿用当前订阅端口（否则 `443`），因此订阅 URL 的端口不变；`--staging` 在 Let's Encrypt 测试环境签发（`--test-cert`，不消耗生产配额）并返回 `staging:true`——客户端不信任这种证书 |
+| `sudo xrayebator dns01-test --domain sub.example.com --provider cloudflare\|route53 [--token T \| --aws-*] [--email E\|--without-email]` | 在**不改动订阅、不消耗生产配额**的前提下验证域名与 DNS 服务商令牌：仅在测试环境签发，使用独立的证书 lineage，不带 deploy-hook，也不改 nginx/标记/防火墙。JSON 返回签发者、证书到期时间、需要核对的 `_acme-challenge.<domain>` TXT 记录，失败时返回解析后的 certbot 原因 |
+| `sudo xrayebator dns01-status` | DNS-01 状态：提供商、模式、域名、端口、凭据是否存在、证书剩余天数、deploy-hook 是否存在（certbot 记录为 `renew_hook`）以及订阅是否使用测试证书；打印 JSON |
 | `sudo xrayebator repair-dns01 --domain sub.example.com --provider cloudflare\|route53 [--token T \| --aws-*] [--email E] [--port P]` | 把已降级（`http_tls`）的订阅改为 DNS-01：同样通过 TXT 记录签发证书，vhost 只按 TLS server 重新渲染，标记变为 `domain_tls`。幂等：如果订阅已在 HTTPS（`ip_tls`/`domain_tls`）上，则返回 `{"ok":true,"skipped":true}` 且不做任何事；打印 JSON |
 | `sudo xrayebator alerts-setup --token T --chat-id C` | 接入 Telegram 通知：用 `getMe` 校验令牌、发送一条测试消息，并且**只有在投递成功之后**才保存 `alerts.json`（0600）并启用 `xrayebator-monitor.timer`；打印 JSON |
 | `sudo xrayebator alerts-status` | 监控状态：配置、定时器、上次检查时间、事件以及最近一次 SNI 探测结果（不显示机器人令牌）；打印 JSON |

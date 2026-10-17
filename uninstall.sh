@@ -111,7 +111,18 @@ if systemctl list-unit-files 'xrayebator-monitor.*' > /dev/null 2>&1; then
     rm -f /etc/systemd/system/xrayebator-monitor.service
     rm -f /etc/systemd/system/xrayebator-monitor.timer
 fi
+# apt-certbot.timer мог быть отключён нами (он не умеет --ip-address, а shortlived
+# IP-линию вёл snap-certbot) — см. _apt_certbot_timer_disable. Возвращаем его на
+# место: после удаления Xrayebator это снова штатный таймер системы. Флаг читаем
+# ДО удаления каталога.
+APT_CERTBOT_TIMER_WAS_DISABLED=false
+if [[ -f /usr/local/etc/xray/.apt_certbot_timer_disabled ]]; then
+    APT_CERTBOT_TIMER_WAS_DISABLED=true
+fi
 rm -rf /usr/local/etc/xray
+if [[ "$APT_CERTBOT_TIMER_WAS_DISABLED" == "true" ]]; then
+    systemctl enable --now certbot.timer > /dev/null 2>&1 || true
+fi
 # Нейтральный корень мультипротокольных бэкендов и алертов (registry, секреты
 # Hysteria/AWG, токен Telegram-бота) — вне /usr/local/etc/xray, чистим отдельно.
 rm -rf /usr/local/etc/xrayebator

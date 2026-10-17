@@ -124,8 +124,9 @@ Subscription and monitoring are served by:
 
 ```text
 xrayebator dns01-status
-xrayebator dns01-setup --domain D --provider cloudflare|route53 [--token T | --aws-access-key-id K --aws-secret-access-key S] [--email E|--without-email] [--port P]
-xrayebator repair-dns01 --domain D --provider cloudflare|route53 [--token T | --aws-*] [--email E] [--port P]
+xrayebator dns01-setup --domain D --provider cloudflare|route53 [--token T | --aws-access-key-id K --aws-secret-access-key S] [--email E|--without-email] [--port P] [--staging]
+xrayebator dns01-test --domain D --provider cloudflare|route53 [--token T | --aws-*] [--email E|--without-email]
+xrayebator repair-dns01 --domain D --provider cloudflare|route53 [--token T | --aws-*] [--email E] [--port P] [--staging]
 xrayebator alerts-status / alerts-test / alerts-enable / alerts-disable
 ```
 

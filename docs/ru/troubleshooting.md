@@ -400,9 +400,18 @@ curl -s "http://127.0.0.1:8080/sub/<token>?target=singbox" | jq '.outbounds | le
 
 ```bash
 sudo xrayebator dns01-status                 # провайдер, домен, срок сертификата, deploy-hook
+sudo xrayebator dns01-test --domain sub.example.com --provider cloudflare --token T \
+     --without-email                         # проверка домена и токена в staging-контуре LE — прод-квота не тратится
 tail -30 /tmp/certbot-dns01.log              # вывод certbot: причина отказа
 dig +short TXT _acme-challenge.sub.example.com   # должна появляться TXT-запись во время выпуска
 ```
+
+Прежде чем жечь прод-лимиты Let's Encrypt (5 сертификатов на набор идентификаторов за 168 ч и 5
+неудачных валидаций на идентификатор в час), проверьте домен и токен командой `dns01-test`: она
+выпускает сертификат только в staging-контуре, в отдельную линию, и ничего не меняет в подписке.
+Обычный выпуск тоже можно прогнать в staging — `dns01-setup --staging` (или
+`XRAYEBATOR_ACME_STAGING=1`), но такой сертификат клиенты не примут: он подписан тестовым корнем,
+признак виден в `dns01-status` (`staging:true`), а снимается первым же выпуском без `--staging`.
 
 - **Cloudflare: `Invalid token` / `unauthorized`** — токену не выдано право `DNS:Edit` именно на эту
   зону (Zone → API → Tokens). Токен из глобального API-key не подходит: нужен API Token.

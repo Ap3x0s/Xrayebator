@@ -1918,6 +1918,39 @@ _ensure_certbot_ip_tls() {
   return 1
 }
 
+# apt-certbot 1.x не умеет --ip-address, а его certbot.timer продлевает ВСЕ линии в
+# /etc/letsencrypt/renewal — включая shortlived IP-линию, которой управляет
+# snap-certbot. Каждые 12 часов он падал бы на ней (шум в журнале + failed-состояние
+# юнита). Отключаем ТОЛЬКО его и запоминаем это флагом: доменный DNS-01-серт
+# продлевается тем же таймером, поэтому _dns01_install включает его обратно, а
+# uninstall.sh — тем более.
+APT_CERTBOT_TIMER_FLAG="${APT_CERTBOT_TIMER_FLAG:-/usr/local/etc/xray/.apt_certbot_timer_disabled}"
+
+_apt_certbot_timer_disable() {
+  command -v systemctl >/dev/null 2>&1 || return 0
+  systemctl list-unit-files certbot.timer >/dev/null 2>&1 || return 0
+  # Уже выключен (например, оператором) — не трогаем и флаг НЕ ставим: включать его
+  # позже мы не вправе.
+  systemctl is-enabled --quiet certbot.timer 2>/dev/null || return 0
+  systemctl disable --now certbot.timer >/dev/null 2>&1 || return 1
+  printf 'disabled-by-xrayebator\n' > "$APT_CERTBOT_TIMER_FLAG" 2>/dev/null || true
+  chmod 600 "$APT_CERTBOT_TIMER_FLAG" 2>/dev/null || true
+  chown root:root "$APT_CERTBOT_TIMER_FLAG" 2>/dev/null || true
+  echo -e "${CYAN}  → apt certbot.timer отключён: он не умеет --ip-address и падал бы на shortlived IP-линии${NC}"
+  echo -e "${CYAN}    Продление ведёт xrayebator-ip-renew.timer; таймер вернётся при настройке доменного серта${NC}"
+  return 0
+}
+
+_apt_certbot_timer_enable() {
+  [[ -f "$APT_CERTBOT_TIMER_FLAG" ]] || return 0
+  if systemctl enable --now certbot.timer >/dev/null 2>&1; then
+    rm -f "$APT_CERTBOT_TIMER_FLAG" 2>/dev/null || true
+    echo -e "${CYAN}  → apt certbot.timer снова включён (продление доменного сертификата)${NC}"
+    return 0
+  fi
+  return 1
+}
+
 # Устанавливает systemd timer, который каждые 12 часов пытается продлить shortlived
 # IP-сертификаты (~6 дней жизни) и перезагружает nginx при успехе.
 # Args: $1=certbot_bin, $2=cert_name, $3=webroot
@@ -1956,6 +1989,13 @@ RENEWTIMEREOF
   chmod 644 "$unit" "$timer"
   systemctl daemon-reload >/dev/null 2>&1 || true
   systemctl enable --now "$(basename "$timer")" >/dev/null 2>&1 || true
+
+  # apt-certbot 1.x не умеет --ip-address: его собственный таймер падал бы на этой
+  # shortlived-линии каждые 12 часов. Речь только о snap-продлении — если линию ведёт
+  # apt-certbot, его таймер и есть рабочий механизм продления.
+  case "$certbot_bin" in
+    /snap/*) _apt_certbot_timer_disable || true ;;
+  esac
 }
 
 # ═══════════════════════════════════════════════════════════
@@ -8779,12 +8819,16 @@ NGINX_HTTP_EOF
   fi
 
   echo -e "${CYAN}  → Запуск certbot IP certificate для ${server_ip}...${NC}"
+  # Боевой ACME-эндпоинт передаём явно: renewal-конфиг линии мог быть записан
+  # проверочным контуром (--staging), и без --server повторный выпуск молча остался бы
+  # в staging — серт недоверенный, а подписка «работает».
   if ! "$certbot_bin" certonly \
       --cert-name "$server_ip" \
       --preferred-profile shortlived \
       --webroot \
       --webroot-path "$webroot" \
       --ip-address "$server_ip" \
+      --server "$ACME_PRODUCTION_URL" \
       --non-interactive \
       --agree-tos \
       -m "$email" \
@@ -9153,6 +9197,76 @@ DNS01_CLOUDFLARE_INI="${DNS01_CLOUDFLARE_INI:-$DNS01_CREDS_DIR/xrayebator-dns01-
 DNS01_AWS_INI="${DNS01_AWS_INI:-$DNS01_CREDS_DIR/xrayebator-dns01-aws.ini}"
 DNS01_MARKER_FILE="${DNS01_MARKER_FILE:-/usr/local/etc/xray/.dns01_provider}"
 DNS01_PROVIDERS=(cloudflare route53)
+# Пути состояния — в переменных: их подменяет функциональный тест
+# (validation/test-dns01-certbot.sh), иначе dns01-status читал бы живой сервер.
+DNS01_STATE_DIR="${DNS01_STATE_DIR:-/usr/local/etc/xray}"
+DNS01_RENEWAL_DIR="${DNS01_RENEWAL_DIR:-/etc/letsencrypt/renewal}"
+DNS01_LIVE_DIR="${DNS01_LIVE_DIR:-/etc/letsencrypt/live}"
+
+# ═══════════════════════════════════════════════════════════
+# Проверочный контур ACME (staging)
+# ═══════════════════════════════════════════════════════════
+# Отладочная выдача настоящего сертификата тратит прод-квоту Let's Encrypt —
+# «5 сертификатов на точный набор идентификаторов за 168 ч» и «5 неудачных валидаций
+# на идентификатор в час», — а исчерпанная квота блокирует и следующий осмысленный
+# запуск (проверено на живом сервере: retry after 2026-10-19 02:02:28 UTC). Поэтому у
+# ACME-путей есть staging-контур: `--staging` (или XRAYEBATOR_ACME_STAGING=1) добавляет
+# certbot `--test-cert`, и лимиты там на порядки выше (30000 заказов в неделю на набор
+# имён). Плата: сертификат подписан тестовым корнем и клиентам НЕ подходит, поэтому
+# режим помечается маркером .acme_staging, попадает в JSON (`staging:true`) и виден в
+# dns01-status; снимается первым же выпуском без --staging.
+ACME_STAGING_MARKER_FILE="${ACME_STAGING_MARKER_FILE:-$DNS01_STATE_DIR/.acme_staging}"
+# ACME-эндпоинты. Боевой URL передаётся ЯВНО: без него certbot при повторном выпуске
+# с тем же --cert-name берёт сервер из renewal-конфига, и после проверки в staging
+# «боевой» запуск молча остался бы в staging.
+ACME_PRODUCTION_URL="https://acme-v02.api.letsencrypt.org/directory"
+ACME_STAGING_URL="https://acme-staging-v02.api.letsencrypt.org/directory"
+
+# Значение переменной окружения включает staging: 1/true/yes/on в любом регистре.
+_acme_staging_env_on() {
+  case "${1:-}" in
+    1|true|TRUE|True|yes|YES|Yes|on|ON|On) return 0 ;;
+  esac
+  return 1
+}
+
+# Чистая часть решения: staging включён явным флагом --staging ИЛИ переменной
+# окружения. Args: $1=флаг (true/false/пусто), $2=значение переменной (для теста;
+# по умолчанию берётся XRAYEBATOR_ACME_STAGING).
+_acme_staging_on() {
+  local flag="${1:-}" env_value="${2-${XRAYEBATOR_ACME_STAGING:-}}"
+  [[ "$flag" == "true" ]] && return 0
+  _acme_staging_env_on "$env_value"
+}
+
+# Ставит/снимает маркер staging. Args: $1=true (поставить) | false (снять).
+# Снятие вызывается на каждом успешном боевом выпуске, иначе метка «подписка на
+# staging» осталась бы висеть после перевыпуска в проде.
+_acme_staging_mark() {
+  local staging="$1"
+  if [[ "$staging" == "true" ]]; then
+    printf 'staging\n' > "$ACME_STAGING_MARKER_FILE" 2>/dev/null || return 1
+    chmod 600 "$ACME_STAGING_MARKER_FILE" 2>/dev/null || true
+    chown root:root "$ACME_STAGING_MARKER_FILE" 2>/dev/null || true
+  else
+    rm -f "$ACME_STAGING_MARKER_FILE" 2>/dev/null || true
+  fi
+  return 0
+}
+
+_acme_staging_marked() {
+  [[ -f "$ACME_STAGING_MARKER_FILE" ]]
+}
+
+# Единственное место, где оператору говорится, что серт недоверенный: молча выдать
+# staging-сертификат вместо боевого нельзя — подписка «сломается» без объяснений.
+_acme_staging_warn() {
+  {
+    echo -e "${YELLOW}  ⚠ STAGING: сертификат подписан тестовым корнем Let's Encrypt —${NC}"
+    echo -e "${YELLOW}    клиенты его не примут. Это проверочный контур без расхода прод-квоты;${NC}"
+    echo -e "${YELLOW}    после проверки перевыпустите без --staging (XRAYEBATOR_ACME_STAGING).${NC}"
+  } >&2
+}
 
 _dns01_provider_supported() {
   local p="$1" known
@@ -9170,9 +9284,47 @@ _dns01_validate_domain() {
   [[ "$d" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$ ]]
 }
 
+# Порт для vhost подписки: явный --port → текущий порт подписки → 443.
+# Правило одно для dns01-setup и repair-dns01, чтобы перевод ip_tls на домен не
+# менял URL подписки (GUI-кнопка «Настроить DNS-01» раньше молча уводила её на 443).
+# Чистая часть: текущее значение маркера передаётся аргументом, а не читается здесь.
+_dns01_resolve_port() {
+  local explicit="${1:-}" current="${2:-}"
+  if [[ -n "$explicit" ]]; then
+    printf '%s' "$explicit"
+    return 0
+  fi
+  if [[ "$current" =~ ^[0-9]+$ ]] && (( current >= 1 && current <= 65535 )); then
+    printf '%s' "$current"
+    return 0
+  fi
+  printf '443'
+}
+
+_dns01_current_subscription_port() {
+  local marker="$DNS01_STATE_DIR/.subscription_port"
+  # Проверка -f до редиректа: ошибка открытия файла ушла бы в stderr shell (fd ещё не
+  # перенаправлен) и выглядела бы как сбой команды, а не как «подписки ещё нет».
+  [[ -f "$marker" ]] || return 0
+  tr -d '\r\n' < "$marker" 2>/dev/null || true
+}
+
+# Продление доменного серта делает штатный certbot.timer (deploy-hook перезагружает
+# nginx) — своего таймера у DNS-01 нет. Проверяем хук по факту, потому что certbot
+# пишет `--deploy-hook` в renewal-конфиг как `renew_hook`: грепать только
+# «deploy-hook» значило бы всегда показывать false (найдено на живом сервере).
+_dns01_renewal_has_hook() {
+  local domain="$1"
+  [[ -n "$domain" ]] || return 1
+  local conf="$DNS01_RENEWAL_DIR/${domain}.conf"
+  [[ -f "$conf" ]] || return 1
+  grep -qE '^[[:space:]]*(renew_hook|deploy[-_]hook)[[:space:]]*=' "$conf" 2>/dev/null
+}
+
 # Аргументы certbot для провайдера (по одному на строку; pure — тестируется без сети).
+# $5=staging добавляет --test-cert (ACME staging вместо прод-контура).
 _dns01_certbot_args_pure() {
-  local provider="$1" domain="$2" email="$3" creds="$4"
+  local provider="$1" domain="$2" email="$3" creds="$4" staging="${5:-false}"
   printf '%s\n' certonly --cert-name "$domain" -d "$domain"
   case "$provider" in
     cloudflare)
@@ -9186,11 +9338,45 @@ _dns01_certbot_args_pure() {
       return 1
       ;;
   esac
+  if [[ "$staging" == "true" ]]; then
+    # --test-cert = ACME staging. Боевой --server здесь не передаём: два разных
+    # указания сервера в одной команде certbot отвергает.
+    printf '%s\n' --test-cert
+  else
+    printf '%s\n' --server "$ACME_PRODUCTION_URL"
+  fi
   printf '%s\n' --non-interactive --agree-tos --deploy-hook "systemctl reload nginx"
   if [[ -n "$email" ]]; then
     printf '%s\n' -m "$email"
   else
     # Конвенция проекта: без email — только явная регистрация без уведомлений.
+    printf '%s\n' --register-unsafely-without-email
+  fi
+}
+
+# Аргументы certbot для ПРОВЕРОЧНОГО выпуска (dns01-test): staging, отдельное имя
+# линии, без deploy-hook и без --cert-name домена. Ничего не публикуется: vhost,
+# маркеры подписки, firewall и nginx не трогаются вообще.
+_dns01_test_certbot_args_pure() {
+  local provider="$1" domain="$2" email="$3" creds="$4" cert_name="$5"
+  [[ -n "$cert_name" ]] || return 1
+  printf '%s\n' certonly --cert-name "$cert_name" -d "$domain"
+  case "$provider" in
+    cloudflare)
+      printf '%s\n' --dns-cloudflare --dns-cloudflare-credentials "$creds" \
+        --dns-cloudflare-propagation-seconds 30
+      ;;
+    route53)
+      printf '%s\n' --dns-route53
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+  printf '%s\n' --test-cert --non-interactive --agree-tos
+  if [[ -n "$email" ]]; then
+    printf '%s\n' -m "$email"
+  else
     printf '%s\n' --register-unsafely-without-email
   fi
 }
@@ -9263,17 +9449,35 @@ server {
 VHOST
 }
 
-# Рабочая лошадка DNS-01: пакеты → credentials → certbot → vhost → маркеры.
-# Печатает человекочитаемый прогресс; CLI-обёртка уводит его в stderr.
-_dns01_install() {
-  local domain="$1" provider="$2" email="$3" token="$4" aws_key="$5" aws_secret="$6" port="$7"
-  local creds_file="" plugin_pkg=""
+# certbot, который РЕАЛЬНО умеет нужный dns-плагин. На сервере могут стоять сразу
+# два: apt-certbot 1.x (с apt-плагином python3-certbot-dns-*) и snap-certbot 5.x
+# (умеет --ip-address, но dns-плагинов не имеет), а `command -v certbot` зависит от
+# PATH. Если /snap/bin окажется впереди, выпуск падал бы на «unrecognized arguments:
+# --dns-cloudflare» — поэтому плагин проверяется по факту, а не по расположению.
+_dns01_pick_certbot() {
+  local provider="$1" plugin="dns-${provider}" candidate
+  for candidate in "$(command -v certbot 2>/dev/null || true)" /usr/bin/certbot /snap/bin/certbot; do
+    [[ -n "$candidate" && -x "$candidate" ]] || continue
+    if "$candidate" plugins 2>/dev/null | grep -q -- "$plugin"; then
+      printf '%s' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Ставит nginx/certbot/плагин провайдера. Общий шаг боевого выпуска (_dns01_install)
+# и проверочного (dns01_test_command): иначе dns01-test проверял бы не ту сборку,
+# которая потом выпускает боевой сертификат. Результат — в CERTBOT_DNS_BIN.
+_dns01_install_plugin() {
+  local provider="$1" plugin_pkg=""
   case "$provider" in
-    cloudflare) creds_file="$DNS01_CLOUDFLARE_INI"; plugin_pkg="python3-certbot-dns-cloudflare" ;;
-    route53) creds_file="$DNS01_AWS_INI"; plugin_pkg="python3-certbot-dns-route53" ;;
+    cloudflare) plugin_pkg="python3-certbot-dns-cloudflare" ;;
+    route53) plugin_pkg="python3-certbot-dns-route53" ;;
     *) return 1 ;;
   esac
 
+  CERTBOT_DNS_BIN=""
   echo -e "${CYAN}  → Установка nginx + certbot + плагина DNS-01 (${provider})...${NC}"
   if ! apt-get "${APT_LOCK_OPTS[@]}" install -y nginx certbot "$plugin_pkg" >/dev/null 2>&1; then
     echo -e "${RED}✗ apt-get install nginx certbot ${plugin_pkg} не удалось${NC}"
@@ -9281,11 +9485,35 @@ _dns01_install() {
   fi
 
   local certbot_bin
-  certbot_bin=$(command -v certbot 2>/dev/null || true)
+  certbot_bin=$(_dns01_pick_certbot "$provider" || true)
+  if [[ -z "$certbot_bin" ]]; then
+    certbot_bin=$(command -v certbot 2>/dev/null || true)
+    if [[ -n "$certbot_bin" ]]; then
+      echo -e "${YELLOW}  ⚠ ${certbot_bin} не сообщает о плагине dns-${provider} — выпуск может упасть на неизвестном флаге${NC}"
+    fi
+  fi
   if [[ -z "$certbot_bin" || ! -x "$certbot_bin" ]]; then
     echo -e "${RED}✗ certbot не найден после установки${NC}"
     return 1
   fi
+  CERTBOT_DNS_BIN="$certbot_bin"
+  return 0
+}
+
+# Рабочая лошадка DNS-01: пакеты → credentials → certbot → vhost → маркеры.
+# Печатает человекочитаемый прогресс; CLI-обёртка уводит его в stderr.
+# Args: …, $7=port, $8=staging (true — проверочный контур ACME).
+_dns01_install() {
+  local domain="$1" provider="$2" email="$3" token="$4" aws_key="$5" aws_secret="$6" port="$7" staging="${8:-false}"
+  local creds_file=""
+  case "$provider" in
+    cloudflare) creds_file="$DNS01_CLOUDFLARE_INI" ;;
+    route53) creds_file="$DNS01_AWS_INI" ;;
+    *) return 1 ;;
+  esac
+
+  _dns01_install_plugin "$provider" || return 1
+  local certbot_bin="$CERTBOT_DNS_BIN"
 
   mkdir -p "$DNS01_CREDS_DIR" 2>/dev/null || true
   chmod 700 "$DNS01_CREDS_DIR" 2>/dev/null || true
@@ -9301,13 +9529,17 @@ _dns01_install() {
   chown root:root "$DNS01_MARKER_FILE" 2>/dev/null || true
 
   local -a args=()
-  mapfile -t args < <(_dns01_certbot_args_pure "$provider" "$domain" "$email" "$creds_file")
+  mapfile -t args < <(_dns01_certbot_args_pure "$provider" "$domain" "$email" "$creds_file" "$staging")
 
   # Route53-плагин читает профиль AWS, а не файл из аргументов.
   if [[ "$provider" == "route53" ]]; then
     export AWS_SHARED_CREDENTIALS_FILE="$creds_file"
   fi
 
+  # Предупреждаем ДО выпуска: иначе недоверенный staging-серт выглядел бы как успех.
+  if [[ "$staging" == "true" ]]; then
+    _acme_staging_warn
+  fi
   echo -e "${CYAN}  → certbot DNS-01 для ${domain} (порт 80 не требуется)...${NC}"
   if ! "$certbot_bin" "${args[@]}" >/tmp/certbot-dns01.log 2>&1; then
     echo -e "${RED}✗ certbot DNS-01 не выдал сертификат. Лог: /tmp/certbot-dns01.log${NC}"
@@ -9318,7 +9550,7 @@ _dns01_install() {
   systemctl reset-failed certbot.service 2>/dev/null || true
   _certbot_register "$domain"
 
-  local cert_dir="/etc/letsencrypt/live/${domain}"
+  local cert_dir="$DNS01_LIVE_DIR/${domain}"
   if [[ ! -f "$cert_dir/fullchain.pem" || ! -f "$cert_dir/privkey.pem" ]]; then
     echo -e "${RED}✗ certbot завершился, но сертификата нет: $cert_dir${NC}"
     return 1
@@ -9351,6 +9583,14 @@ _dns01_install() {
     echo -e "${RED}✗ xrayebator-sub.service не запустился${NC}"
     return 1
   fi
+
+  # Маркер контура: true — подписка на staging-серте (виден в dns01-status), false —
+  # боевой выпуск снял прежнюю метку.
+  _acme_staging_mark "$staging" || true
+  # Доменный серт продлевает штатный certbot.timer; на серверах с IP-подпиской он мог
+  # быть отключён (apt-certbot не умеет --ip-address) — возвращаем, иначе домен тихо
+  # умрёт через 90 дней.
+  _apt_certbot_timer_enable || true
   return 0
 }
 
@@ -9360,6 +9600,7 @@ dns01_setup_command() {
   export XRAYEBATOR_NONINTERACTIVE=1
 
   local domain="" provider="" email="" token="" aws_key="" aws_secret="" port="" without_email=false
+  local staging_flag=false
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --domain) domain="${2:-}"; shift 2 ;;
@@ -9370,6 +9611,7 @@ dns01_setup_command() {
       --aws-access-key-id) aws_key="${2:-}"; shift 2 ;;
       --aws-secret-access-key) aws_secret="${2:-}"; shift 2 ;;
       --port) port="${2:-}"; shift 2 ;;
+      --staging) staging_flag=true; shift ;;
       *) shift ;;
     esac
   done
@@ -9399,16 +9641,23 @@ dns01_setup_command() {
       return 1
     fi
   fi
-  [[ -n "$port" ]] || port=443
-  if [[ ! "$port" =~ ^[0-9]+$ ]] || (( port < 1 || port > 65535 )); then
+  # Порт: явный --port → текущий порт подписки → 443. Так перевод ip_tls на домен не
+  # меняет URL подписки (раньше GUI-кнопка молча уводила её с :8443 на :443).
+  if [[ -n "$port" ]] && { [[ ! "$port" =~ ^[0-9]+$ ]] || (( port < 1 || port > 65535 )); }; then
     echo '{"ok":false,"error":"Некорректный --port"}'
     return 1
+  fi
+  port=$(_dns01_resolve_port "$port" "$(_dns01_current_subscription_port)")
+
+  local staging=false
+  if _acme_staging_on "$staging_flag"; then
+    staging=true
   fi
 
   local rc=0
   exec 3>&1
   exec 1>&2
-  _dns01_install "$domain" "$provider" "$email" "$token" "$aws_key" "$aws_secret" "$port" || rc=$?
+  _dns01_install "$domain" "$provider" "$email" "$token" "$aws_key" "$aws_secret" "$port" "$staging" || rc=$?
   exec 1>&3
   exec 3>&-
 
@@ -9420,9 +9669,11 @@ dns01_setup_command() {
   local url
   url=$(_subscription_base_url 2>/dev/null || true)
   jq -n --arg d "$domain" --arg p "$provider" --argjson port "$port" \
-    --arg url "$url" --arg mode "$(cat /usr/local/etc/xray/.subscription_mode 2>/dev/null || echo unknown)" \
-    '{ok:true, domain:$d, provider:$p, port:$port, tls_mode:$mode, subscription_url:$url,
-      cert_dir:("/etc/letsencrypt/live/" + $d), renewal:"auto (certbot.timer + deploy-hook)"}'
+    --arg url "$url" --arg mode "$(cat "$DNS01_STATE_DIR/.subscription_mode" 2>/dev/null || echo unknown)" \
+    --arg live "$DNS01_LIVE_DIR" --argjson staging "$staging" \
+    '{ok:true, domain:$d, provider:$p, port:$port, tls_mode:$mode, staging:$staging,
+      subscription_url:$url, cert_dir:($live + "/" + $d),
+      renewal:"auto (certbot.timer + deploy-hook)"}'
   return 0
 }
 
@@ -9431,14 +9682,15 @@ dns01_status_command() {
   export TERM=dumb
   export XRAYEBATOR_NONINTERACTIVE=1
 
-  local provider="" mode="" domain="" port="" expiry=0 days_left=0 deploy_hook=false
+  local provider="" mode="" domain="" port="" expiry=0 days_left=0 deploy_hook=false staging=false
   [[ -f "$DNS01_MARKER_FILE" ]] && provider=$(tr -d '\r\n' < "$DNS01_MARKER_FILE" 2>/dev/null || true)
-  mode=$(cat /usr/local/etc/xray/.subscription_mode 2>/dev/null || true)
-  domain=$(cat /usr/local/etc/xray/.subscription_domain 2>/dev/null || true)
-  port=$(cat /usr/local/etc/xray/.subscription_port 2>/dev/null || true)
+  mode=$(cat "$DNS01_STATE_DIR/.subscription_mode" 2>/dev/null || true)
+  domain=$(cat "$DNS01_STATE_DIR/.subscription_domain" 2>/dev/null || true)
+  port=$(_dns01_current_subscription_port)
   [[ "$port" =~ ^[0-9]+$ ]] || port=0
+  _acme_staging_marked && staging=true
 
-  local cert="/etc/letsencrypt/live/${domain}/fullchain.pem"
+  local cert="$DNS01_LIVE_DIR/${domain}/fullchain.pem"
   if [[ -n "$domain" && -f "$cert" ]] && command -v openssl >/dev/null 2>&1; then
     local end
     end=$(openssl x509 -enddate -noout -in "$cert" 2>/dev/null | sed 's/notAfter=//')
@@ -9448,17 +9700,16 @@ dns01_status_command() {
   if (( expiry > 0 )); then
     days_left=$(( (expiry - $(date +%s)) / 86400 ))
   fi
-  if [[ -n "$domain" && -f "/etc/letsencrypt/renewal/${domain}.conf" ]] &&
-     grep -q 'deploy-hook' "/etc/letsencrypt/renewal/${domain}.conf" 2>/dev/null; then
-    deploy_hook=true
-  fi
+  # certbot пишет --deploy-hook в renewal-конфиг как renew_hook: проверяем оба имени.
+  _dns01_renewal_has_hook "$domain" && deploy_hook=true
 
   jq -n --arg provider "$provider" --arg mode "$mode" --arg domain "$domain" \
     --argjson port "$port" --argjson expiry "$expiry" --argjson days "$days_left" \
-    --argjson hook "$deploy_hook" \
+    --argjson hook "$deploy_hook" --argjson staging "$staging" \
     --argjson creds "$([[ -f "$DNS01_CLOUDFLARE_INI" || -f "$DNS01_AWS_INI" ]] && echo true || echo false)" \
     '{ok:true, provider:$provider, tls_mode:$mode, domain:$domain, port:$port,
-      credentials_present:$creds, cert_expiry:$expiry, days_left:$days, deploy_hook:$hook}'
+      credentials_present:$creds, cert_expiry:$expiry, days_left:$days, deploy_hook:$hook,
+      staging:$staging}'
   return 0
 }
 
@@ -9473,6 +9724,7 @@ repair_dns01_command() {
   export XRAYEBATOR_NONINTERACTIVE=1
 
   local domain="" provider="" token="" aws_key="" aws_secret="" port="" email=""
+  local staging_flag=false
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --domain) domain="${2:-}"; shift 2 ;;
@@ -9482,6 +9734,7 @@ repair_dns01_command() {
       --aws-secret-access-key) aws_secret="${2:-}"; shift 2 ;;
       --email) email="${2:-}"; shift 2 ;;
       --port) port="${2:-}"; shift 2 ;;
+      --staging) staging_flag=true; shift ;;
       *) shift ;;
     esac
   done
@@ -9504,7 +9757,7 @@ repair_dns01_command() {
   fi
 
   local current_mode
-  current_mode=$(cat /usr/local/etc/xray/.subscription_mode 2>/dev/null || echo "unknown")
+  current_mode=$(cat "$DNS01_STATE_DIR/.subscription_mode" 2>/dev/null || echo "unknown")
   case "$current_mode" in
     ip_tls|domain_tls)
       jq -n --arg mode "$current_mode" \
@@ -9514,13 +9767,22 @@ repair_dns01_command() {
       ;;
   esac
 
-  [[ -n "$port" ]] || port=$(cat /usr/local/etc/xray/.subscription_port 2>/dev/null || echo 443)
-  [[ "$port" =~ ^[0-9]+$ ]] || port=443
+  # Порт: явный --port → текущий порт подписки → 443 (то же правило, что в dns01-setup).
+  if [[ -n "$port" ]] && { [[ ! "$port" =~ ^[0-9]+$ ]] || (( port < 1 || port > 65535 )); }; then
+    echo '{"ok":false,"error":"Некорректный --port"}'
+    return 1
+  fi
+  port=$(_dns01_resolve_port "$port" "$(_dns01_current_subscription_port)")
+
+  local staging=false
+  if _acme_staging_on "$staging_flag"; then
+    staging=true
+  fi
 
   local rc=0
   exec 3>&1
   exec 1>&2
-  _dns01_install "$domain" "$provider" "$email" "$token" "$aws_key" "$aws_secret" "$port" || rc=$?
+  _dns01_install "$domain" "$provider" "$email" "$token" "$aws_key" "$aws_secret" "$port" "$staging" || rc=$?
   exec 1>&3
   exec 3>&-
 
@@ -9532,8 +9794,150 @@ repair_dns01_command() {
   local url
   url=$(_subscription_base_url 2>/dev/null || true)
   jq -n --arg d "$domain" --arg p "$provider" --argjson port "$port" --arg url "$url" \
-    '{ok:true, repaired:true, domain:$d, provider:$p, port:$port,
+    --argjson staging "$staging" \
+    '{ok:true, repaired:true, domain:$d, provider:$p, port:$port, staging:$staging,
       tls_mode:"domain_tls", subscription_url:$url}'
+  return 0
+}
+
+# xrayebator dns01-test — проверочный выпуск в staging-контуре (JSON на stdout).
+# Отвечает на один вопрос: «домен делегирован, а токен имеет право править зону?» —
+# не трогая ни подписку, ни nginx, ни маркеры, ни firewall и НЕ расходуя прод-квоту
+# Let's Encrypt (в staging лимит 30000 заказов в неделю на набор имён против 5).
+# Проверяющая и проверяемая сборка совпадают: пакеты и бинарник certbot выбираются
+# тем же кодом, что и в боевом выпуске (_dns01_install_plugin).
+DNS01_TEST_CERT_NAME="${DNS01_TEST_CERT_NAME:-xrayebator-dns01-test}"
+DNS01_TEST_LOG="${DNS01_TEST_LOG:-/tmp/certbot-dns01-test.log}"
+
+# Рабочая лошадка dns01-test: плагин → временные credentials → certbot в staging →
+# чтение выпущенного серта → удаление проверочной линии. Vhost/маркеры не трогаются.
+# Имя линии уникально на запуск: иначе повторная проверка могла бы «пройти» на уже
+# существующем сертификате, ничего не доказав.
+# Результат: DNS01_TEST_ISSUER / DNS01_TEST_NOT_AFTER / DNS01_TEST_CLEANED / DNS01_TEST_CERT.
+_dns01_test_run() {
+  local domain="$1" provider="$2" email="$3" token="$4" aws_key="$5" aws_secret="$6"
+  local cert_name="${DNS01_TEST_CERT_NAME}-$(date +%s)"
+  local creds_file="$DNS01_CREDS_DIR/xrayebator-dns01-test.ini"
+
+  DNS01_TEST_ISSUER=""
+  DNS01_TEST_NOT_AFTER=""
+  DNS01_TEST_CLEANED="false"
+  DNS01_TEST_CERT="$cert_name"
+
+  _dns01_install_plugin "$provider" || return 1
+  local certbot_bin="$CERTBOT_DNS_BIN"
+
+  mkdir -p "$DNS01_CREDS_DIR" 2>/dev/null || true
+  chmod 700 "$DNS01_CREDS_DIR" 2>/dev/null || true
+  if ! _dns01_credentials_write "$provider" "$creds_file" "$token" "$aws_key" "$aws_secret"; then
+    echo -e "${RED}✗ Не удалось записать временные credentials для ${provider}${NC}"
+    return 1
+  fi
+  if [[ "$provider" == "route53" ]]; then
+    export AWS_SHARED_CREDENTIALS_FILE="$creds_file"
+  fi
+
+  local -a args=()
+  mapfile -t args < <(_dns01_test_certbot_args_pure "$provider" "$domain" "$email" "$creds_file" "$cert_name")
+  echo -e "${CYAN}  → Проверочный выпуск (staging) для ${domain}: подписка, порт 80 и маркеры не используются${NC}"
+  _acme_staging_warn
+
+  local rc=0
+  "$certbot_bin" "${args[@]}" >"$DNS01_TEST_LOG" 2>&1 || rc=$?
+  # Временные креды не должны переживать проверку, включая failure path.
+  rm -f "$creds_file" 2>/dev/null || true
+
+  if (( rc == 0 )); then
+    local cert="$DNS01_LIVE_DIR/${cert_name}/fullchain.pem"
+    if [[ -f "$cert" ]] && command -v openssl >/dev/null 2>&1; then
+      DNS01_TEST_ISSUER=$(openssl x509 -issuer -noout -in "$cert" 2>/dev/null | sed 's/^issuer=//')
+      DNS01_TEST_NOT_AFTER=$(openssl x509 -enddate -noout -in "$cert" 2>/dev/null | sed 's/^notAfter=//')
+    fi
+    # Уборка проверочной линии: best-effort, факт уборки попадает в JSON.
+    if "$certbot_bin" delete --cert-name "$cert_name" --non-interactive >/dev/null 2>&1; then
+      DNS01_TEST_CLEANED="true"
+    fi
+    return 0
+  fi
+
+  echo -e "${RED}✗ Проверочный выпуск не удался. Лог: ${DNS01_TEST_LOG}${NC}"
+  tail -20 "$DNS01_TEST_LOG" 2>/dev/null || true
+  echo -e "${YELLOW}  Проверьте права API-токена на DNS-зону ${domain} и что домен делегирован.${NC}"
+  return "$rc"
+}
+
+dns01_test_command() {
+  export TERM=dumb
+  export XRAYEBATOR_NONINTERACTIVE=1
+
+  local domain="" provider="" email="" token="" aws_key="" aws_secret="" without_email=false
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --domain) domain="${2:-}"; shift 2 ;;
+      --provider) provider="${2:-}"; shift 2 ;;
+      --email) email="${2:-}"; shift 2 ;;
+      --without-email) without_email=true; shift ;;
+      --token) token="${2:-}"; shift 2 ;;
+      --aws-access-key-id) aws_key="${2:-}"; shift 2 ;;
+      --aws-secret-access-key) aws_secret="${2:-}"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+
+  # Валидация до системных вызовов — тем же набором сообщений, что у боевого пути.
+  if ! _dns01_validate_domain "$domain"; then
+    echo '{"ok":false,"error":"Укажите --domain sub.example.com (A/AAAA домена должна указывать на этот VPS)"}'
+    return 1
+  fi
+  if ! _dns01_provider_supported "$provider"; then
+    echo '{"ok":false,"error":"Укажите --provider cloudflare или --provider route53"}'
+    return 1
+  fi
+  if [[ "$without_email" == "true" ]]; then
+    email=""
+  elif [[ -z "$email" ]]; then
+    echo '{"ok":false,"error":"Укажите --email адрес или --without-email"}'
+    return 1
+  fi
+  if [[ "$provider" == "cloudflare" ]]; then
+    if [[ ! "$token" =~ ^[A-Za-z0-9_-]{20,}$ ]]; then
+      echo '{"ok":false,"error":"Укажите --token API-токен Cloudflare с правом DNS:Edit на зону"}'
+      return 1
+    fi
+  else
+    if [[ -z "$aws_key" || -z "$aws_secret" ]]; then
+      echo '{"ok":false,"error":"Укажите --aws-access-key-id и --aws-secret-access-key"}'
+      return 1
+    fi
+  fi
+
+  local started
+  started=$(date +%s)
+  local rc=0
+  exec 3>&1
+  exec 1>&2
+  _dns01_test_run "$domain" "$provider" "$email" "$token" "$aws_key" "$aws_secret" || rc=$?
+  exec 1>&3
+  exec 3>&-
+
+  local elapsed=$(( $(date +%s) - started ))
+
+  if (( rc != 0 )); then
+    jq -n --arg d "$domain" --arg p "$provider" --arg txt "_acme-challenge.${domain}" \
+      --arg reason "$(_certbot_failure_reason "$DNS01_TEST_LOG")" \
+      --arg log "$DNS01_TEST_LOG" --argjson elapsed "$elapsed" \
+      '{ok:false, staging:true, domain:$d, provider:$p, txt_name:$txt, elapsed_sec:$elapsed,
+        reason:$reason, log:$log}'
+    return 1
+  fi
+
+  jq -n --arg d "$domain" --arg p "$provider" --arg txt "_acme-challenge.${domain}" \
+    --arg issuer "${DNS01_TEST_ISSUER:-unknown}" --arg not_after "${DNS01_TEST_NOT_AFTER:-}" \
+    --arg cert "${DNS01_TEST_CERT}" --argjson cleaned "${DNS01_TEST_CLEANED:-false}" \
+    --argjson elapsed "$elapsed" \
+    '{ok:true, staging:true, domain:$d, provider:$p, txt_name:$txt, elapsed_sec:$elapsed,
+      issuer:$issuer, not_after:$not_after, test_cert_name:$cert, cleaned:$cleaned,
+      note:"Проверочный сертификат (staging). Для боевой подписки запустите dns01-setup без --staging"}'
   return 0
 }
 
@@ -14005,12 +14409,17 @@ inspect_command() {
 }
 
 quickstart_command() {
-  local email="" email_mode="provided" deploy_pq=false
+  local email="" email_mode="provided" deploy_pq=false staging_flag=false
   local dns01_domain="" dns01_provider="" dns01_token="" dns01_aws_key="" dns01_aws_secret=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --email) email="$2"; email_mode="provided"; shift 2 ;;
       --without-email) email=""; email_mode="without"; shift ;;
+      # Проверочный контур ACME (--test-cert): серт подписан тестовым корнем, прод-квота
+      # LE не расходуется. Нужен, чтобы отлаживать развёртывание, не выжигая лимит
+      # «5 сертификатов на набор идентификаторов за 168 ч» (см. _acme_staging_on).
+      --staging) staging_flag=true; shift ;;
+      --without-staging) staging_flag=false; shift ;;
       # PQ при развёртывании: по умолчанию ВЫКЛ — клиент без ML-KEM к PQ-порту
       # не подключится, поэтому выбор делает оператор (GUI-визард или флаг).
       --pq) deploy_pq=true; shift ;;
@@ -14032,6 +14441,12 @@ quickstart_command() {
   if [[ "$email_mode" == "provided" ]] && { [[ -z "$email" ]] || ! [[ "$email" =~ ^[^@]+@[^@]+\.[^@]+$ ]]; }; then
     echo '{"ok":false,"error":"Некорректный email (нужен для Let'\''s Encrypt)"}'
     return 1
+  fi
+
+  # Контур ACME на весь прогон: флаг --staging или XRAYEBATOR_ACME_STAGING=1.
+  local acme_staging=false
+  if _acme_staging_on "$staging_flag"; then
+    acme_staging=true
   fi
 
   # DNS-01 запрошен, если оператор передал хотя бы один из его параметров. Проверяем
@@ -14343,11 +14758,22 @@ NGINXHTTP
       certbot_email_args=(--register-unsafely-without-email)
       echo "  -> Email не указан: регистрация ACME без контактного адреса (уведомлений не будет)" >&2
     fi
+    # ACME-контур: staging — только --test-cert (два указания сервера certbot
+    # отвергает), боевой — явный --server, иначе повторный выпуск с тем же
+    # --cert-name унаследовал бы сервер из renewal-конфига и остался в staging.
+    local certbot_server_args=()
+    if [[ "$acme_staging" == "true" ]]; then
+      certbot_server_args=(--test-cert)
+      _acme_staging_warn
+    else
+      certbot_server_args=(--server "$ACME_PRODUCTION_URL")
+    fi
     if ! "$certbot_bin" certonly \
         --cert-name "$server_ip" \
         --preferred-profile shortlived \
         --webroot --webroot-path "$webroot" \
         --ip-address "$server_ip" \
+        "${certbot_server_args[@]}" \
         --non-interactive --agree-tos \
         "${certbot_email_args[@]}" \
         --deploy-hook "systemctl reload nginx" \
@@ -14372,7 +14798,7 @@ NGINXHTTP
           exec 3>&1
           exec 1>&2
           _dns01_install "$dns01_domain" "$dns01_provider" "$email" "$dns01_token" \
-            "$dns01_aws_key" "$dns01_aws_secret" "8443" || _dns_rc=$?
+            "$dns01_aws_key" "$dns01_aws_secret" "8443" "$acme_staging" || _dns_rc=$?
           exec 1>&3
           exec 3>&-
           if [[ "$_dns_rc" -eq 0 ]]; then
@@ -14418,6 +14844,12 @@ NGINXHTTP
     else
       SUB_TLS_MODE="ip_tls"
       echo "  TLS сертификат получен" >&2
+      # Проверочный контур: серт подписан тестовым корнем — говорим об этом прямо и
+      # ставим маркер .acme_staging (его видит dns01-status). Боевой выпуск его снимает.
+      if [[ "$acme_staging" == "true" ]]; then
+        _acme_staging_warn
+      fi
+      _acme_staging_mark "$acme_staging" || true
       # P0-certbot-fix: регистрируем cert в root-owned манифесте (uninstall удалит только его).
       _certbot_register "$server_ip"
       # certbot мог выпустить линию с суффиксом (/live/<ip>-0001), если каталог
@@ -14653,13 +15085,14 @@ NGINXHTTPS
       --arg country "$result_country" --arg city "$result_city" \
       --arg flag "$result_flag" --arg os "$result_os" \
       --argjson pq "$pq_route_added" \
+      --argjson staging "$acme_staging" \
       --arg cert_reason "${certbot_reason:-}" \
       '{ok:true, degraded:true, tls_mode:"http_tls", certbot_reason:$cert_reason,
         subscription_url:$url, base_url:$base, profile:$profile, routes:$routes,
-        country:$country, city:$city, flag:$flag, os:$os, pq_route:$pq}'
+        country:$country, city:$city, flag:$flag, os:$os, pq_route:$pq, staging:$staging}'
     return 0
   fi
-  echo "{\"ok\":true,\"subscription_url\":\"${subscription_url}\",\"base_url\":\"${base}\",\"profile\":\"${HAPP_DEFAULT_PROFILE}\",\"routes\":${route_count},\"tls_mode\":\"${SUB_TLS_MODE}\",\"pq_route\":${pq_route_added},\"country\":\"${result_country}\",\"city\":\"${result_city}\",\"flag\":\"${result_flag}\",\"os\":\"${result_os}\"}"
+  echo "{\"ok\":true,\"subscription_url\":\"${subscription_url}\",\"base_url\":\"${base}\",\"profile\":\"${HAPP_DEFAULT_PROFILE}\",\"routes\":${route_count},\"tls_mode\":\"${SUB_TLS_MODE}\",\"pq_route\":${pq_route_added},\"staging\":${acme_staging},\"country\":\"${result_country}\",\"city\":\"${result_city}\",\"flag\":\"${result_flag}\",\"os\":\"${result_os}\"}"
   return 0
 }
 
@@ -17905,6 +18338,10 @@ if [[ "$XRAYEBATOR_SOURCED" -eq 0 ]]; then
       shift
       dns01_status_command "$@"
       ;;
+    dns01-test)
+      shift
+      dns01_test_command "$@"
+      ;;
     repair-dns01)
       shift
       repair_dns01_command "$@"
@@ -18005,10 +18442,12 @@ if [[ "$XRAYEBATOR_SOURCED" -eq 0 ]]; then
       echo -e "  ${CYAN}sudo xrayebator alerts-test${NC} — тестовое сообщение в Telegram (JSON)"
       echo -e "  ${CYAN}sudo xrayebator alerts-enable|alerts-disable${NC} — включить/выключить алерты (JSON)"
       echo -e "  ${CYAN}sudo xrayebator monitor-check [--force-sni]${NC} — одна итерация мониторинга (--force-sni: probe SNI вне расписания) (JSON)"
-      echo -e "  ${CYAN}sudo xrayebator dns01-setup --domain sub.example.com --provider cloudflare|route53${NC}"
+      echo -e "  ${CYAN}sudo xrayebator dns01-setup --domain sub.example.com --provider cloudflare|route53 [--staging]${NC}"
       echo -e "                               — HTTPS-подписка по домену без порта 80 (DNS-01) (JSON)"
+      echo -e "  ${CYAN}sudo xrayebator dns01-test --domain sub.example.com --provider cloudflare|route53${NC}"
+      echo -e "                               — проверить домен и токен в staging-контуре LE, не трогая подписку (JSON)"
       echo -e "  ${CYAN}sudo xrayebator dns01-status${NC} — состояние DNS-01, домен, срок сертификата (JSON)"
-      echo -e "  ${CYAN}sudo xrayebator repair-dns01 --domain D --provider cloudflare|route53${NC} — заменить http_tls-подписку на DNS-01 (JSON)"
+      echo -e "  ${CYAN}sudo xrayebator repair-dns01 --domain D --provider cloudflare|route53 [--staging]${NC} — заменить http_tls-подписку на DNS-01 (JSON)"
       echo -e "  ${CYAN}sudo xrayebator channel-test [--name ИМЯ] [--url URL] [--timeout S]${NC} — проверить каналы профиля клиентом Xray (JSON)"
       echo -e "  ${CYAN}sudo xrayebator sni-list${NC} — список допустимых SNI (JSON)"
       echo -e "  ${CYAN}sudo xrayebator sni-change --name N [--route R] --sni S${NC} — сменить SNI (JSON; обновит все профили на порту)"

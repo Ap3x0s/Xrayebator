@@ -428,9 +428,19 @@ markers only after a successful issuance, so the working URL is not broken).
 
 ```bash
 sudo xrayebator dns01-status                 # provider, domain, certificate lifetime, deploy-hook
+sudo xrayebator dns01-test --domain sub.example.com --provider cloudflare --token T \
+     --without-email                         # check the domain and the token in the LE staging environment — no production quota spent
 tail -30 /tmp/certbot-dns01.log              # certbot output: the reason for the failure
 dig +short TXT _acme-challenge.sub.example.com   # a TXT record must appear during issuance
 ```
+
+Before burning production Let's Encrypt limits (5 certificates per exact set of identifiers per 168
+hours, 5 failed validations per identifier per hour), check the domain and the token with
+`dns01-test`: it issues into the staging environment only, into its own certificate lineage, and
+changes nothing about the subscription. A real issuance can also run against staging —
+`dns01-setup --staging` (or `XRAYEBATOR_ACME_STAGING=1`) — but clients do not trust such a
+certificate: it is signed by the test root, the state is reported as `staging:true` by
+`dns01-status`, and the next issuance without `--staging` clears it.
 
 - **Cloudflare: `Invalid token` / `unauthorized`** — the token does not carry the `DNS:Edit` right on
   exactly this zone (Zone → API → Tokens). A token made from the global API key does not work: an

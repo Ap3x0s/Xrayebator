@@ -35,6 +35,14 @@ mkdir -p "$DNS01_CREDS_DIR"
 DNS01_CLOUDFLARE_INI="$DNS01_CREDS_DIR/cloudflare.ini"
 DNS01_AWS_INI="$DNS01_CREDS_DIR/aws.ini"
 DNS01_MARKER_FILE="$WORKDIR/provider"
+# Пути состояния/сертификатов — тоже в песочницу: dns01-status иначе читал бы
+# /usr/local/etc/xray и /etc/letsencrypt живой машины.
+DNS01_STATE_DIR="$WORKDIR/state"
+DNS01_RENEWAL_DIR="$WORKDIR/renewal"
+DNS01_LIVE_DIR="$WORKDIR/live"
+ACME_STAGING_MARKER_FILE="$DNS01_STATE_DIR/.acme_staging"
+DNS01_TEST_LOG="$WORKDIR/certbot-dns01-test.log"
+mkdir -p "$DNS01_STATE_DIR" "$DNS01_RENEWAL_DIR" "$DNS01_LIVE_DIR"
 CF_TOKEN="abcdefghijklmnopqrstuvwxyz0123456789"
 
 assert_json() {
@@ -162,7 +170,7 @@ assert_json "$out" '.ok == false and (.error | test("--port"))' "некорре�
 [[ ! -f "$DNS01_MARKER_FILE" ]] || fail "маркер провайдера не должен появляться при ошибках валидации"
 
 out=$(dns01_status_command) || true
-assert_json "$out" '.ok == true and .provider == "" and .domain == "" and .days_left == 0 and .deploy_hook == false' \
+assert_json "$out" '.ok == true and .provider == "" and .domain == "" and .days_left == 0 and .deploy_hook == false and .staging == false' \
   "dns01-status на ненастроенном сервере"
 
 # ═══════════ 6. Проводка (статически: живые DNS-API в CI недоступны) ═══════════
@@ -251,4 +259,173 @@ grep -q 'if \[\[ "$SUB_TLS_MODE" == "domain_tls" \]\]; then' xrayebator \
 grep -q 'if \[\[ "$SUB_TLS_MODE" != "domain_tls" \]\]; then' xrayebator \
   || fail "quickstart перетирает маркеры подписки в domain_tls (GUI получил бы URL с IP)"
 
-echo "✓ DNS-01 (Cloudflare/Route53): валидация, аргументы certbot, credentials 0600, vhost без :80, CLI-ошибки, repair-dns01, quickstart --pq/DNS-01-фолбэк, проводка — OK"
+# ═══════════ 8. staging-контур ACME (--staging) ═══════════
+# Прод-квота LE — «5 сертификатов на точный набор идентификаторов за 168 ч» — была
+# выжжена отладочными выпусками досуха (на живом сервере: retry after 2026-10-19
+# 02:02:28 UTC), поэтому у ACME-путей есть проверочный контур. Тесты держат ровно два
+# инварианта: staging реально уходит в --test-cert, а боевой выпуск ВСЕГДА называет
+# прод-эндпоинт явно — иначе повторный выпуск с тем же --cert-name унаследовал бы
+# сервер из renewal-конфига и «боевой» прогон молча остался бы в staging.
+_acme_staging_on true || fail "флаг --staging должен включать контур"
+_acme_staging_on "" "1" || fail "XRAYEBATOR_ACME_STAGING=1 должен включать контур"
+_acme_staging_on "" "TRUE" || fail "значение переменной регистронезависимо"
+_acme_staging_on "" "on" || fail "значение on должно включать контур"
+if _acme_staging_on "false" ""; then
+  fail "без флага и без переменной контур выключен"
+fi
+if _acme_staging_on "" "0"; then
+  fail "значение 0 не должно включать контур"
+fi
+if _acme_staging_on "" "no"; then
+  fail "значение no не должно включать контур"
+fi
+
+stage_args=$(_dns01_certbot_args_pure cloudflare sub.example.com "" "$DNS01_CLOUDFLARE_INI" true) \
+  || fail "сборка staging-аргументов"
+grep -qx -- "--test-cert" <<<"$stage_args" || fail "staging должен давать --test-cert"
+if grep -qx -- "--server" <<<"$stage_args"; then
+  fail "в staging не должно быть явного прод-сервера (certbot отвергнет два указания)"
+fi
+
+prod_args=$(_dns01_certbot_args_pure cloudflare sub.example.com "" "$DNS01_CLOUDFLARE_INI" false) \
+  || fail "сборка боевых аргументов"
+grep -qx -- "--server" <<<"$prod_args" || fail "боевой выпуск обязан называть ACME-сервер явно"
+grep -q -- "$ACME_PRODUCTION_URL" <<<"$prod_args" || fail "боевой сервер — прод-эндпоинт LE"
+if grep -qx -- "--test-cert" <<<"$prod_args"; then
+  fail "в боевом выпуске не должно быть --test-cert"
+fi
+
+# Маркер контура: ставится на staging-выпуске и снимается боевым.
+_acme_staging_mark true || fail "установка маркера staging"
+_acme_staging_marked || fail "маркер staging не виден"
+_acme_staging_mark false || fail "снятие маркера staging"
+if _acme_staging_marked; then
+  fail "боевой выпуск должен снимать маркер staging"
+fi
+
+# Аргументы проверочного выпуска: staging, отдельное имя линии, без deploy-hook
+# (проверка не должна перезагружать nginx и не должна трогать боевую линию).
+test_args=$(_dns01_test_certbot_args_pure cloudflare sub.example.com "" "$DNS01_CLOUDFLARE_INI" xrayebator-dns01-test-1) \
+  || fail "сборка аргументов dns01-test"
+grep -qx -- "--test-cert" <<<"$test_args" || fail "dns01-test обязан идти в staging"
+test_cert_name=$(grep -A1 -x -- "--cert-name" <<<"$test_args" | tail -1)
+[[ "$test_cert_name" == "xrayebator-dns01-test-1" ]] \
+  || fail "проверочная линия должна иметь своё имя, а не домен (иначе перезапишет боевой серт): $test_cert_name"
+if grep -q -- "deploy-hook" <<<"$test_args"; then
+  fail "проверочному выпуску не нужен deploy-hook"
+fi
+if _dns01_test_certbot_args_pure cloudflare sub.example.com "" "$DNS01_CLOUDFLARE_INI" "" >/dev/null 2>&1; then
+  fail "пустое имя проверочной линии должно отклоняться"
+fi
+
+# Порт: явный → текущий порт подписки → 443. Раньше GUI-кнопка «Настроить DNS-01»
+# молча уводила подписку с :8443 на :443 (URL менялся без спроса).
+[[ "$(_dns01_resolve_port 8443 9000)" == "8443" ]] || fail "явный порт имеет приоритет"
+[[ "$(_dns01_resolve_port "" 8443)" == "8443" ]] || fail "нужен текущий порт подписки"
+[[ "$(_dns01_resolve_port "" "")" == "443" ]] || fail "без подписки порт по умолчанию 443"
+[[ "$(_dns01_resolve_port "" "abc")" == "443" ]] || fail "мусор в маркере порта — откат на 443"
+[[ "$(_dns01_resolve_port "" "70000")" == "443" ]] || fail "порт вне диапазона — откат на 443"
+
+# ═══════════ 9. dns01-test: проверочный выпуск (CLI-валидация) ═══════════
+out=$(dns01_test_command --domain 203.0.113.10 --provider cloudflare --token "$CF_TOKEN" --without-email) || true
+assert_json "$out" '.ok == false and (.error | test("--domain"))' "dns01-test: IP вместо домена"
+out=$(dns01_test_command --domain sub.example.com --provider digitalocean --token "$CF_TOKEN" --without-email) || true
+assert_json "$out" '.ok == false and (.error | test("cloudflare"))' "dns01-test: неизвестный провайдер"
+out=$(dns01_test_command --domain sub.example.com --provider cloudflare --token short --without-email) || true
+assert_json "$out" '.ok == false and (.error | test("--token"))' "dns01-test: короткий токен"
+out=$(dns01_test_command --domain sub.example.com --provider route53 --without-email) || true
+assert_json "$out" '.ok == false and (.error | test("aws"))' "dns01-test: route53 без ключей"
+out=$(dns01_test_command --domain sub.example.com --provider cloudflare --token "$CF_TOKEN") || true
+assert_json "$out" '.ok == false and (.error | test("--email"))' "dns01-test: без email и без --without-email"
+[[ ! -f "$DNS01_MARKER_FILE" ]] || fail "dns01-test не должен писать маркер провайдера"
+# Временные креды проверочного выпуска не должны переживать ошибку валидации
+# (боевой cloudflare.ini из секции 3 существует и к dns01-test отношения не имеет).
+[[ ! -f "$DNS01_CREDS_DIR/xrayebator-dns01-test.ini" ]] \
+  || fail "dns01-test не должен оставлять временные credentials"
+[[ ! -f "$ACME_STAGING_MARKER_FILE" ]] || fail "dns01-test не трогает маркер контура подписки"
+
+grep -qE '^\s+dns01-test\)' xrayebator || fail "нет диспатчера dns01-test"
+grep -q 'dns01-test --domain sub.example.com' xrayebator || fail "нет help-строки dns01-test"
+# --staging должен парситься всеми тремя входами: dns01-setup, repair-dns01, quickstart.
+[[ "$(grep -c -- '--staging) staging_flag=true; shift ;;' xrayebator)" -ge 3 ]] \
+  || fail "не все входы (dns01-setup/repair-dns01/quickstart) парсят --staging"
+grep -q -- '--without-staging) staging_flag=false; shift' xrayebator || fail "quickstart не парсит --without-staging"
+grep -q 'certbot_server_args=(--test-cert)' xrayebator || fail "quickstart не переводит IP-выпуск в staging"
+grep -q 'certbot_server_args=(--server "\$ACME_PRODUCTION_URL")' xrayebator \
+  || fail "quickstart не называет прод-эндпоинт явно (унаследует staging из renewal-конфига)"
+grep -q '_dns01_install "\$dns01_domain" "\$dns01_provider" "\$email" "\$dns01_token"' xrayebator || fail "нет вызова _dns01_install в фолбэке"
+grep -q '"8443" "\$acme_staging" || _dns_rc=\$?' xrayebator || fail "quickstart не передаёт контур в DNS-01-фолбэк"
+grep -q '_acme_staging_mark "\$acme_staging"' xrayebator || fail "quickstart не помечает staging-выпуск"
+
+# ═══════════ 10. deploy_hook: certbot пишет renew_hook, а не deploy-hook ═══════════
+# Живой renewal-конфиг содержит `renew_hook = systemctl reload nginx`; грепать только
+# «deploy-hook» значило бы показывать false на корректно настроенном домене.
+printf 'renew_hook = systemctl reload nginx\n' > "$DNS01_RENEWAL_DIR/hooked.example.com.conf"
+_dns01_renewal_has_hook hooked.example.com || fail "renew_hook не распознан как deploy-hook"
+printf 'deploy-hook = systemctl reload nginx\n' > "$DNS01_RENEWAL_DIR/legacy.example.com.conf"
+_dns01_renewal_has_hook legacy.example.com || fail "deploy-hook не распознан"
+printf '[renewalparams]\naccount = abc\n' > "$DNS01_RENEWAL_DIR/plain.example.com.conf"
+if _dns01_renewal_has_hook plain.example.com; then
+  fail "без хука deploy_hook должен быть false"
+fi
+if _dns01_renewal_has_hook ""; then
+  fail "пустой домен не должен давать deploy_hook"
+fi
+
+# Функционально: dns01-status собирает состояние из маркеров и renewal-конфига.
+printf 'domain_tls' > "$DNS01_STATE_DIR/.subscription_mode"
+printf 'sub.example.com' > "$DNS01_STATE_DIR/.subscription_domain"
+printf '8443' > "$DNS01_STATE_DIR/.subscription_port"
+printf 'cloudflare\n' > "$DNS01_MARKER_FILE"
+printf 'renew_hook = systemctl reload nginx\n' > "$DNS01_RENEWAL_DIR/sub.example.com.conf"
+out=$(dns01_status_command) || true
+assert_json "$out" '.ok == true and .provider == "cloudflare" and .tls_mode == "domain_tls"
+  and .domain == "sub.example.com" and .port == 8443 and .deploy_hook == true and .staging == false' \
+  "dns01-status на доменной подписке"
+printf 'staging\n' > "$ACME_STAGING_MARKER_FILE"
+out=$(dns01_status_command) || true
+assert_json "$out" '.staging == true' "dns01-status показывает staging-контур"
+rm -f "$ACME_STAGING_MARKER_FILE" "$DNS01_MARKER_FILE"
+rm -f "$DNS01_STATE_DIR/.subscription_mode" "$DNS01_STATE_DIR/.subscription_domain" "$DNS01_STATE_DIR/.subscription_port"
+rm -f "$DNS01_RENEWAL_DIR/sub.example.com.conf"
+
+# ═══════════ 11. apt certbot.timer при snap-продлении ═══════════
+# apt-certbot 1.x не умеет --ip-address, а его certbot.timer продлевает все линии —
+# включая shortlived IP-линию, которой управляет snap-certbot: каждые 12 часов падение.
+# Отключаем только его, помечаем флагом и возвращаем при настройке доменного серта.
+APT_CERTBOT_TIMER_FLAG="$WORKDIR/apt_timer_flag"
+SYSTEMCTL_LOG="$WORKDIR/systemctl.log"
+: > "$SYSTEMCTL_LOG"
+FAKE_TIMER_ENABLED_RC=0
+systemctl() {
+  printf '%s\n' "$*" >> "$SYSTEMCTL_LOG"
+  case "$*" in
+    "is-enabled --quiet certbot.timer") return "$FAKE_TIMER_ENABLED_RC" ;;
+    *) return 0 ;;
+  esac
+}
+_apt_certbot_timer_disable || fail "отключение apt certbot.timer"
+[[ -f "$APT_CERTBOT_TIMER_FLAG" ]] || fail "флаг отключения таймера не поставлен"
+grep -q "disable --now certbot.timer" "$SYSTEMCTL_LOG" || fail "таймер не отключён"
+_apt_certbot_timer_enable || fail "возврат apt certbot.timer"
+[[ ! -f "$APT_CERTBOT_TIMER_FLAG" ]] || fail "флаг должен сниматься при возврате таймера"
+grep -q "enable --now certbot.timer" "$SYSTEMCTL_LOG" || fail "таймер не включён обратно"
+
+# Таймер, выключенный оператором, мы не трогаем и флаг не ставим — включать его назад
+# мы не вправе.
+: > "$SYSTEMCTL_LOG"
+FAKE_TIMER_ENABLED_RC=1
+_apt_certbot_timer_disable || fail "повторное отключение не должно падать"
+[[ ! -f "$APT_CERTBOT_TIMER_FLAG" ]] || fail "чужое отключение таймера не должно помечаться нашим флагом"
+if grep -q "disable --now certbot.timer" "$SYSTEMCTL_LOG"; then
+  fail "уже выключенный таймер не нужно отключать повторно"
+fi
+_apt_certbot_timer_enable || fail "no-op возврат без флага"
+FAKE_TIMER_ENABLED_RC=0
+
+# Проводка: отключение — только для snap-продления; возврат — в _dns01_install и uninstall.
+grep -q '/snap/\*) _apt_certbot_timer_disable' xrayebator || fail "таймер отключается не только для snap"
+grep -q '_apt_certbot_timer_enable || true' xrayebator || fail "_dns01_install не возвращает apt certbot.timer"
+grep -q 'apt_certbot_timer_disabled' uninstall.sh || fail "uninstall не возвращает apt certbot.timer"
+
+echo "✓ DNS-01 (Cloudflare/Route53): валидация, аргументы certbot, credentials 0600, vhost без :80, CLI-ошибки, repair-dns01, quickstart --pq/DNS-01-фолбэк, staging-контур, dns01-test, проводка — OK"
