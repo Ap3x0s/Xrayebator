@@ -83,6 +83,16 @@ Next `0.6.5` cut: the server manager plus the GUI traffic-limit card.
   neutral `/usr/local/etc/xrayebator/` root and the token is never printed. An undelivered alert is
   retried on the next tick without re-running the expensive SNI probe, and a failed reboot alert
   keeps the previous `boot_id` instead of losing the message.
+- **`xrayebator channel-test` — проверка каналов настоящим клиентом Xray.** Новых тестов с пингом и
+  проверкой каналов в наборе не было: `validation/` — это pure/static-проверки, а живой спайк делался
+  руками. Команда поднимает для каждого маршрута профиля локальный клиент Xray (SOCKS5) с параметрами
+  из ссылки подписки и прогоняет через него реальный запрос в интернет, печатая JSON с латентностью:
+  `working`/`checked`, по маршруту — `ok`, `http`, `ms`, хвост лога клиента. Let's Encrypt тут не
+  участвует (Reality и VLESS Encryption шифруют сами), поэтому проверка работает и на `http_tls`-
+  подписке, и до выпуска сертификата; проверяются и PQ-маршруты. На живом VPS матрица дала 8/8
+  (xhttp-legacy, xhttp-pq, tcp-mux, grpc, tcp-vision, tcp-utls, tcp-xudp, tcp-pq) с латентностью
+  152-252 мс. Guarded by `validation/test-channel-test-cli.sh` (чистая сборка клиентского конфига,
+  диспатч, JSON-гигиена, независимость от LE; сетевой прогон в CI не запускается).
 - **DNS-01 as a deployment fallback, and the desktop UI for the new stages.** `xrayebator quickstart`
   now accepts `--pq` / `--without-pq` and `--dns01-domain/--dns01-provider/--dns01-token` (Cloudflare)
   or `--dns01-aws-access-key-id/--dns01-aws-secret-access-key` (Route53). With the DNS-01 values the
@@ -106,6 +116,16 @@ Next `0.6.5` cut: the server manager plus the GUI traffic-limit card.
 
 ### Fixed
 
+- **Default SNI could be unreachable from the VPS, killing most channels.** Reality serves the client a
+  certificate fetched from the SNI's real site (`dest`), so an unreachable `dest` hangs the handshake
+  even though the config is perfectly valid. On a live German VPS the first line of `sni_list.txt`
+  (`www.ozon.ru`) was unreachable, and **5 of 7 routes of a fresh deployment were dead**: `channel-test`
+  showed 12-second timeouts for exactly those routes, while `grpc` and `tcp-xudp` (reachable SNIs)
+  worked instantly; after switching the SNI to a reachable host all 7 worked. `_default_sni_for_transport`
+  now verifies reachability from the server with the same criterion as `probe-test`/monitoring
+  (openssl `Verify return code: 0`), walks the `sni_list.txt` candidates plus global fallbacks, caches
+  one probe per SNI, and keeps the old behaviour when nothing is reachable (no internet/DNS must not
+  break a deployment). Guarded by `validation/test-sni-reachability.sh`.
 - **`quickstart --pq` never added a post-quantum route.** The flag was parsed and a static test
   asserted on it, but the block calling `_pq_add_route_for_profile` sat *inside* the failure branch of
   `_happ_ensure_default_multiroute_profile`: the route was appended to a profile that did not exist

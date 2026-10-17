@@ -103,6 +103,7 @@ Xrayebator 不会更改主机的 TCP 拥塞控制算法，也不会写入或应�
 | `sudo xrayebator update` | 仅更新 **Xray-core 内核** |
 | `sudo xrayebator update <branch>` | 从规范 raw 仓库分支 self-update 管理器，继续使用新脚本，然后更新 Xray-core；分支写入 `.current_branch` 固定，供后续 GUI 更新使用 |
 | `sudo xrayebator probe-test` | 更换 SNI 前，从 VPS 检查其可达性 |
+| `sudo xrayebator channel-test [--name 名称] [--url URL] [--timeout S] [--transport T]` | 检查配置档的通道**是否真的可用**：对每条线路都启动一个本地 Xray 客户端（回环地址上的 SOCKS5），使用订阅链接中的参数，并通过它发出一个真实的互联网请求；JSON 包含 `working`/`checked`，以及每条线路的 `ok`、`http`、`ms`、`pq` 和客户端日志尾部。**不涉及 Let's Encrypt**——Reality 与 VLESS Encryption 自成一体，因此在 `http_tls` 订阅上、在任何证书签发之前都能工作，PQ 线路同样会被检查。实机运行：8/8 条线路，152–252 ms |
 | `sudo xrayebator quickstart --email <邮箱>` | 桌面 GUI 使用的一次性部署路径：执行广泛设置/迁移，在 `8443` 配置 IP-TLS endpoint，创建带 `schema_version: 3` 和 7 条线路的标准 HAPP 配置档；输出带 `subscription_url` 的 JSON。非交互迁移是 best-effort，请检查最终配置档与服务。额外标志：`--pq` —— 为配置档在 tcp 上添加 PQ 线路（默认**关闭**：不具备 ML-KEM 的客户端连接不上 PQ 端口；结果见 JSON 的 `pq_route`），`--without-pq` —— 显式关闭，`--dns01-domain D --dns01-provider cloudflare\|route53 (--dns01-token T \| --dns01-aws-access-key-id K --dns01-aws-secret-access-key S)` —— 部署期的 DNS-01 回退。DNS-01 参数在任何系统改动**之前**校验：参数集合不完整会返回 `{"ok":false,…}` 且不做任何改动 |
 | `sudo xrayebator quickstart --without-email` | 相同的一次性部署路径，但不提供 ACME 联系邮箱；Certbot 使用 `--register-unsafely-without-email`，因此没有续期通知或邮箱恢复。若 Let's Encrypt 无法通过 http-01 验证 IP（validation 主机被服务商在 80 端口上游拦截），部署不会失败而是降级为 `http_tls`：订阅以 HTTP 发布，JSON 携带 `degraded:true`，解除 80 端口封锁后重新部署即恢复 HTTPS |
 | `sudo xrayebator inspect --json` | GUI 导入时使用的只读安装检查：返回 Xray、配置档和订阅标记状态；不会安装、迁移或修改配置 |
@@ -119,7 +120,7 @@ Xrayebator 不会更改主机的 TCP 拥塞控制算法，也不会写入或应�
 | `sudo xrayebator profile-pq --name 名称 [--transport tcp\|tcp-utls\|tcp-xudp\|tcp-mux\|grpc\|xhttp]` | 为配置档添加后量子 VLESS Encryption 线路（`mlkem768x25519plus`）：服务器预留一个空闲端口，并为该线路创建独立入站（密钥是服务器级的，来自 `.vless_decryption`）；JSON 包含 `port` 和现成的链接 `link`。密钥由迁移 `mlkem_keys` 生成（Xray-core 25.9.5+），没有密钥时命令返回带提示的错误 |
 | `sudo xrayebator fp-change --name 名称 [--route R] --fp 指纹` | 修改配置档的指纹，打印 JSON 结果 |
 | `sudo xrayebator sni-change --name 名称 [--route R] --sni SNI` | 修改配置档的 SNI，并同步更新同一端口上的所有配置档，打印 JSON 结果 |
-| `sudo xrayebator sni-list` | 按类别列出 `sni_list.txt` 中的候选 SNI，打印 JSON 结果（供桌面 GUI 的 SNI 对话框使用）。`sni_list.txt` 中第一条非注释行是新配置档的默认 SNI（`www.cloudflare.com`） |
+| `sudo xrayebator sni-list` | 按类别列出 `sni_list.txt` 中的候选 SNI，打印 JSON 结果（供桌面 GUI 的 SNI 对话框使用）。`sni_list.txt`（`/usr/local/etc/xray/data/sni_list.txt`）中第一条非注释行是新配置档的默认 SNI（`www.cloudflare.com`）。管理器现在会**从服务器本机验证该 SNI 是否可达**（判定标准与 `probe-test`/监控相同），并取第一个可达的候选：Reality 会把从 dest 获取的证书交给客户端，因此不可达的 dest 会卡住握手，而配置本身仍然有效。若全部不可达，则保留原先的默认值——探测不会因此弄坏已有部署 |
 | `sudo xrayebator port-change --name 名称 [--route R] --port 端口\|random` | 修改配置档的端口；更新入站、防火墙与订阅。客户端需要重新连接，打印 JSON 结果 |
 | `sudo xrayebator bypass list` | 按分组列出当前分流规则（JSON） |
 | `sudo xrayebator bypass add --domain D` | 向分流规则添加一个域名（JSON） |
