@@ -516,67 +516,6 @@
   }
 }
 
-.keysFields {
-  display: grid;
-  gap: 6px;
-  margin-bottom: 10px;
-}
-
-.keysField {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  font-size: 12px;
-}
-
-.keysFieldLabel {
-  color: var(--text-2);
-  min-width: 76px;
-  flex: none;
-}
-
-.keysFieldValue {
-  font-family: var(--font-mono);
-  user-select: text;
-  word-break: break-all;
-}
-
-/* --- Диалог ключей бэкендов (срез C) --- */
-.keysBlock {
-  margin: 0 0 16px;
-}
-
-.keysChipRow {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-  margin-bottom: 8px;
-}
-
-.keysNote {
-  margin: 0 0 8px;
-  font-size: 12px;
-  color: var(--text-2);
-  line-height: 1.5;
-}
-
-.keysConfPre {
-  margin: 0;
-  padding: 10px 12px;
-  background: var(--bg-1, rgba(127, 127, 127, 0.08));
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.45;
-  white-space: pre-wrap;
-  word-break: break-all;
-  max-height: 220px;
-  overflow-y: auto;
-  user-select: text;
-}
-
 .keysQrModal {
   position: fixed;
   inset: 0;
@@ -929,35 +868,111 @@
   margin-left: auto;
 }
 
-/* Окно настроек профиля: группы действий одна под другой. */
+/* Окно действий профиля. Раньше это была «одна html-страница»: плоский список
+   из заголовка капсом, абзаца и ряда кнопок, повторённый четыре раза. Теперь
+   каждая группа — выемка в стиле остальных поверхностей приложения (bg-1 +
+   border + radius, как .backendsInner/.keyConfPre), а шапка — бейдж, имя и мета,
+   как в карточке профиля. Кнопки не менялись — только их расстановка. */
 .actionsDialog {
-  max-width: 660px;
+  max-width: 620px;
 }
 
-.actionGroups {
+.actionsHead {
   display: flex;
-  flex-direction: column;
-  gap: 16px;
+  align-items: flex-start;
+  gap: 12px;
 }
 
-.settingsGroup {
+.actionsHeadIcon {
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+
+.actionsHeadText {
   display: flex;
   flex-direction: column;
   gap: 6px;
   min-width: 0;
 }
 
-.settingsGroupTitle {
+.actionsKicker {
   font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
   color: var(--text-2);
 }
 
+.actionsTitle {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--text-0);
+}
+
+.actionsMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.actionGroups {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settingsGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+
+.settingsGroupHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settingsGroupIcon {
+  display: flex;
+  flex: none;
+  color: var(--text-2);
+}
+
+.settingsGroupTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-0);
+}
+
+/* Удаление — единственное необратимое действие в окне: группа помечена
+   отдельно, чтобы её не читали как ещё один ряд кнопок. */
+.settingsGroupDanger {
+  background: color-mix(in srgb, var(--danger) 7%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 32%, var(--border));
+}
+
+.settingsGroupDanger .settingsGroupIcon {
+  color: var(--danger);
+}
+
 .settingsHint {
+  margin: 0;
   font-size: 12px;
-  line-height: 1.45;
+  line-height: 1.5;
   color: var(--text-2);
 }
 
@@ -965,6 +980,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  padding-top: 2px;
 }
 
 .protectedProfile {

@@ -1651,148 +1651,196 @@ export function ServerSettings({
                           className={`${styles.confirmDialog} ${styles.actionsDialog}`}
                         >
                           <AlertDialog.Header>
-                            <AlertDialog.Heading>
-                              {t('settings.profileSettingsTitle')} — {profile.name}
-                            </AlertDialog.Heading>
+                            <div className={styles.actionsHead}>
+                              <span className={styles.actionsHeadIcon}>
+                                <Settings2 size={18} />
+                              </span>
+                              <div className={styles.actionsHeadText}>
+                                <span className={styles.actionsKicker}>
+                                  {t('settings.profileSettingsTitle')}
+                                </span>
+                                <AlertDialog.Heading className={styles.actionsTitle}>
+                                  {profile.name}
+                                </AlertDialog.Heading>
+                                <div className={styles.actionsMeta}>
+                                  <Chip size="sm" color="accent">
+                                    {transportLabel(profile)}
+                                  </Chip>
+                                  {profile.sni && (
+                                    <span className={styles.profileSni}>{profile.sni}</span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
                           </AlertDialog.Header>
                           <AlertDialog.Body>
                             <div className={styles.actionGroups}>
-                    <div className={styles.settingsGroup}>
-                      <span className={styles.settingsGroupTitle}>
-                        {t('settings.groupRoute')}
-                      </span>
-                      <p className={styles.settingsHint}>{t('settings.groupRouteHint')}</p>
-                      <div className={styles.settingsButtons}>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      isDisabled={busy}
-                      onPress={() => {
-                        setSniTarget(profile)
-                        setSniValue(profile.sni ?? '')
-                        setSniRoute(1)
-                        setSniList(null)
-                        setSniError(null)
-                      }}
-                    >
-                      <Globe2 size={14} />
-                      {t('settings.sniBtn')}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      isDisabled={busy}
-                      onPress={() => {
-                        setFpTarget(profile)
-                        setFpValue(profile.fingerprint || 'firefox')
-                        setFpRoute(1)
-                        setFpError(null)
-                      }}
-                    >
-                      <Fingerprint size={14} />
-                      {t('settings.fpBtn')}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      isDisabled={busy}
-                      onPress={() => {
-                        setPortTarget(profile)
-                        setPortRoute(1)
-                        setPortMode('random')
-                        setPortValue('')
-                        setPortError(null)
-                      }}
-                    >
-                      <EthernetPort size={14} />
-                      {t('settings.portBtn')}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      isDisabled={busy}
-                      onPress={() => {
-                        setPqTarget(profile)
-                        setPqResult(null)
-                        setPqError(null)
-                        setPqTransport(
-                          PROTOCOLS.some((p) => p.id === profile.transport)
-                            ? profile.transport
-                            : 'tcp'
-                        )
-                      }}
-                    >
-                      <Zap size={14} />
-                      {t('settings.pqBtn')}
-                    </Button>
-                      </div>
-                    </div>
-                    <div className={styles.settingsGroup}>
-                      <span className={styles.settingsGroupTitle}>
-                        {t('settings.groupLimits')}
-                      </span>
-                      <p className={styles.settingsHint}>{t('settings.groupLimitsHint')}</p>
-                      <div className={styles.settingsButtons}>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      isDisabled={busy}
-                      onPress={() => openExpire(profile)}
-                    >
-                      <CalendarClock size={14} />
-                      {t('settings.expireBtn')}
-                    </Button>
-                    {trafficSupported && (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        isDisabled={busy}
-                        onPress={() => openLimit(profile)}
-                      >
-                        <Gauge size={14} />
-                        {t('settings.trafficBtn')}
-                      </Button>
-                    )}
-                      </div>
-                    </div>
-                    <div className={styles.settingsGroup}>
-                      <span className={styles.settingsGroupTitle}>
-                        {t('settings.groupAccess')}
-                      </span>
-                      <p className={styles.settingsHint}>{t('settings.groupAccessHint')}</p>
-                      <div className={styles.settingsButtons}>
-                    {profile.subscription_url && (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        isDisabled={busy}
-                        onPress={() => openRevoke(profile)}
-                      >
-                        <ShieldOff size={14} />
-                        {t('settings.revokeBtn')}
-                      </Button>
-                    )}
-                      </div>
-                    </div>
-                    {profile.multi_route ? null : (
-                      <div className={styles.settingsGroup}>
-                        <span className={styles.settingsGroupTitle}>
-                          {t('settings.groupDelete')}
-                        </span>
-                        <p className={styles.settingsHint}>{t('settings.groupDeleteHint')}</p>
-                        <div className={styles.settingsButtons}>
-                          <Button
-                            size="sm"
-                            variant="danger-soft"
-                            isDisabled={busy}
-                            onPress={() => setConfirmRemove(profile)}
-                          >
-                            <Trash2 size={14} />
-                            {t('settings.deleteKey')}
-                          </Button>
-                        </div>
-                      </div>
-                    )}
+                              <div className={styles.settingsGroup}>
+                                <div className={styles.settingsGroupHead}>
+                                  <span className={styles.settingsGroupIcon}>
+                                    <Link2 size={15} />
+                                  </span>
+                                  <span className={styles.settingsGroupTitle}>
+                                    {t('settings.groupRoute')}
+                                  </span>
+                                </div>
+                                <p className={styles.settingsHint}>
+                                  {t('settings.groupRouteHint')}
+                                </p>
+                                <div className={styles.settingsButtons}>
+                                  <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    isDisabled={busy}
+                                    onPress={() => {
+                                      setSniTarget(profile)
+                                      setSniValue(profile.sni ?? '')
+                                      setSniRoute(1)
+                                      setSniList(null)
+                                      setSniError(null)
+                                    }}
+                                  >
+                                    <Globe2 size={14} />
+                                    {t('settings.sniBtn')}
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    isDisabled={busy}
+                                    onPress={() => {
+                                      setFpTarget(profile)
+                                      setFpValue(profile.fingerprint || 'firefox')
+                                      setFpRoute(1)
+                                      setFpError(null)
+                                    }}
+                                  >
+                                    <Fingerprint size={14} />
+                                    {t('settings.fpBtn')}
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    isDisabled={busy}
+                                    onPress={() => {
+                                      setPortTarget(profile)
+                                      setPortRoute(1)
+                                      setPortMode('random')
+                                      setPortValue('')
+                                      setPortError(null)
+                                    }}
+                                  >
+                                    <EthernetPort size={14} />
+                                    {t('settings.portBtn')}
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    isDisabled={busy}
+                                    onPress={() => {
+                                      setPqTarget(profile)
+                                      setPqResult(null)
+                                      setPqError(null)
+                                      setPqTransport(
+                                        PROTOCOLS.some((p) => p.id === profile.transport)
+                                          ? profile.transport
+                                          : 'tcp'
+                                      )
+                                    }}
+                                  >
+                                    <Zap size={14} />
+                                    {t('settings.pqBtn')}
+                                  </Button>
+                                </div>
+                              </div>
+                              <div className={styles.settingsGroup}>
+                                <div className={styles.settingsGroupHead}>
+                                  <span className={styles.settingsGroupIcon}>
+                                    <Gauge size={15} />
+                                  </span>
+                                  <span className={styles.settingsGroupTitle}>
+                                    {t('settings.groupLimits')}
+                                  </span>
+                                </div>
+                                <p className={styles.settingsHint}>
+                                  {t('settings.groupLimitsHint')}
+                                </p>
+                                <div className={styles.settingsButtons}>
+                                  <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    isDisabled={busy}
+                                    onPress={() => openExpire(profile)}
+                                  >
+                                    <CalendarClock size={14} />
+                                    {t('settings.expireBtn')}
+                                  </Button>
+                                  {trafficSupported && (
+                                    <Button
+                                      size="sm"
+                                      variant="secondary"
+                                      isDisabled={busy}
+                                      onPress={() => openLimit(profile)}
+                                    >
+                                      <Gauge size={14} />
+                                      {t('settings.trafficBtn')}
+                                    </Button>
+                                  )}
+                                </div>
+                              </div>
+                              <div className={styles.settingsGroup}>
+                                <div className={styles.settingsGroupHead}>
+                                  <span className={styles.settingsGroupIcon}>
+                                    <ShieldCheck size={15} />
+                                  </span>
+                                  <span className={styles.settingsGroupTitle}>
+                                    {t('settings.groupAccess')}
+                                  </span>
+                                </div>
+                                <p className={styles.settingsHint}>
+                                  {t('settings.groupAccessHint')}
+                                </p>
+                                <div className={styles.settingsButtons}>
+                                  {profile.subscription_url && (
+                                    <Button
+                                      size="sm"
+                                      variant="secondary"
+                                      isDisabled={busy}
+                                      onPress={() => openRevoke(profile)}
+                                    >
+                                      <ShieldOff size={14} />
+                                      {t('settings.revokeBtn')}
+                                    </Button>
+                                  )}
+                                </div>
+                              </div>
+                              {profile.multi_route ? null : (
+                                <div
+                                  className={`${styles.settingsGroup} ${styles.settingsGroupDanger}`}
+                                >
+                                  <div className={styles.settingsGroupHead}>
+                                    <span className={styles.settingsGroupIcon}>
+                                      <Trash2 size={15} />
+                                    </span>
+                                    <span className={styles.settingsGroupTitle}>
+                                      {t('settings.groupDelete')}
+                                    </span>
+                                  </div>
+                                  <p className={styles.settingsHint}>
+                                    {t('settings.groupDeleteHint')}
+                                  </p>
+                                  <div className={styles.settingsButtons}>
+                                    <Button
+                                      size="sm"
+                                      variant="danger-soft"
+                                      isDisabled={busy}
+                                      onPress={() => setConfirmRemove(profile)}
+                                    >
+                                      <Trash2 size={14} />
+                                      {t('settings.deleteKey')}
+                                    </Button>
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           </AlertDialog.Body>
                           <AlertDialog.Footer>
@@ -2351,21 +2399,56 @@ export function ServerSettings({
                 <AlertDialog.Container>
                   <AlertDialog.Dialog className={`${styles.confirmDialog} ${styles.actionsDialog}`}>
                     <AlertDialog.Header>
-                      <AlertDialog.Heading>
-                        {actionTarget?.kind === 'hysteria2'
-                          ? t('settings.backendsHyst')
-                          : t('settings.backendsAwg')}{' '}
-                        — {actionTarget?.profile.name ?? ''}
-                      </AlertDialog.Heading>
+                      <div className={styles.actionsHead}>
+                        <span
+                          className={`${styles.backendIcon} ${
+                            actionTarget?.kind === 'hysteria2'
+                              ? styles.backendIconHyst
+                              : styles.backendIconAwg
+                          }`}
+                        >
+                          <img
+                            src={actionTarget?.kind === 'hysteria2' ? hystLogo : amneziaLogo}
+                            alt=""
+                            className={
+                              actionTarget?.kind === 'hysteria2'
+                                ? styles.backendIconSvg
+                                : styles.backendIconImg
+                            }
+                          />
+                        </span>
+                        <div className={styles.actionsHeadText}>
+                          <span className={styles.actionsKicker}>
+                            {actionTarget?.kind === 'hysteria2'
+                              ? t('settings.backendsHyst')
+                              : t('settings.backendsAwg')}
+                          </span>
+                          <AlertDialog.Heading className={styles.actionsTitle}>
+                            {actionTarget?.profile.name ?? ''}
+                          </AlertDialog.Heading>
+                          {actionTarget && (
+                            <div className={styles.actionsMeta}>
+                              <Chip size="sm" color="accent">
+                                {transportLabel(actionTarget.profile)}
+                              </Chip>
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     </AlertDialog.Header>
                     <AlertDialog.Body>
                       {actionTarget && actionTarget.kind !== 'profile' && (
                         <div className={styles.actionGroups}>
                           <p className={styles.settingsHint}>{t('settings.backendProfileHint')}</p>
                           <div className={styles.settingsGroup}>
-                            <span className={styles.settingsGroupTitle}>
-                              {t('settings.groupLimits')}
-                            </span>
+                            <div className={styles.settingsGroupHead}>
+                              <span className={styles.settingsGroupIcon}>
+                                <Gauge size={15} />
+                              </span>
+                              <span className={styles.settingsGroupTitle}>
+                                {t('settings.groupLimits')}
+                              </span>
+                            </div>
                             <p className={styles.settingsHint}>{t('settings.groupLimitsHint')}</p>
                             <div className={styles.settingsButtons}>
                               <Button
@@ -2391,9 +2474,14 @@ export function ServerSettings({
                             </div>
                           </div>
                           <div className={styles.settingsGroup}>
-                            <span className={styles.settingsGroupTitle}>
-                              {t('settings.groupAccess')}
-                            </span>
+                            <div className={styles.settingsGroupHead}>
+                              <span className={styles.settingsGroupIcon}>
+                                <ShieldCheck size={15} />
+                              </span>
+                              <span className={styles.settingsGroupTitle}>
+                                {t('settings.groupAccess')}
+                              </span>
+                            </div>
                             <p className={styles.settingsHint}>{t('settings.groupAccessHint')}</p>
                             <div className={styles.settingsButtons}>
                               <Button
@@ -2408,10 +2496,17 @@ export function ServerSettings({
                             </div>
                           </div>
                           {!actionTarget.profile.multi_route && (
-                            <div className={styles.settingsGroup}>
-                              <span className={styles.settingsGroupTitle}>
-                                {t('settings.groupDelete')}
-                              </span>
+                            <div
+                              className={`${styles.settingsGroup} ${styles.settingsGroupDanger}`}
+                            >
+                              <div className={styles.settingsGroupHead}>
+                                <span className={styles.settingsGroupIcon}>
+                                  <Trash2 size={15} />
+                                </span>
+                                <span className={styles.settingsGroupTitle}>
+                                  {t('settings.groupDelete')}
+                                </span>
+                              </div>
                               <p className={styles.settingsHint}>
                                 {t('settings.groupDeleteHint')}
                               </p>
