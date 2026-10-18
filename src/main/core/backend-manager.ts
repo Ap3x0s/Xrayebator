@@ -6,6 +6,7 @@ import type {
   AwgConfResult,
   BackendGrantResult,
   BackendSimpleResult,
+  BackendStartResult,
   BackendStatusResult,
   BackendToggleResult,
   Hysteria2LinkResult,
@@ -148,6 +149,33 @@ export class BackendManager {
         error?: string
       }
       return { ok: payload.ok === true, already: payload.already === true, error: payload.error }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return { ok: false, error: message }
+    }
+  }
+
+  /**
+   * Поднять бэкенд, который установлен, но не работает: юнит не активен после
+   * перезагрузки (у AWG — не загрузился модуль ядра) или ручного down.
+   * Только запуск: реестр не меняется, креды профилей не трогаются.
+   */
+  async start(type: 'hysteria2' | 'awg'): Promise<BackendStartResult> {
+    try {
+      const payload = extractJson(await this.run(['backend-start', '--type', type])) as {
+        ok?: boolean
+        type?: string
+        state?: string
+        already?: boolean
+        error?: string
+      }
+      return {
+        ok: payload.ok === true,
+        type: payload.type,
+        state: payload.state,
+        already: payload.already === true,
+        error: payload.error
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       return { ok: false, error: message }

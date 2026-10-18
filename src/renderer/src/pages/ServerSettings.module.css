@@ -340,6 +340,20 @@
   color: var(--success, #2fb344);
 }
 
+/* Установлен, но не работает (юнит не активен): это ошибка, а не «серое
+   неизвестно» — туннель лежит, пока бэкенд не поднят. */
+.backendStateDown {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.backendStateHint {
+  margin: 0 0 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+
 /* Единая внутренняя выемка на ОБА бэкенда — как затемнённые inner-box ключей. */
 .backendsInner {
   background: var(--bg-1, rgba(127, 127, 127, 0.1));

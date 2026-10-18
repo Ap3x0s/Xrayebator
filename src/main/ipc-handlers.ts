@@ -628,6 +628,15 @@ export function registerIpcHandlers({ store }: IpcContext): void {
   })
 
   ipcMain.handle(
+    'backends:start',
+    async (_e, serverId: string, access: SshAccessInput, type: string) => {
+      if (type !== 'hysteria2' && type !== 'awg') throw new Error('Неизвестный бэкенд')
+      const manager = await backendManagerFor(serverId, access)
+      return manager.start(type)
+    }
+  )
+
+  ipcMain.handle(
     'backends:hysteria2Grant',
     async (_e, serverId: string, access: SshAccessInput, name: string) => {
       if (!name) throw new Error('Не указано имя профиля')

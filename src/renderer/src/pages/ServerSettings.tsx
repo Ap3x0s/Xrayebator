@@ -29,6 +29,7 @@ import {
 import { useTranslation } from 'react-i18next'
 import type {
   AlertsStatusResult,
+  BackendEntry,
   BackendStatusResult,
   Dns01StatusResult,
   ProfilePqResult,
@@ -134,8 +135,28 @@ const BACKEND_CONFIRM_ACTION_KEYS: Record<
   'awg-revoke-all': 'settings.backendsActionRevokeAwgAll'
 }
 
-export const SNI_CATEGORIES = [
-  'ru_whitelist',
+/**
+ * Состояние бэкенда: «установлен» ≠ «работает». Подпись и цвет берутся из ОДНОГО
+ * признака — раньше текст шёл от `installed`, а зелёный цвет от `state`, поэтому
+ * упавший после перезагрузки AWG рисовался серым «Активен · UDP …» (живой
+ * дефект: модуль amneziawg не загрузился, интерфейса нет, туннель лежит).
+ * `down` — установлен, но юнит/интерфейс не поднят: это чинится кнопкой
+ * «Запустить», а не переустановкой.
+ */
+type BackendTone = 'ok' | 'down' | 'absent'
+
+function backendTone(entry: BackendEntry | undefined): BackendTone {
+  if (!entry?.installed) return 'absent'
+  return entry.state === 'active' ? 'ok' : 'down'
+}
+
+const BACKEND_TONE_CLASS: Record<BackendTone, string> = {
+  ok: styles.backendStateOk,
+  down: styles.backendStateDown,
+  absent: ''
+}
+
+export const SNI_CATEGORIES = [  'ru_whitelist',
   'yandex_cdn',
   'foreign',
   'fallback'
@@ -1025,6 +1046,8 @@ export function ServerSettings({
     setConfirmBackend(null)
     return runBackendAction('awg31', () => window.api.backends.awg31(server.id, access, on))
   }
+  const startBackend = (type: 'hysteria2' | 'awg'): Promise<void> =>
+    runBackendAction(`${type}-start`, () => window.api.backends.start(server.id, access, type))
 
   // Revoke/Срок на карточках бэкендов: креденшелы per-profile, поэтому
   // операции идут по всем профилям с грантом этого бэкенда.
@@ -1237,6 +1260,9 @@ export function ServerSettings({
 
   const hyst = backends?.backends.hysteria2
   const awgEntry = backends?.backends.awg
+  // Тон состояния — один признак на подпись и цвет (см. backendTone).
+  const hystTone = backendTone(hyst)
+  const awgTone = backendTone(awgEntry)
 
   const transportLabel = (profile: ServerProfile): string =>
     profile.multi_route ? `${profile.transport} · ${profile.routes} ${t('settings.routes')}` : profile.transport
@@ -1791,23 +1817,41 @@ export function ServerSettings({
                             {t('settings.backendsHyst')} · {t('settings.backendsHystSub')}
                           </div>
                           <div
-                            className={`${styles.backendState} ${
-                              hyst?.state === 'active' ? styles.backendStateOk : ''
-                            }`}
+                            className={`${styles.backendState} ${BACKEND_TONE_CLASS[hystTone]}`}
                           >
-                            {hyst?.state === 'active'
-                              ? hyst.sni
+                            {hystTone === 'ok'
+                              ? hyst?.sni
                                 ? `${t('settings.backendsActive')} · SNI ${hyst.sni}`
-                                : `${t('settings.backendsActive')} · UDP ${hyst.port ?? '—'}`
-                              : t('settings.backendsNotInstalled')}
+                                : `${t('settings.backendsActive')} · UDP ${hyst?.port ?? '—'}`
+                              : hystTone === 'down'
+                                ? t('settings.backendsStopped')
+                                : t('settings.backendsNotInstalled')}
                           </div>
+                          {hystTone === 'down' && (
+                            <p className={styles.backendStateHint}>
+                              {t('settings.backendsStoppedHint', { unit: hyst?.unit ?? '—' })}
+                            </p>
+                          )}
                         </div>
                       </div>
                       <div className={styles.backendActions}>
+                        {hystTone === 'down' && (
+                          <Button
+                            size="sm"
+                            variant="primary"
+                            isDisabled={busy || !accessReady}
+                            onPress={() => void startBackend('hysteria2')}
+                          >
+                            <Play size={14} />
+                            {backendBusy === 'hysteria2-start'
+                              ? t('settings.backendsStarting')
+                              : t('settings.backendsStart')}
+                          </Button>
+                        )}
                         <Button
                           size="sm"
                           variant="secondary"
-                          isDisabled={busy || hyst?.state !== 'active'}
+                          isDisabled={busy || hystTone !== 'ok'}
                           onPress={() => void qrProfileHyst(profile)}
                         >
                           {t('keys.qr')}
@@ -1836,21 +1880,39 @@ export function ServerSettings({
                             {t('settings.backendsAwg')} · {t('settings.backendsAwgSub')}
                           </div>
                           <div
-                            className={`${styles.backendState} ${
-                              awgEntry?.state === 'active' ? styles.backendStateOk : ''
-                            }`}
+                            className={`${styles.backendState} ${BACKEND_TONE_CLASS[awgTone]}`}
                           >
-                            {awgEntry?.state === 'active'
-                              ? `${t('settings.backendsActive')} · UDP ${awgEntry.port ?? '—'}`
-                              : t('settings.backendsNotInstalled')}
+                            {awgTone === 'ok'
+                              ? `${t('settings.backendsActive')} · UDP ${awgEntry?.port ?? '—'}`
+                              : awgTone === 'down'
+                                ? t('settings.backendsStopped')
+                                : t('settings.backendsNotInstalled')}
                           </div>
+                          {awgTone === 'down' && (
+                            <p className={styles.backendStateHint}>
+                              {t('settings.backendsStoppedHint', { unit: awgEntry?.unit ?? '—' })}
+                            </p>
+                          )}
                         </div>
                       </div>
                       <div className={styles.backendActions}>
+                        {awgTone === 'down' && (
+                          <Button
+                            size="sm"
+                            variant="primary"
+                            isDisabled={busy || !accessReady}
+                            onPress={() => void startBackend('awg')}
+                          >
+                            <Play size={14} />
+                            {backendBusy === 'awg-start'
+                              ? t('settings.backendsStarting')
+                              : t('settings.backendsStart')}
+                          </Button>
+                        )}
                         <Button
                           size="sm"
                           variant="secondary"
-                          isDisabled={busy || awgEntry?.state !== 'active'}
+                          isDisabled={busy || awgTone !== 'ok'}
                           onPress={() => void qrProfileAwg(profile)}
                         >
                           {t('keys.qr')}
@@ -1858,7 +1920,7 @@ export function ServerSettings({
                         <Button
                           size="sm"
                           variant="secondary"
-                          isDisabled={busy || awgEntry?.state !== 'active'}
+                          isDisabled={busy || awgTone !== 'ok'}
                           onPress={() => void qrProfileAwgVpn(profile)}
                         >
                           {t('keys.backendsQrVpn')}
@@ -1914,21 +1976,37 @@ export function ServerSettings({
                             <div className={styles.backendSub}>{t('settings.backendsHystSub')}</div>
                           </div>
                         </div>
-                        <div
-                          className={`${styles.backendState} ${
-                            hyst?.state === 'active' ? styles.backendStateOk : ''
-                          }`}
-                        >
-                          {hyst?.installed
-                            ? `${t('settings.backendsActive')} · UDP ${hyst.port ?? '—'} · ${
-                                hyst.version ?? ''
+                        <div className={`${styles.backendState} ${BACKEND_TONE_CLASS[hystTone]}`}>
+                          {hystTone === 'ok'
+                            ? `${t('settings.backendsActive')} · UDP ${hyst?.port ?? '—'} · ${
+                                hyst?.version ?? ''
                               }`
-                            : t('settings.backendsNotInstalled')}
+                            : hystTone === 'down'
+                              ? t('settings.backendsStopped')
+                              : t('settings.backendsNotInstalled')}
                         </div>
+                        {hystTone === 'down' && (
+                          <p className={styles.backendStateHint}>
+                            {t('settings.backendsStoppedHint', { unit: hyst?.unit ?? '—' })}
+                          </p>
+                        )}
                         <p className={styles.backendNote}>{t('settings.backendsHystNote')}</p>
                         <div className={styles.backendActions}>
                           {hyst?.installed ? (
                             <>
+                              {hystTone === 'down' && (
+                                <Button
+                                  size="sm"
+                                  variant="primary"
+                                  isDisabled={busy || !accessReady}
+                                  onPress={() => void startBackend('hysteria2')}
+                                >
+                                  <Play size={14} />
+                                  {backendBusy === 'hysteria2-start'
+                                    ? t('settings.backendsStarting')
+                                    : t('settings.backendsStart')}
+                                </Button>
+                              )}
                               <Button
                                 size="sm"
                                 variant={hyst.sub_body ? 'secondary' : 'primary'}
@@ -1988,23 +2066,39 @@ export function ServerSettings({
                             <div className={styles.backendSub}>{t('settings.backendsAwgSub')}</div>
                           </div>
                         </div>
-                        <div
-                          className={`${styles.backendState} ${
-                            awgEntry?.state === 'active' ? styles.backendStateOk : ''
-                          }`}
-                        >
-                          {awgEntry?.installed
-                            ? `${t('settings.backendsActive')} · UDP ${awgEntry.port ?? '—'} · ${
-                                awgEntry.three_enabled
+                        <div className={`${styles.backendState} ${BACKEND_TONE_CLASS[awgTone]}`}>
+                          {awgTone === 'ok'
+                            ? `${t('settings.backendsActive')} · UDP ${awgEntry?.port ?? '—'} · ${
+                                awgEntry?.three_enabled
                                   ? t('settings.backends31On')
                                   : t('settings.backends31Off')
                               }`
-                            : t('settings.backendsNotInstalled')}
+                            : awgTone === 'down'
+                              ? t('settings.backendsStopped')
+                              : t('settings.backendsNotInstalled')}
                         </div>
+                        {awgTone === 'down' && (
+                          <p className={styles.backendStateHint}>
+                            {t('settings.backendsStoppedHint', { unit: awgEntry?.unit ?? '—' })}
+                          </p>
+                        )}
                         <p className={styles.backendNote}>{t('settings.backendsAwgNote')}</p>
                         <div className={styles.backendActions}>
                           {awgEntry?.installed ? (
                             <>
+                              {awgTone === 'down' && (
+                                <Button
+                                  size="sm"
+                                  variant="primary"
+                                  isDisabled={busy || !accessReady}
+                                  onPress={() => void startBackend('awg')}
+                                >
+                                  <Play size={14} />
+                                  {backendBusy === 'awg-start'
+                                    ? t('settings.backendsStarting')
+                                    : t('settings.backendsStart')}
+                                </Button>
+                              )}
                               <Button
                                 size="sm"
                                 variant={awgEntry.three_enabled ? 'secondary' : 'primary'}

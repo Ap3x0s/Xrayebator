@@ -7,6 +7,7 @@ import type {
   AwgConfResult,
   BackendGrantResult,
   BackendSimpleResult,
+  BackendStartResult,
   BackendStatusResult,
   BackendToggleResult,
   DeployEvent,
@@ -179,6 +180,12 @@ const api: ElectronAPI = {
   backends: {
     status: (serverId: string, access: SshAccessInput): Promise<BackendStatusResult> =>
       ipcRenderer.invoke('backends:status', serverId, access),
+    start: (
+      serverId: string,
+      access: SshAccessInput,
+      type: 'hysteria2' | 'awg'
+    ): Promise<BackendStartResult> =>
+      ipcRenderer.invoke('backends:start', serverId, access, type),
     hysteria2Grant: (
       serverId: string,
       access: SshAccessInput,

@@ -227,12 +227,23 @@ export interface BackendSimpleResult {
   error?: string
 }
 
+/**
+ * Результат `backend-start`: поднять бэкенд, который установлен, но не работает.
+ * `already` — юнит уже был активен; `state` — состояние после попытки запуска.
+ */
+export interface BackendStartResult {
+  ok: boolean
+  type?: string
+  state?: string
+  already?: boolean
+  error?: string
+}
+
 export interface Hysteria2SubbodyResult {
   ok: boolean
   sub_body?: boolean
   error?: string
 }
-
 export interface Hysteria2LinkResult {
   ok: boolean
   name?: string
@@ -708,6 +719,12 @@ export interface ElectronAPI {
       serverId: string,
       access: SshAccessInput
     ) => Promise<BackendStatusResult>
+    /** Поднять установленный, но не работающий бэкенд (backend-start). */
+    start: (
+      serverId: string,
+      access: SshAccessInput,
+      type: 'hysteria2' | 'awg'
+    ) => Promise<BackendStartResult>
     hysteria2Grant: (
       serverId: string,
       access: SshAccessInput,
