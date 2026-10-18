@@ -277,6 +277,24 @@ _awg_verify_module || fail "_awg_verify_module with live module"
 grep -qx 'amneziawg' "$AWG_MODULES_LOAD_FILE" || fail "modules-load.d entry missing"
 pass "modules-load.d written only with a live module (reboot-safe)"
 
+# Критерий успеха установки: модуль должен быть собран под ТЕКУЩЕЕ ядро. Раньше
+# PPA-путь считал успехом один лишь `awg` в PATH — бинарник остаётся от прежней
+# ручной сборки, поэтому фолбэк-сборка не запускалась, а установка падала на
+# «модуль не загрузился» (живой случай: ядро 5.15.0-177 → -198).
+export AWG_MODULES_ROOT="$TMP_ROOT/modules"
+mkdir -p "$AWG_MODULES_ROOT/$(uname -r)/extra" "$AWG_MODULES_ROOT/5.15.0-177-generic/extra"
+touch "$AWG_MODULES_ROOT/5.15.0-177-generic/extra/amneziawg.ko"
+_awg_module_for_kernel && fail "_awg_module_for_kernel must be false for a foreign kernel"
+[[ "$(_awg_module_kernels)" == "5.15.0-177-generic " ]] \
+  || fail "kernel list mismatch: '$(_awg_module_kernels)'"
+export FAKE_LSMOD_WITH_MODULE=""
+diag=$(_awg_verify_module 2>&1 >/dev/null) && fail "verify must fail without a live module"
+[[ "$diag" == *"5.15.0-177-generic"* ]] || fail "kernel-mismatch diagnostic missing: $diag"
+touch "$AWG_MODULES_ROOT/$(uname -r)/extra/amneziawg.ko"
+_awg_module_for_kernel || fail "_awg_module_for_kernel must see the module of the running kernel"
+export FAKE_LSMOD_WITH_MODULE=1
+pass "install requires a module for the running kernel; a mismatch names the other kernel"
+
 # Рантайм: юнит спит → поднимаем; интерфейс не появился → честная ошибка
 export FAKE_SYSTEMCTL_STATE_FILE="$TMP_ROOT/unit-state"
 printf '' > "$FAKE_SYSTEMCTL_STATE_FILE"
@@ -325,6 +343,8 @@ grep -Fq '"$(basename "$profile_file" .json)" expired' xrayebator || fail "expir
 grep -Fq '    backend-start)' xrayebator || fail "dispatch backend-start missing"
 grep -Fq 'AWG_MODULES_LOAD_FILE="/etc/modules-load.d/xrayebator-awg.conf"' xrayebator \
   || fail "modules-load.d path constant missing"
+grep -Fq '_awg_module_for_kernel' xrayebator || fail "running-kernel module check missing"
+grep -Fq 'dkms autoinstall' xrayebator || fail "DKMS rebuild step missing in install path"
 grep -Fq '_migrate_awg_module_2026() {' xrayebator || fail "awg module migration missing"
 grep -Fq 'run_migration "awg_module_2026"' xrayebator || fail "awg module migration not registered"
 grep -Fq 'rm -f "$AWG_MODULES_LOAD_FILE"' xrayebator || fail "uninstall must drop modules-load.d entry"

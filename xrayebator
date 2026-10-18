@@ -3837,7 +3837,19 @@ _awg_install_packages() {
   fi
   apt-get update -qq >/dev/null 2>&1 || true
   apt-get "${APT_LOCK_OPTS[@]}" install -y --no-install-recommends amneziawg >/dev/null 2>&1
-  command -v awg >/dev/null 2>&1
+  command -v awg >/dev/null 2>&1 || return 1
+  # Наличие `awg` в PATH — НЕ признак успеха: бинарник остаётся от прежней ручной
+  # сборки, и тогда PPA-путь рапортовал успех без модуля, а фолбэк-сборка не
+  # запускалась (живой случай: обновление ядра 5.15.0-177 → -198, модуля для
+  # нового ядра нет, установка падала на «модуль не загрузился»). Проверяем, что
+  # модуль собран именно под текущее ядро, и если нет — пересобираем через DKMS.
+  _awg_module_for_kernel && return 0
+  if command -v dkms >/dev/null 2>&1 && dkms status 2>/dev/null | grep -qi amnezia; then
+    echo -e "${CYAN}  → Модуля нет для ядра $(uname -r) — пересобираю DKMS...${NC}"
+    dkms autoinstall >/dev/null 2>&1 || true
+    _awg_module_for_kernel && return 0
+  fi
+  return 1
 }
 
 # Ручная сборка (фолбэк, когда PPA недоступен). Требует ПОЛНЫЙ linux-source
@@ -3866,13 +3878,40 @@ _awg_install_packages_manual() {
   command -v awg >/dev/null 2>&1
 }
 
+# Корень деревьев модулей ядра. Тест переопределяет его на tmp (в CI модуля нет).
+AWG_MODULES_ROOT="${AWG_MODULES_ROOT:-/lib/modules}"
+
+# Собран ли модуль amneziawg именно под ТЕКУЩЕЕ ядро (файл .ko в его дереве).
+# Нужен и как критерий успеха установки, и как диагностика: `awg` в PATH может
+# остаться от прежней ручной сборки, а модуль — только от прежнего ядра.
+_awg_module_for_kernel() {
+  find "$AWG_MODULES_ROOT/$(uname -r)" -name 'amneziawg.ko*' 2>/dev/null | grep -q .
+}
+
+# Ядра, для которых модуль amneziawg собран (через пробел) — для честной
+# диагностики, когда modprobe не срабатывает.
+_awg_module_kernels() {
+  find "$AWG_MODULES_ROOT" -name 'amneziawg.ko*' 2>/dev/null \
+    | sed "s|^$AWG_MODULES_ROOT/||; s|/.*||" | sort -u | tr '\n' ' '
+}
+
 # Проверка живого модуля: modprobe + lsmod + прописка в modules-load.d.
 # Без modules-load.d модуль после перезагрузки не загружается, юнит интерфейса
 # падает, а реестр продолжает показывать installed — то есть «установлено» и
 # «работает» расходятся. Без живого модуля backend не регистрируем.
 _awg_verify_module() {
   modprobe amneziawg 2>/dev/null || true
-  lsmod 2>/dev/null | grep -q '^amneziawg ' || return 1
+  if ! lsmod 2>/dev/null | grep -q '^amneziawg '; then
+    # Честная причина вместо «modprobe не сработал»: модуль есть, но собран для
+    # ДРУГОГО ядра (обновление ядра без пересборки) — тогда нужна пересборка, а
+    # не modprobe.
+    local built_for
+    built_for=$(_awg_module_kernels)
+    if [[ -n "$built_for" ]]; then
+      echo -e "${YELLOW}  ⚠ Модуль amneziawg собран для ядра: ${built_for% } (текущее $(uname -r)) — нужна пересборка (awg-install после awg-uninstall)${NC}" >&2
+    fi
+    return 1
+  fi
   if [[ "$(cat "$AWG_MODULES_LOAD_FILE" 2>/dev/null)" != "amneziawg" ]]; then
     printf 'amneziawg\n' > "$AWG_MODULES_LOAD_FILE" 2>/dev/null || true
     chmod 644 "$AWG_MODULES_LOAD_FILE" 2>/dev/null || true
