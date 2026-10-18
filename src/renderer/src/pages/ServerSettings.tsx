@@ -1653,7 +1653,7 @@ export function ServerSettings({
                           <AlertDialog.Header>
                             <div className={styles.actionsHead}>
                               <span className={styles.actionsHeadIcon}>
-                                <Settings2 size={20} />
+                                <Settings2 size={22} />
                               </span>
                               <div className={styles.actionsHeadText}>
                                 <span className={styles.actionsKicker}>

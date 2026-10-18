@@ -889,9 +889,9 @@
 }
 
 .actionsHeadIcon {
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
+  width: 44px;
+  height: 44px;
+  border-radius: 13px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -901,15 +901,14 @@
   color: var(--badge-ink, var(--accent));
 }
 
-/* Логотип протокола внутри бейджа: с полями, иначе растр Amnezia заливает
-   значок до краёв и рядом с векторной иконкой настроек смотрится «забитым».
-   Радиус — потому что JPG Amnezia непрозрачный: квадрат внутри бейджа должен
-   читаться как логотип, а не как чёрная заплата. */
+/* Логотип протокола — во всю высоту бейджа: растр Amnezia квадратный, поэтому
+   `contain` показывает его максимально крупно (ужимать до 68% было ошибкой —
+   значки в окнах стали мельче, чем в карточках), а широкий SVG Hysteria просто
+   вписывается. Углы подрезает сам бейдж (overflow: hidden). */
 .actionsHeadImg {
-  width: 68%;
-  height: 68%;
+  width: 100%;
+  height: 100%;
   object-fit: contain;
-  border-radius: 8px;
 }
 
 .actionsHeadText {
