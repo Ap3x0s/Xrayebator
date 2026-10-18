@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import QRCode from 'qrcode'
 import { Button, Chip, Spinner } from '@heroui/react'
 import { Settings2 } from 'lucide-react'
@@ -30,6 +30,7 @@ export function ServerKeys({ server, onBack, onSettings }: ServerKeysProps): Rea
   const [awgConfs, setAwgConfs] = useState<Record<string, string>>(server.awgConfs ?? {})
   const [subscriptionUrl, setSubscriptionUrl] = useState(server.subscriptionUrl)
   const [toast, setToast] = useState<string | null>(null)
+  const qrModalRef = useRef<HTMLDivElement>(null)
   const [loading, setLoading] = useState(false)
   const [qrUrl, setQrUrl] = useState<string | null>(null)
   const [qrData, setQrData] = useState<string | null>(null)
@@ -138,6 +139,8 @@ export function ServerKeys({ server, onBack, onSettings }: ServerKeysProps): Rea
 
   useEffect(() => {
     if (!qrUrl) return
+    // Оверлей забирает фокус сам: иначе Esc и Tab остаются в интерфейсе под ним.
+    qrModalRef.current?.focus()
     const onEsc = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') closeQr()
     }
@@ -393,10 +396,12 @@ export function ServerKeys({ server, onBack, onSettings }: ServerKeysProps): Rea
           className={styles.qrModal}
           role="dialog"
           aria-modal="true"
-          aria-label="QR"
+          aria-label={t('keys.qr')}
+          tabIndex={-1}
+          ref={qrModalRef}
           onClick={closeQr}
         >
-          {qrData ? <img src={qrData} alt="QR" /> : null}
+          {qrData ? <img src={qrData} alt={t('keys.qr')} /> : null}
         </div>
       )}
     </div>

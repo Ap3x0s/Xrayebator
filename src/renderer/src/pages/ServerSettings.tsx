@@ -53,7 +53,7 @@ import { copyText } from '../lib/clipboard'
 import { shouldAutoConnectServer } from './server-access'
 import styles from './ServerSettings.module.css'
 import hystLogo from '../assets/hysteria-logo.svg'
-import amneziaLogo from '../assets/amnezia-logo.jpg'
+import amneziaLogo from '../assets/amnezia-logo.png'
 
 interface ServerSettingsProps {
   server: Server
@@ -186,6 +186,7 @@ export function ServerSettings({
   // полное копирование только на странице Ключей (решение 2026-10-06).
   const [keysQrUrl, setKeysQrUrl] = useState<string | null>(null)
   const [keysQrData, setKeysQrData] = useState<string | null>(null)
+  const qrModalRef = useRef<HTMLDivElement>(null)
   const [error, setError] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   // Раздел настроек. Панели скрываются атрибутом hidden (см. styles.sectionPane),
@@ -366,6 +367,8 @@ export function ServerSettings({
 
   useEffect(() => {
     if (!keysQrUrl) return
+    // Оверлей забирает фокус сам: иначе Esc и Tab остаются в интерфейсе под ним.
+    qrModalRef.current?.focus()
     const onEsc = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') setKeysQrUrl(null)
     }
@@ -1347,10 +1350,12 @@ export function ServerSettings({
             className={styles.keysQrModal}
             role="dialog"
             aria-modal="true"
-            aria-label="QR"
+            aria-label={t('keys.qr')}
+            tabIndex={-1}
+            ref={qrModalRef}
             onClick={() => setKeysQrUrl(null)}
           >
-            {keysQrData ? <img src={keysQrData} alt="QR" /> : null}
+            {keysQrData ? <img src={keysQrData} alt={t('keys.qr')} /> : null}
           </div>
         )}
 
