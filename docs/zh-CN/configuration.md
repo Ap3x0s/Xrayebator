@@ -128,13 +128,14 @@ Xrayebator 不会更改主机的 TCP 拥塞控制算法，也不会写入或应�
 | `sudo xrayebator bypass reset` | 清空所有自定义分流规则（JSON） |
 | `sudo xrayebator bypass bundle [--group a,b,c]` | 应用默认分流分组；不带 `--group` 时重新应用全部分组（JSON） |
 | `sudo xrayebator backend-status` | 以 JSON 输出多协议后端注册表状态（`{"ok":true,"backends":{…}}`） |
+| `sudo xrayebator backend-start --type hysteria2\|awg` | 启动已安装但单元未激活的后端（重启或手动停止之后）：AWG 会先加载内核模块，再启动单元并验证接口；输出 JSON（本来就运行时返回 `already: true`）。GUI 的 **启动** 按钮调用的就是它 |
 | `sudo xrayebator hysteria2-install [--port P] [--grant-all]` | 安装 Hysteria 2 UDP 后端：从 `HyNetworks/hysteria` 官方 release 下载二进制（SHA-256 校验）、专用 `hysteria` 服务账户、独立 systemd 单元（`CAP_NET_BIND_SERVICE`）、QUIC sysctl 缓冲、自适应 TLS（优先复用订阅的 Let's Encrypt 证书并附续期 deploy-hook，否则自签）；UDP 端口默认 443；输出 JSON（已安装时 `already: true`） |
 | `sudo xrayebator hysteria2-uninstall` | 移除 Hysteria 2 后端（服务、配置、证书、防火墙规则）；JSON |
 | `sudo xrayebator hysteria2-status` | Hysteria 2 后端状态（JSON） |
 | `sudo xrayebator hysteria2-grant --name N` | 为配置档签发 Hysteria 2 凭据（存入配置档的 `.backends.hysteria2`）；服务端配置按全部配置档重新生成；JSON |
 | `sudo xrayebator hysteria2-subbody --on\|--off` | 两个订阅主体中 `hysteria2://` 行的总开关：标志存于后端注册表，处理器每次请求都会重读，无需重启服务；JSON |
 | `sudo xrayebator hysteria2-link --name N` | 以 JSON `{ok, name, link}` 输出持有授权配置档的 `hysteria2://` 链接（命名与 VLESS 路由一致，带国家旗帜） |
-| `sudo xrayebator awg-install [--grant-all]` | 安装 AmneziaWG 2.0 系统级 VPN 后端：DKMS 内核模块（首选 `amnezia/ppa` PPA，回退源码编译）、`awg0` 接口与随机高位 UDP 端口、junk 参数与 Amnezia 默认值一致、`ip_forward` + MASQUERADE；JSON |
+| `sudo xrayebator awg-install [--grant-all]` | 安装 AmneziaWG 2.0 系统级 VPN 后端：DKMS 内核模块（首选 `amnezia/ppa` PPA，回退源码编译）、`awg0` 接口与随机高位 UDP 端口、junk 参数与 Amnezia 默认值一致、`ip_forward` + MASQUERADE；模块会写入 `/etc/modules-load.d/xrayebator-awg.conf` 以便开机加载（否则重启后隧道会一直处于关闭状态）；在已安装的机器上重跑会修复运行时；JSON |
 | `sudo xrayebator awg-uninstall` | 移除 AmneziaWG 后端（接口、配置、symlink、防火墙规则；软件包与模块保留在系统中）；JSON |
 | `sudo xrayebator awg-status` | AmneziaWG 后端状态（JSON） |
 | `sudo xrayebator awg-grant --name N` | 为配置档签发 peer（密钥对 + 预共享密钥 + `10.8.1.x` 地址，存入 `.backends.awg`）；重新生成 `awg0.conf`；JSON |

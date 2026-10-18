@@ -108,9 +108,16 @@ xrayebator bypass list|add --domain D|remove --domain D|reset|bundle [--group a,
 
 ```text
 xrayebator backend-status
+xrayebator backend-start --type hysteria2|awg
 xrayebator hysteria2-install [--port P] [--grant-all] / hysteria2-uninstall / hysteria2-grant --name N / hysteria2-subbody --on|--off / hysteria2-link --name N
 xrayebator awg-install [--grant-all] / awg-uninstall / awg-grant --name N / awg-conf --name N / awg-31 --on|--off
 ```
+
+Карточка бэкенда различает «установлен» и «работает»: зелёный **Активен** — юнит
+поднят, красный **Не запущен** — установлен, но юнит не активен (обычно модуль ядра
+не загрузился после перезагрузки), серый **Не установлен**. В состоянии «не запущен»
+рядом стоит кнопка **Запустить** (`backend-start`), которая грузит модуль, поднимает
+юнит и перечитывает статус.
 
 При развёртывании дополнительно вызывается один из вариантов:
 

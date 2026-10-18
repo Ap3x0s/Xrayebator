@@ -155,13 +155,19 @@ Next `0.6.5` cut: the server manager plus the GUI traffic-limit card.
   links to the profiles, and the i18n files are now guarded by a key-parity test
   (`tests/unit/i18n-parity.test.ts`) plus the first render smoke test of the settings screen. The
   profile row itself lost its eleven-button wall: it now shows **Copy** and **Settings**, and the
-  settings panel expands in place with four labelled groups (client links, route, limits, access) plus
-  deletion, each with one line explaining what the action does and what it affects — SNI/port are
-  inbound-level and touch every profile on the port, fingerprint is client-side, expiry and traffic
-  limit are profile-level. Destructive "soft" buttons (`danger-soft`: delete profile, uninstall a
+  settings window (an `AlertDialog` — it no longer pushes the profile list around by expanding in place)
+  carries four labelled groups (route, limits, access, deletion), each with one line explaining what the
+  action does and what it affects — SNI/port are inbound-level and touch every profile on the port,
+  fingerprint is client-side, expiry and traffic limit are profile-level; the Clash/sing-box links moved
+  to the Keys page, where they belong. Destructive "soft" buttons (`danger-soft`: delete profile, uninstall a
   backend, revoke keys) no longer inherit HeroUI's light-pink fill: the palette defines them as a
   muted red tint (14% of `--danger` over the card) with the standard danger text, which is AA-compliant
   and reads as an action rather than a highlight.
+- **`xrayebator backend-start --type hysteria2|awg`** brings an *installed* backend whose unit is not
+  active back up; the desktop GUI shows it as the **Start** button next to the honest "Not running"
+  state. The only mutation is `systemctl start` (plus the kernel module for AWG) and it answers JSON —
+  `already:true` when the unit was already running. Re-running `awg-install` on an existing installation
+  now performs the same repair instead of answering "already installed" without checking anything.
 
 ### Fixed
 
@@ -276,6 +282,42 @@ Next `0.6.5` cut: the server manager plus the GUI traffic-limit card.
   manager to the `dev` branch with the button above). Found on a live server: it had been switched to
   `main`, where the `backend-status` command does not exist at all, so the GUI was honestly hiding
   backend management — the install/enable UI is intact and returns as soon as the manager is on `dev`.
+- **An AmneziaWG tunnel stayed down after a reboot, while the card said "Active".** `modprobe amneziawg`
+  ran only inside the installation and nothing loaded the module at boot, so after a reboot
+  `awg-quick@awg0.service` failed with `Error: Unknown device type`, `awg0` did not exist and the tunnel
+  was dead — verified live 1h28m after the machine came back, on a server whose registry still said
+  `installed` (the monitoring check that would have alerted needs a Telegram token, which that server
+  did not have). `_awg_verify_module` now writes `/etc/modules-load.d/xrayebator-awg.conf` (0644 root,
+  written only when the module is actually live — a file promising a module the system does not have
+  would be worse than none), `_awg_ensure_runtime` loads the module, starts the unit and verifies the
+  interface with `awg show`, and the idempotent `awg_module_2026` migration repairs existing
+  installations. `awg-uninstall` drops the file again (module and packages stay, as documented).
+- **A backend card's label and its colour came from two different fields.** The text was built from
+  `installed`, the green tint from `state === 'active'`, so an installed but dead backend read
+  "Active · UDP 25187 · 3.1 enabled" in grey — the screenshot behind "make AWG green" turned out to be a
+  real outage hiding behind that mismatch. Both now derive from one predicate: green *Active*, red
+  **Not running** with the unit name and the reason (the kernel module did not load after a reboot),
+  or *Not installed*; the per-profile backend cards and their QR buttons follow the same state, and
+  **Start** is offered right where the problem is shown.
+- **The client-format links on the Keys page appeared late and vanished without SSH.** Clash/sing-box
+  URLs arrive only together with the profile list, so — unlike the vless/hysteria2/AWG keys, which live
+  in the server card — the category rendered after a round trip and disappeared when the server was
+  unreachable. The main process now stores them on every successful `profiles:list` (as a full set, so a
+  deleted profile leaves the cache), and the card is drawn from the cache like every other key. Its two
+  opaque "Clash URL"/"sing-box URL" buttons became the layout used by the rest of the page: a row per
+  profile with the mono URL, **Copy** and **QR** for each format.
+- **The profile settings window read like one plain HTML page.** A caps heading, a paragraph and a row
+  of buttons — four times over, with no border anywhere inside the dialog, and a header that glued the
+  service line to the profile name ("Profile settings — happ"). Each group is now a well in the style of
+  the rest of the app (`bg-1` + border + radius, like the backend block), with an icon, a 13px semibold
+  title, its hint and its buttons (the buttons themselves are unchanged, only their arrangement); the
+  deletion group is tinted as the only irreversible action, and the header carries a badge, the service
+  line, the profile name and a transport/SNI chip — for a backend window, the protocol logo and name.
+- **A new UI string could stay a raw key until the application was restarted** — the settings window
+  title rendered `settings.profileSettingsTitle — happ` although ru/en/zh all carried the value. Cause:
+  i18next copies strings into its store on the first `init`, while Vite accepts JSON modules itself, so
+  the importing module never re-ran on an edit. The bundles are re-applied with overwrite after `init`
+  and refreshed on HMR.
 
 ## [0.6.5-beta.2] - 2026-10-14
 

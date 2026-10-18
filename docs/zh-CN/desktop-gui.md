@@ -108,9 +108,15 @@ xrayebator bypass list|add --domain D|remove --domain D|reset|bundle [--group a,
 
 ```text
 xrayebator backend-status
+xrayebator backend-start --type hysteria2|awg
 xrayebator hysteria2-install [--port P] [--grant-all] / hysteria2-uninstall / hysteria2-grant --name N / hysteria2-subbody --on|--off / hysteria2-link --name N
 xrayebator awg-install [--grant-all] / awg-uninstall / awg-grant --name N / awg-conf --name N / awg-31 --on|--off
 ```
+
+后端卡片区分「已安装」与「正在运行」：绿色 **运行中** 表示单元已启动，红色
+**未运行** 表示已安装但单元未激活（通常是重启后内核模块没有加载），灰色
+**未安装** 表示不存在。处于「未运行」时会显示 **启动** 按钮
+（`backend-start`），它会加载模块、启动单元并重新读取状态。
 
 部署流程会调用以下命令之一：
 

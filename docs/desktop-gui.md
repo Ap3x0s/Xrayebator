@@ -109,9 +109,16 @@ Backend management additionally invokes:
 
 ```text
 xrayebator backend-status
+xrayebator backend-start --type hysteria2|awg
 xrayebator hysteria2-install [--port P] [--grant-all] / hysteria2-uninstall / hysteria2-grant --name N / hysteria2-subbody --on|--off / hysteria2-link --name N
 xrayebator awg-install [--grant-all] / awg-uninstall / awg-grant --name N / awg-conf --name N / awg-31 --on|--off
 ```
+
+A backend card tells "installed" from "working": green **Active** means the unit is
+up, red **Not running** means installed but inactive (usually the kernel module did
+not load after a reboot), grey **Not installed** means absent. In the "not running"
+state a **Start** button appears next to it (`backend-start`), which loads the
+module, starts the unit and re-reads the status.
 
 Deployment additionally invokes:
 
