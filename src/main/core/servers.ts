@@ -1,6 +1,12 @@
 import Store from 'electron-store'
 import { randomUUID } from 'node:crypto'
-import type { Server, SshAuthMethod, SshPrivilegeMode, VlessLink } from '@shared/types'
+import type {
+  Server,
+  SshAuthMethod,
+  SshPrivilegeMode,
+  SubscriptionFormats,
+  VlessLink
+} from '@shared/types'
 
 interface StoredServer extends Omit<Server, 'id' | 'createdAt'> {
   id: string
@@ -42,6 +48,15 @@ export interface ServerStore {
     payload: { hysteria2Keys?: string[]; awgConfs?: Record<string, string> }
   ) => StoredServer | undefined
   updateConnection: (id: string, input: ServerConnectionMetadata) => StoredServer | undefined
+  /**
+   * Персистит ссылки форматов клиентов (Clash/sing-box) per-profile. Пишется
+   * ПОЛНЫМ набором: ссылки выводятся из списка профилей, поэтому удалённый
+   * профиль обязан исчезнуть и из кэша.
+   */
+  updateSubscriptionFormats: (
+    id: string,
+    formats: Record<string, SubscriptionFormats>
+  ) => StoredServer | undefined
   countCredentialReferences: (credentialId: string, exceptId?: string) => number
   clearCredentialReference: (id: string) => StoredServer | undefined
   countPasswordCredentialReferences: (credentialId: string, exceptId?: string) => number
@@ -76,7 +91,8 @@ function normalizeServer(server: StoredServer, hostKeys: Record<string, string>)
       hostKeys[hostKeyId(server.host, server.port)] ?? server.hostKeyFingerprint ?? null,
     keys: server.keys ?? [],
     hysteria2Keys: server.hysteria2Keys ?? [],
-    awgConfs: server.awgConfs ?? {}
+    awgConfs: server.awgConfs ?? {},
+    subscriptionFormats: server.subscriptionFormats ?? {}
   }
 }
 
@@ -214,6 +230,20 @@ export function createServerStore(): ServerStore {
             ? input.passwordPersisted
             : servers[idx].passwordPersisted ?? null
       }
+      const next = [...servers]
+      next[idx] = updated
+      store.set('servers', next)
+      return normalizeServer(updated, store.get('hostKeys'))
+    },
+
+    updateSubscriptionFormats(
+      id: string,
+      formats: Record<string, SubscriptionFormats>
+    ): StoredServer | undefined {
+      const servers = store.get('servers')
+      const idx = servers.findIndex((s) => s.id === id)
+      if (idx === -1) return undefined
+      const updated: StoredServer = { ...servers[idx], subscriptionFormats: formats }
       const next = [...servers]
       next[idx] = updated
       store.set('servers', next)

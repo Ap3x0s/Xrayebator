@@ -112,6 +112,13 @@ export interface Server {
   hysteria2Keys?: string[]
   /** Кэш клиентских .conf AWG per-profile (имя профиля → конфиг). */
   awgConfs?: Record<string, string>
+  /**
+   * Та же подписка в форматах конкретных клиентов (имя профиля → ссылки).
+   * Кэшируется вместе с ключами: связка «профиль → ссылка» приходит только по
+   * SSH, и без кэша категория форматов на странице «Ключи» была пуста до ответа
+   * сервера и пропадала при недоступном SSH.
+   */
+  subscriptionFormats?: Record<string, SubscriptionFormats>
   authMethod?: SshAuthMethod
   privilegeMode?: SshPrivilegeMode
   privateKeyPath?: string | null
@@ -135,6 +142,15 @@ export interface VlessLink {
   name: string
   url: string
   transport: 'tcp' | 'grpc' | 'xhttp'
+}
+
+/**
+ * Ссылки той же подписки, но в формате клиента: Clash/mihomo отдаёт YAML,
+ * sing-box — JSON. Токен тот же, меняется только `?target=`.
+ */
+export interface SubscriptionFormats {
+  clash?: string
+  singbox?: string
 }
 
 export interface SubscriptionResult {

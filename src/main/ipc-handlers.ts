@@ -16,7 +16,9 @@ import type {
   ProfileSniInput,
   Server,
   ServerMaintenanceResult,
-  SshAccessInput
+  ServerProfile,
+  SshAccessInput,
+  SubscriptionFormats
 } from '@shared/types'
 import type { Dns01Input } from '@shared/dns01'
 import type { ServerConnectionMetadata, ServerStore } from './core/servers'
@@ -44,6 +46,23 @@ import type { SshCredentials } from './core/ssh-client'
 
 interface IpcContext {
   store: ServerStore
+}
+
+/**
+ * Ссылки форматов клиентов из списка профилей — для кэша в карточке сервера.
+ * Профили без форматов в набор не попадают: на старых менеджерах этих полей нет
+ * вовсе, и пустая запись только замусорила бы стор.
+ */
+function subscriptionFormatsFromProfiles(
+  profiles: ServerProfile[]
+): Record<string, SubscriptionFormats> {
+  const formats: Record<string, SubscriptionFormats> = {}
+  for (const profile of profiles) {
+    const clash = profile.subscription_url_clash
+    const singbox = profile.subscription_url_singbox
+    if (clash || singbox) formats[profile.name] = { clash, singbox }
+  }
+  return formats
 }
 
 export function registerIpcHandlers({ store }: IpcContext): void {
@@ -441,9 +460,14 @@ export function registerIpcHandlers({ store }: IpcContext): void {
     return new MaintenanceManager(credentials)
   }
 
-  ipcMain.handle('profiles:list', async (_e, serverId: string, access: SshAccessInput) => {    const manager = await profileManagerFor(serverId, access)
+  ipcMain.handle('profiles:list', async (_e, serverId: string, access: SshAccessInput) => {
+    const manager = await profileManagerFor(serverId, access)
     const result = await manager.list()
     if (!result.ok) throw new Error(result.error ?? 'Не удалось получить список профилей')
+    // Ссылки форматов (Clash/sing-box) приходят только вместе со списком
+    // профилей: кэшируем их в карточке сервера — страница «Ключи» рисует
+    // категорию мгновенно и не теряет её, когда SSH недоступен.
+    store.updateSubscriptionFormats(serverId, subscriptionFormatsFromProfiles(result.profiles ?? []))
     return result
   })
 

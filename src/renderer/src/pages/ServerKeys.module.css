@@ -84,34 +84,47 @@
 }
 
 /* Другие форматы той же подписки (Clash/mihomo YAML, sing-box JSON): категория на
-   странице ключей, а не в настройках профиля. */
-.formatsHint {
-  font-size: 12px;
-  line-height: 1.45;
-  color: var(--text-2);
-  margin-bottom: 10px;
+   странице ключей, а не в настройках профиля. Внутри — те же моно-URL и действия,
+   что у остальных ключей: раньше это были две непрозрачные кнопки без ссылки. */
+.formatProfile {
+  padding: 10px 0;
 }
 
-.formatRow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 0;
-}
-
-.formatRow + .formatRow {
+.formatProfile + .formatProfile {
   border-top: 1px solid var(--border);
 }
 
-.formatName {
-  flex: 1;
-  min-width: 0;
+.formatProfileName {
   font-size: 13px;
   font-weight: 600;
   color: var(--text-0);
+  margin-bottom: 8px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.formatItem + .formatItem {
+  margin-top: 10px;
+}
+
+.formatItemHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.formatLabel {
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.formatActions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 .keyNote {

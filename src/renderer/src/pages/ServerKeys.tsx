@@ -7,6 +7,7 @@ import type {
   Server,
   ServerProfile,
   SshAccessInput,
+  SubscriptionFormats,
   VlessLink
 } from '@shared/types'
 import { vlessPort } from '@shared/vless'
@@ -14,6 +15,9 @@ import { buildAwgVpnUrl, parseAwgClientConf, stripAwgComments } from '@shared/aw
 import { copyText } from '../lib/clipboard'
 import { shouldAutoConnectServer } from './server-access'
 import styles from './ServerKeys.module.css'
+
+/** Форматы одной подписки: порядок фиксирован — Clash сверху, sing-box снизу. */
+const FORMAT_KINDS = ['clash', 'singbox'] as const
 
 interface ServerKeysProps {
   server: Server
@@ -28,6 +32,11 @@ export function ServerKeys({ server, onBack, onSettings }: ServerKeysProps): Rea
   // Бэкенд-ключи инициализируются из карточки сервера — мгновенно, как vless.
   const [hysteria2Links, setHysteria2Links] = useState<string[]>(server.hysteria2Keys ?? [])
   const [awgConfs, setAwgConfs] = useState<Record<string, string>>(server.awgConfs ?? {})
+  // Ссылки форматов клиентов лежат в карточке сервера — как остальные ключи:
+  // категория рисуется сразу из кэша, а не после ответа SSH.
+  const [formats, setFormats] = useState<Record<string, SubscriptionFormats>>(
+    server.subscriptionFormats ?? {}
+  )
   const [subscriptionUrl, setSubscriptionUrl] = useState(server.subscriptionUrl)
   const [toast, setToast] = useState<string | null>(null)
   const qrModalRef = useRef<HTMLDivElement>(null)
@@ -62,6 +71,7 @@ export function ServerKeys({ server, onBack, onSettings }: ServerKeysProps): Rea
         setKeys(fresh.keys ?? [])
         setHysteria2Links(fresh.hysteria2Keys ?? [])
         setAwgConfs(fresh.awgConfs ?? {})
+        setFormats(fresh.subscriptionFormats ?? {})
         setSubscriptionUrl(fresh.subscriptionUrl)
       })
       .catch(() => {
@@ -117,8 +127,11 @@ export function ServerKeys({ server, onBack, onSettings }: ServerKeysProps): Rea
           return merged
         })
         // Финальная синхронизация со стором: состояние == персистентные данные.
+        // Ссылки форматов пишет main-процесс (profiles:list) — берём их оттуда,
+        // чтобы кэш и экран не расходились.
         const fresh = await window.api.servers.get(server.id)
         if (!cancelled && fresh?.awgConfs) setAwgConfs(fresh.awgConfs)
+        if (!cancelled && fresh?.subscriptionFormats) setFormats(fresh.subscriptionFormats)
       } catch {
         if (!cancelled) setProfiles([])
       }
@@ -202,6 +215,9 @@ export function ServerKeys({ server, onBack, onSettings }: ServerKeysProps): Rea
       ...profiles.filter((p) => p.backends?.awg).map((p) => p.name)
     ])
   ]
+
+  // Профили, для которых сервер отдал ссылки форматов.
+  const formatNames = Object.keys(formats)
 
   return (
     <div className={styles.root}>
@@ -351,39 +367,43 @@ export function ServerKeys({ server, onBack, onSettings }: ServerKeysProps): Rea
           )
         })}
 
-        {profiles.some((p) => p.subscription_url_clash || p.subscription_url_singbox) && (
+        {formatNames.length > 0 && (
           <div className={styles.keyCard}>
             <div className={styles.keyHeader}>
               <Chip size="sm" color="default">
-                {t('settings.groupLinks')}
+                {t('keys.formatsTitle')}
               </Chip>
             </div>
-            <p className={styles.formatsHint}>{t('settings.groupLinksHint')}</p>
-            {profiles
-              .filter((p) => p.subscription_url_clash || p.subscription_url_singbox)
-              .map((p) => (
-                <div key={p.name} className={styles.formatRow}>
-                  <span className={styles.formatName}>{p.name}</span>
-                  {p.subscription_url_clash && (
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onPress={() => copy(p.subscription_url_clash ?? '')}
-                    >
-                      {t('settings.copyClash')}
-                    </Button>
-                  )}
-                  {p.subscription_url_singbox && (
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onPress={() => copy(p.subscription_url_singbox ?? '')}
-                    >
-                      {t('settings.copySingbox')}
-                    </Button>
-                  )}
-                </div>
-              ))}
+            <p className={styles.keyNote}>{t('keys.formatsNote')}</p>
+            {formatNames.map((name) => (
+              <div key={name} className={styles.formatProfile}>
+                <div className={styles.formatProfileName}>{name}</div>
+                {FORMAT_KINDS.map((kind) => {
+                  const url = formats[name]?.[kind]
+                  if (!url) return null
+                  return (
+                    <div key={kind} className={styles.formatItem}>
+                      <div className={styles.formatItemHead}>
+                        <span className={styles.formatLabel}>
+                          {t(kind === 'clash' ? 'keys.formatClash' : 'keys.formatSingbox')}
+                        </span>
+                        <div className={styles.formatActions}>
+                          <Button size="sm" variant="secondary" onPress={() => copy(url)}>
+                            {t('keys.copy')}
+                          </Button>
+                          <Button size="sm" variant="secondary" onPress={() => showQr(url)}>
+                            {t('keys.qr')}
+                          </Button>
+                        </div>
+                      </div>
+                      <div className={styles.keyUrl} title={url}>
+                        {url}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            ))}
           </div>
         )}
 
