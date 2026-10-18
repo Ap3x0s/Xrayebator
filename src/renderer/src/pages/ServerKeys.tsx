@@ -10,6 +10,7 @@ import type {
 } from '@shared/types'
 import { vlessPort } from '@shared/vless'
 import { buildAwgVpnUrl, parseAwgClientConf, stripAwgComments } from '@shared/awg'
+import { copyText } from '../lib/clipboard'
 import { shouldAutoConnectServer } from './server-access'
 import styles from './ServerKeys.module.css'
 
@@ -142,9 +143,11 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
   }, [qrUrl])
 
   const copy = async (text: string): Promise<void> => {
-    await navigator.clipboard.writeText(text)
-    setToast(t('keys.copied'))
-    setTimeout(() => setToast(null), 1500)
+    // Буфер обмена может отказать (нет разрешения/API): без проверки пользователь
+    // видел «Скопировано!» и уносил пустой буфер.
+    const ok = await copyText(text)
+    setToast(ok ? t('keys.copied') : t('keys.copyFailed'))
+    setTimeout(() => setToast(null), ok ? 1500 : 2600)
   }
 
   const closeQr = (): void => {

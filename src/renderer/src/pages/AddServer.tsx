@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Button, TextField, Label, Input, Spinner } from '@heroui/react'
-import { CheckCircle2, Circle, Mail, MailX, ShieldCheck, Zap } from 'lucide-react'
+import { CheckCircle2, Circle, Copy, Mail, MailX, ShieldCheck, Zap } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type {
   DeployEvent,
@@ -10,6 +10,7 @@ import type {
 } from '@shared/types'
 import { isDns01Ready } from '@shared/dns01'
 import { SshAccessForm } from '../components/SshAccessForm'
+import { copyText } from '../lib/clipboard'
 import { buildDeployPayload, dns01FromForm, isDeployReady, type DeployFormState } from './deploy-readiness'
 import styles from './AddServer.module.css'
 
@@ -59,8 +60,20 @@ export function AddServer({ onDone, onBack }: AddServerProps): React.JSX.Element
   const [stepLabels, setStepLabels] = useState<Partial<Record<DeployStep, string>>>({})
   const [log, setLog] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [logNotice, setLogNotice] = useState<string | null>(null)
   const currentStepRef = useRef<DeployStep | null>(null)
   const logPanelRef = useRef<HTMLDivElement>(null)
+
+  /**
+   * Лог — главный инструмент диагностики: его копируют в чат поддержки целиком,
+   * вместе с финальной строкой ошибки, которой в самом массиве log нет.
+   */
+  const copyLog = async (): Promise<void> => {
+    const text = [...log, ...(error ? [`> ${error}`] : [])].join('\n')
+    const ok = await copyText(text)
+    setLogNotice(ok ? t('deploy.logCopied') : t('deploy.logCopyFailed'))
+    setTimeout(() => setLogNotice(null), 2200)
+  }
 
   useEffect(() => {
     const panel = logPanelRef.current
@@ -362,7 +375,20 @@ export function AddServer({ onDone, onBack }: AddServerProps): React.JSX.Element
             })}
           </ol>
 
-          <div className={styles.logTitle}>{t('deploy.log')}</div>
+          <div className={styles.logHead}>
+            <div className={styles.logTitle}>{t('deploy.log')}</div>
+            {(log.length > 0 || error) && (
+              <Button size="sm" variant="secondary" onPress={() => void copyLog()}>
+                <Copy size={14} />
+                {t('deploy.copyLog')}
+              </Button>
+            )}
+          </div>
+          {(log.length > 0 || error) && logNotice && (
+            <div className={styles.logNotice} data-ok={logNotice === t('deploy.logCopied')}>
+              {logNotice}
+            </div>
+          )}
           <div className={styles.logPanel} ref={logPanelRef}>
             {log.length === 0 && !error && (
               <div className={styles.logLine}>{t('deploy.waiting')}</div>

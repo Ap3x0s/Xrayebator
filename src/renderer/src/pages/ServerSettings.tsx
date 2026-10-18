@@ -48,6 +48,7 @@ import { todayIso } from '@shared/calendar'
 import { buildAwgVpnUrl, stripAwgComments } from '@shared/awg'
 import { isSshAccessReady, SshAccessForm } from '../components/SshAccessForm'
 import { CalendarPicker } from '../components/CalendarPicker'
+import { copyText } from '../lib/clipboard'
 import { shouldAutoConnectServer } from './server-access'
 import styles from './ServerSettings.module.css'
 import hystLogo from '../assets/hysteria-logo.svg'
@@ -620,8 +621,18 @@ export function ServerSettings({
 
   const copyUrl = async (profile: ServerProfile): Promise<void> => {
     if (!profile.subscription_url) return
-    await navigator.clipboard.writeText(profile.subscription_url)
-    toastText(t('settings.copied'))
+    const ok = await copyText(profile.subscription_url)
+    toastText(ok ? t('settings.copied') : t('settings.copyFailed'))
+  }
+
+  /**
+   * Копирование с честным тостом. `navigator.clipboard` может отказать (нет
+   * разрешения, нет API) — без проверки пользователь видел «Скопировано!» и уносил
+   * в чат пустой буфер.
+   */
+  const copyWithToast = async (text: string, okMessage: string): Promise<void> => {
+    const ok = await copyText(text)
+    toastText(ok ? okMessage : t('settings.copyFailed'))
   }
 
   // Тот же токен, другое тело ответа: сервер выбирает формат по ?target= (Clash/mihomo
@@ -632,8 +643,12 @@ export function ServerSettings({
   ): Promise<void> => {
     const url = format === 'clash' ? profile.subscription_url_clash : profile.subscription_url_singbox
     if (!url) return
-    await navigator.clipboard.writeText(url)
-    toastText(t('settings.copiedFormat', { format: format === 'clash' ? 'Clash/mihomo' : 'sing-box' }))
+    const ok = await copyText(url)
+    toastText(
+      ok
+        ? t('settings.copiedFormat', { format: format === 'clash' ? 'Clash/mihomo' : 'sing-box' })
+        : t('settings.copyFailed')
+    )
   }
 
   const openRevoke = (profile: ServerProfile, forceFull = false): void => {
@@ -2131,10 +2146,9 @@ export function ServerSettings({
                             <Button
                               size="sm"
                               variant="secondary"
-                              onPress={() => {
-                                void navigator.clipboard.writeText(pqResult.link ?? '')
-                                toastText(t('settings.copied'))
-                              }}
+                              onPress={() =>
+                                void copyWithToast(pqResult.link ?? '', t('settings.copied'))
+                              }
                             >
                               <Copy size={13} />
                               {t('settings.pqCopy')}
@@ -2332,7 +2346,7 @@ export function ServerSettings({
                       <Button
                         size="sm"
                         variant="secondary"
-                        onPress={() => void navigator.clipboard.writeText(revokeUrl)}
+                        onPress={() => void copyWithToast(revokeUrl, t('settings.copied'))}
                       >
                         <Copy size={13} />
                         {t('settings.revokeCopyNew')}

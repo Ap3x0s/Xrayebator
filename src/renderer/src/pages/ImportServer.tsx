@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { Button, TextField, Label, Input, Spinner } from '@heroui/react'
-import { CheckCircle2, Circle } from 'lucide-react'
+import { CheckCircle2, Circle, Copy } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { ImportProgressEvent, ImportStep, Server, SshAccessInput } from '@shared/types'
 import { SshAccessForm, isSshAccessReady } from '../components/SshAccessForm'
+import { copyText } from '../lib/clipboard'
 import styles from './ImportServer.module.css'
 
 interface ImportServerProps {
@@ -31,7 +32,16 @@ export function ImportServer({ onDone, onBack }: ImportServerProps): React.JSX.E
   const [currentStep, setCurrentStep] = useState<ImportStep | null>(null)
   const [log, setLog] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [logNotice, setLogNotice] = useState<string | null>(null)
   const logPanelRef = useRef<HTMLDivElement>(null)
+
+  /** Импорт падает на конкретной строке вывода — её и копируют в чат поддержки. */
+  const copyLog = async (): Promise<void> => {
+    const text = [...log, ...(error ? [`> ${error}`] : [])].join('\n')
+    const ok = await copyText(text)
+    setLogNotice(ok ? t('deploy.logCopied') : t('deploy.logCopyFailed'))
+    setTimeout(() => setLogNotice(null), 2200)
+  }
 
   useEffect(() => {
     const panel = logPanelRef.current
@@ -157,7 +167,20 @@ export function ImportServer({ onDone, onBack }: ImportServerProps): React.JSX.E
             })}
           </ol>
 
-          <div className={styles.logTitle}>{t('deploy.log')}</div>
+          <div className={styles.logHead}>
+            <div className={styles.logTitle}>{t('deploy.log')}</div>
+            {(log.length > 0 || error) && (
+              <Button size="sm" variant="secondary" onPress={() => void copyLog()}>
+                <Copy size={14} />
+                {t('deploy.copyLog')}
+              </Button>
+            )}
+          </div>
+          {(log.length > 0 || error) && logNotice && (
+            <div className={styles.logNotice} data-ok={logNotice === t('deploy.logCopied')}>
+              {logNotice}
+            </div>
+          )}
           <div className={styles.logPanel} ref={logPanelRef}>
             {log.length === 0 && !error && (
               <div className={styles.logLine}>{t('deploy.waiting')}</div>
