@@ -292,6 +292,17 @@ Next `0.6.5` cut: the server manager plus the GUI traffic-limit card.
   would be worse than none), `_awg_ensure_runtime` loads the module, starts the unit and verifies the
   interface with `awg show`, and the idempotent `awg_module_2026` migration repairs existing
   installations. `awg-uninstall` drops the file again (module and packages stay, as documented).
+  A second defect surfaced while repairing that server: **the install path treated a stale `awg`
+  binary as success.** The machine had been rebooted into kernel `5.15.0-198` while the module — built
+  manually on Oct 17 — existed only for `5.15.0-177`, so `awg-install` failed at "the module did not
+  load" and pointed at "a kernel newer than supported", although `modprobe` was never the problem. The
+  PPA branch returned success purely because `awg` was in `PATH` (left over from the manual build), so
+  the source-build fallback never ran and nothing rebuilt the module for the new kernel. Success now
+  means "a module built for the *running* kernel" (`_awg_module_for_kernel`), falling back to
+  `dkms autoinstall` and then to the source build; and when `modprobe` still cannot load it,
+  `_awg_verify_module` names the kernels the module exists for (`_awg_module_kernels`) instead of
+  leaving the operator to guess. Guarded by `validation/test-awg-lifecycle.sh` (the module root is a
+  test seam — CI has no such module).
 - **A backend card's label and its colour came from two different fields.** The text was built from
   `installed`, the green tint from `state === 'active'`, so an installed but dead backend read
   "Active · UDP 25187 · 3.1 enabled" in grey — the screenshot behind "make AWG green" turned out to be a
