@@ -83,6 +83,37 @@
   margin-top: 10px;
 }
 
+/* Другие форматы той же подписки (Clash/mihomo YAML, sing-box JSON): категория на
+   странице ключей, а не в настройках профиля. */
+.formatsHint {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-2);
+  margin-bottom: 10px;
+}
+
+.formatRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+}
+
+.formatRow + .formatRow {
+  border-top: 1px solid var(--border);
+}
+
+.formatName {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-0);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .keyNote {
   margin: 0 0 8px;
   font-size: 12px;

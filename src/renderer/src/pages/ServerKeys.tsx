@@ -351,6 +351,42 @@ export function ServerKeys({ server, onBack, onSettings }: ServerKeysProps): Rea
           )
         })}
 
+        {profiles.some((p) => p.subscription_url_clash || p.subscription_url_singbox) && (
+          <div className={styles.keyCard}>
+            <div className={styles.keyHeader}>
+              <Chip size="sm" color="default">
+                {t('settings.groupLinks')}
+              </Chip>
+            </div>
+            <p className={styles.formatsHint}>{t('settings.groupLinksHint')}</p>
+            {profiles
+              .filter((p) => p.subscription_url_clash || p.subscription_url_singbox)
+              .map((p) => (
+                <div key={p.name} className={styles.formatRow}>
+                  <span className={styles.formatName}>{p.name}</span>
+                  {p.subscription_url_clash && (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onPress={() => copy(p.subscription_url_clash ?? '')}
+                    >
+                      {t('settings.copyClash')}
+                    </Button>
+                  )}
+                  {p.subscription_url_singbox && (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onPress={() => copy(p.subscription_url_singbox ?? '')}
+                    >
+                      {t('settings.copySingbox')}
+                    </Button>
+                  )}
+                </div>
+              ))}
+          </div>
+        )}
+
         {subscriptionUrl && (
           <div className={styles.keyCard}>
             <div className={styles.keyHeader}>

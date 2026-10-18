@@ -915,22 +915,15 @@
   margin-left: auto;
 }
 
-/* Раскрывающаяся панель действий профиля: одна кнопка «Настройки» вместо строки из
-   одиннадцати кнопок. Группы подписаны, у каждой — одна строка с последствиями. */
-.profileSettings {
-  flex-basis: 100%;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 14px 20px;
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border);
+/* Окно настроек профиля: группы действий одна под другой. */
+.actionsDialog {
+  max-width: 660px;
 }
 
-/* hidden должен побеждать display: grid из правила выше (авторские стили сильнее
-   пользовательского [hidden] { display: none }), иначе панель всегда раскрыта. */
-.profileSettings[hidden] {
-  display: none;
+.actionGroups {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 .settingsGroup {

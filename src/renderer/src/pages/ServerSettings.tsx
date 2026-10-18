@@ -184,7 +184,10 @@ export function ServerSettings({
   >(null)
   // Имя профиля, у которого раскрыта панель действий (одна кнопка «Настройки» вместо
   // строки из одиннадцати кнопок — она выдавливала текст профиля в столбик).
-  const [actionsOpen, setActionsOpen] = useState<string | null>(null)
+  const [actionTarget, setActionTarget] = useState<{
+    kind: 'profile' | 'hysteria2' | 'awg'
+    profile: ServerProfile
+  } | null>(null)
   // QR-модалка выдачи ключей бэкенд-боксов. Диалог «Ключи» убран:
   // полное копирование только на странице Ключей (решение 2026-10-06).
   const [keysQrUrl, setKeysQrUrl] = useState<string | null>(null)
@@ -378,6 +381,26 @@ export function ServerSettings({
     document.addEventListener('keydown', onEsc)
     return () => document.removeEventListener('keydown', onEsc)
   }, [keysQrUrl])
+
+  /**
+   * Окно настроек профиля закрывается само, когда из него открыли вложенный диалог
+   * (SNI, порт, срок, лимит, отзыв, удаление): два AlertDialog одновременно не нужны.
+   */
+  useEffect(() => {
+    if (
+      sniTarget ||
+      fpTarget ||
+      portTarget ||
+      pqTarget ||
+      expireTarget ||
+      limitTarget ||
+      revokeTarget ||
+      confirmRemove
+    ) {
+      setActionTarget(null)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sniTarget, fpTarget, portTarget, pqTarget, expireTarget, limitTarget, revokeTarget, confirmRemove])
 
   const dns01Input = (): Dns01Input => ({
     domain: dns01Domain.trim(),
@@ -706,22 +729,6 @@ export function ServerSettings({
   const copyWithToast = async (text: string, okMessage: string): Promise<void> => {
     const ok = await copyText(text)
     toastText(ok ? okMessage : t('settings.copyFailed'))
-  }
-
-  // Тот же токен, другое тело ответа: сервер выбирает формат по ?target= (Clash/mihomo
-  // YAML и sing-box JSON). Старые серверы поля не отдают — кнопки тогда не рисуются.
-  const copyFormatUrl = async (
-    profile: ServerProfile,
-    format: 'clash' | 'singbox'
-  ): Promise<void> => {
-    const url = format === 'clash' ? profile.subscription_url_clash : profile.subscription_url_singbox
-    if (!url) return
-    const ok = await copyText(url)
-    toastText(
-      ok
-        ? t('settings.copiedFormat', { format: format === 'clash' ? 'Clash/mihomo' : 'sing-box' })
-        : t('settings.copyFailed')
-    )
   }
 
   const openRevoke = (profile: ServerProfile, forceFull = false): void => {
@@ -1586,10 +1593,7 @@ export function ServerSettings({
                       size="sm"
                       variant="secondary"
                       isDisabled={busy}
-                      aria-expanded={actionsOpen === profile.name}
-                      onPress={() =>
-                        setActionsOpen(actionsOpen === profile.name ? null : profile.name)
-                      }
+                      onPress={() => setActionTarget({ kind: 'profile', profile })}
                     >
                       <Settings2 size={14} />
                       {t('settings.profileSettings')}
@@ -1604,12 +1608,29 @@ export function ServerSettings({
                       </span>
                     )}
                   </div>
-                  {/* Одна строка действий вместо одиннадцати кнопок: они выдавливали
-                      текст профиля в столбик по буквам. Панель раскрывается на месте. */}
-                  <div
-                    className={styles.profileSettings}
-                    hidden={actionsOpen !== profile.name}
+                  {/* Настройки профиля — отдельным окном, как остальные действия:
+                      в строке остаются только «Копировать» и «Настройки». */}
+                  <AlertDialog.Root
+                    isOpen={
+                      actionTarget?.kind === 'profile' &&
+                      actionTarget.profile.name === profile.name
+                    }
+                    onOpenChange={(open) => {
+                      if (!open) setActionTarget(null)
+                    }}
                   >
+                    <AlertDialog.Backdrop>
+                      <AlertDialog.Container>
+                        <AlertDialog.Dialog
+                          className={`${styles.confirmDialog} ${styles.actionsDialog}`}
+                        >
+                          <AlertDialog.Header>
+                            <AlertDialog.Heading>
+                              {t('settings.profileSettingsTitle')} — {profile.name}
+                            </AlertDialog.Heading>
+                          </AlertDialog.Header>
+                          <AlertDialog.Body>
+                            <div className={styles.actionGroups}>
                     <div className={styles.settingsGroup}>
                       <span className={styles.settingsGroupTitle}>
                         {t('settings.groupRoute')}
@@ -1682,34 +1703,6 @@ export function ServerSettings({
                     </div>
                     <div className={styles.settingsGroup}>
                       <span className={styles.settingsGroupTitle}>
-                        {t('settings.groupLinks')}
-                      </span>
-                      <p className={styles.settingsHint}>{t('settings.groupLinksHint')}</p>
-                      <div className={styles.settingsButtons}>
-                    {profile.subscription_url_clash && (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onPress={() => copyFormatUrl(profile, 'clash')}
-                      >
-                        <Copy size={13} />
-                        {t('settings.copyClash')}
-                      </Button>
-                    )}
-                    {profile.subscription_url_singbox && (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onPress={() => copyFormatUrl(profile, 'singbox')}
-                      >
-                        <Copy size={13} />
-                        {t('settings.copySingbox')}
-                      </Button>
-                    )}
-                      </div>
-                    </div>
-                    <div className={styles.settingsGroup}>
-                      <span className={styles.settingsGroupTitle}>
                         {t('settings.groupLimits')}
                       </span>
                       <p className={styles.settingsHint}>{t('settings.groupLimitsHint')}</p>
@@ -1774,7 +1767,17 @@ export function ServerSettings({
                         </div>
                       </div>
                     )}
-                  </div>
+                            </div>
+                          </AlertDialog.Body>
+                          <AlertDialog.Footer>
+                            <Button variant="secondary" onPress={() => setActionTarget(null)}>
+                              {t('settings.done')}
+                            </Button>
+                          </AlertDialog.Footer>
+                        </AlertDialog.Dialog>
+                      </AlertDialog.Container>
+                    </AlertDialog.Backdrop>
+                  </AlertDialog.Root>
                 </div>
                   {profile.backends?.hysteria2 && (
                     <div className={styles.backendProfileCard}>
@@ -1813,28 +1816,10 @@ export function ServerSettings({
                           size="sm"
                           variant="secondary"
                           isDisabled={busy}
-                          onPress={() => openExpire(profile)}
+                          onPress={() => setActionTarget({ kind: 'hysteria2', profile })}
                         >
-                          <CalendarClock size={14} />
-                          {t('settings.backendsExpiryBtn')}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          isDisabled={busy || hyst?.state !== 'active'}
-                          onPress={() => openRevoke(profile, true)}
-                        >
-                          <ShieldOff size={14} />
-                          {t('settings.revokeBtn')}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="danger-soft"
-                          isDisabled={busy}
-                          onPress={() => setConfirmRemove(profile)}
-                        >
-                          <Trash2 size={14} />
-                          {t('settings.deleteKey')}
+                          <Settings2 size={14} />
+                          {t('settings.profileSettings')}
                         </Button>
                       </div>
                     </div>
@@ -1882,28 +1867,10 @@ export function ServerSettings({
                           size="sm"
                           variant="secondary"
                           isDisabled={busy}
-                          onPress={() => openExpire(profile)}
+                          onPress={() => setActionTarget({ kind: 'awg', profile })}
                         >
-                          <CalendarClock size={14} />
-                          {t('settings.backendsExpiryBtn')}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          isDisabled={busy || awgEntry?.state !== 'active'}
-                          onPress={() => openRevoke(profile, true)}
-                        >
-                          <ShieldOff size={14} />
-                          {t('settings.revokeBtn')}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="danger-soft"
-                          isDisabled={busy}
-                          onPress={() => setConfirmRemove(profile)}
-                        >
-                          <Trash2 size={14} />
-                          {t('settings.deleteKey')}
+                          <Settings2 size={14} />
+                          {t('settings.profileSettings')}
                         </Button>
                       </div>
                     </div>
@@ -2279,6 +2246,106 @@ export function ServerSettings({
               </div>
             </section>
             </div>
+
+            <AlertDialog.Root
+              isOpen={actionTarget !== null && actionTarget.kind !== 'profile'}
+              onOpenChange={(open) => {
+                if (!open) setActionTarget(null)
+              }}
+            >
+              <AlertDialog.Backdrop>
+                <AlertDialog.Container>
+                  <AlertDialog.Dialog className={`${styles.confirmDialog} ${styles.actionsDialog}`}>
+                    <AlertDialog.Header>
+                      <AlertDialog.Heading>
+                        {actionTarget?.kind === 'hysteria2'
+                          ? t('settings.backendsHyst')
+                          : t('settings.backendsAwg')}{' '}
+                        — {actionTarget?.profile.name ?? ''}
+                      </AlertDialog.Heading>
+                    </AlertDialog.Header>
+                    <AlertDialog.Body>
+                      {actionTarget && actionTarget.kind !== 'profile' && (
+                        <div className={styles.actionGroups}>
+                          <p className={styles.settingsHint}>{t('settings.backendProfileHint')}</p>
+                          <div className={styles.settingsGroup}>
+                            <span className={styles.settingsGroupTitle}>
+                              {t('settings.groupLimits')}
+                            </span>
+                            <p className={styles.settingsHint}>{t('settings.groupLimitsHint')}</p>
+                            <div className={styles.settingsButtons}>
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                isDisabled={busy}
+                                onPress={() => openExpire(actionTarget.profile)}
+                              >
+                                <CalendarClock size={14} />
+                                {t('settings.backendsExpiryBtn')}
+                              </Button>
+                              {trafficSupported && (
+                                <Button
+                                  size="sm"
+                                  variant="secondary"
+                                  isDisabled={busy}
+                                  onPress={() => openLimit(actionTarget.profile)}
+                                >
+                                  <Gauge size={14} />
+                                  {t('settings.trafficBtn')}
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                          <div className={styles.settingsGroup}>
+                            <span className={styles.settingsGroupTitle}>
+                              {t('settings.groupAccess')}
+                            </span>
+                            <p className={styles.settingsHint}>{t('settings.groupAccessHint')}</p>
+                            <div className={styles.settingsButtons}>
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                isDisabled={busy}
+                                onPress={() => openRevoke(actionTarget.profile, true)}
+                              >
+                                <ShieldOff size={14} />
+                                {t('settings.revokeBtn')}
+                              </Button>
+                            </div>
+                          </div>
+                          {!actionTarget.profile.multi_route && (
+                            <div className={styles.settingsGroup}>
+                              <span className={styles.settingsGroupTitle}>
+                                {t('settings.groupDelete')}
+                              </span>
+                              <p className={styles.settingsHint}>
+                                {t('settings.groupDeleteHint')}
+                              </p>
+                              <div className={styles.settingsButtons}>
+                                <Button
+                                  size="sm"
+                                  variant="danger-soft"
+                                  isDisabled={busy}
+                                  onPress={() => setConfirmRemove(actionTarget.profile)}
+                                >
+                                  <Trash2 size={14} />
+                                  {t('settings.deleteKey')}
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </AlertDialog.Body>
+                    <AlertDialog.Footer>
+                      <Button variant="secondary" onPress={() => setActionTarget(null)}>
+                        {t('settings.done')}
+                      </Button>
+                    </AlertDialog.Footer>
+                  </AlertDialog.Dialog>
+                </AlertDialog.Container>
+              </AlertDialog.Backdrop>
+            </AlertDialog.Root>
 
             <AlertDialog.Root
               isOpen={pqTarget !== null}
