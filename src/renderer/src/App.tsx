@@ -57,6 +57,7 @@ export default function App(): React.JSX.Element {
       <ServerKeys
         server={view.server}
         onBack={() => setView({ name: 'dashboard' })}
+        onSettings={() => setView({ name: 'settings', server: view.server })}
       />
     )
   }

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import QRCode from 'qrcode'
 import { Button, Chip, Spinner } from '@heroui/react'
+import { Settings2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type {
   Server,
@@ -17,9 +18,11 @@ import styles from './ServerKeys.module.css'
 interface ServerKeysProps {
   server: Server
   onBack: () => void
+  /** Переход в настройки сервера из пустого состояния (там создаются профили). */
+  onSettings?: () => void
 }
 
-export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Element {
+export function ServerKeys({ server, onBack, onSettings }: ServerKeysProps): React.JSX.Element {
   const { t } = useTranslation()
   const [keys, setKeys] = useState<VlessLink[]>(server.keys ?? [])
   // Бэкенд-ключи инициализируются из карточки сервера — мгновенно, как vless.
@@ -214,7 +217,19 @@ export function ServerKeys({ server, onBack }: ServerKeysProps): React.JSX.Eleme
             <Spinner size="sm" />
           </div>
         )}
-        {!loading && keys.length === 0 && <div className={styles.empty}>{t('keys.none')}</div>}
+        {!loading && keys.length === 0 && (
+          <div className={styles.empty}>
+            {/* Пустое состояние без выхода: единственный путь к ключам — создать
+                профиль в настройках, поэтому ведём туда прямо отсюда. */}
+            <span>{t('keys.none')}</span>
+            {onSettings && (
+              <Button size="sm" variant="secondary" onPress={onSettings}>
+                <Settings2 size={14} />
+                {t('keys.gotoProfiles')}
+              </Button>
+            )}
+          </div>
+        )}
 
         {keys.map((key) => (
           <div key={key.url} className={styles.keyCard}>
