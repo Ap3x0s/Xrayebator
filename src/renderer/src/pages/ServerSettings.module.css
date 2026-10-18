@@ -898,15 +898,66 @@
 
 .profileActions {
   display: flex;
-  /* flex-shrink: 0 оставляем (кнопки не должны сплющиваться), но разрешаем перенос:
-     одиннадцать кнопок в одну строку шире карточки, и без переноса они выдавливали
-     текст профиля. */
+  gap: 8px;
+  flex-shrink: 0;
+  align-items: center;
+}
+
+/* Строка действий в карточке профиля: переносится и прижимается вправо, чтобы не
+   выдавливать блок профиля (раньше одиннадцать кнопок сжимали его в столбик). */
+.profileRowActions {
+  display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
   flex-shrink: 0;
   align-items: center;
   margin-left: auto;
+}
+
+/* Раскрывающаяся панель действий профиля: одна кнопка «Настройки» вместо строки из
+   одиннадцати кнопок. Группы подписаны, у каждой — одна строка с последствиями. */
+.profileSettings {
+  flex-basis: 100%;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px 20px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+/* hidden должен побеждать display: grid из правила выше (авторские стили сильнее
+   пользовательского [hidden] { display: none }), иначе панель всегда раскрыта. */
+.profileSettings[hidden] {
+  display: none;
+}
+
+.settingsGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.settingsGroupTitle {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-2);
+}
+
+.settingsHint {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+
+.settingsButtons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .protectedProfile {

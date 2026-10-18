@@ -153,7 +153,15 @@ Next `0.6.5` cut: the server manager plus the GUI traffic-limit card.
   the WCAG-AA compliant `#8b949e`, small hints went from 11px to 12px, the *Create profile* button moved
   to the end of the form with an explanation of why it is disabled, the empty state of the keys page
   links to the profiles, and the i18n files are now guarded by a key-parity test
-  (`tests/unit/i18n-parity.test.ts`) plus the first render smoke test of the settings screen.
+  (`tests/unit/i18n-parity.test.ts`) plus the first render smoke test of the settings screen. The
+  profile row itself lost its eleven-button wall: it now shows **Copy** and **Settings**, and the
+  settings panel expands in place with four labelled groups (client links, route, limits, access) plus
+  deletion, each with one line explaining what the action does and what it affects — SNI/port are
+  inbound-level and touch every profile on the port, fingerprint is client-side, expiry and traffic
+  limit are profile-level. Destructive "soft" buttons (`danger-soft`: delete profile, uninstall a
+  backend, revoke keys) no longer inherit HeroUI's light-pink fill: the palette defines them as a
+  muted red tint (14% of `--danger` over the card) with the standard danger text, which is AA-compliant
+  and reads as an action rather than a highlight.
 
 ### Fixed
 

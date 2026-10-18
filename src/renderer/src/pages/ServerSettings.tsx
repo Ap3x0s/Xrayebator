@@ -182,6 +182,9 @@ export function ServerSettings({
     | 'awg-revoke-all'
     | null
   >(null)
+  // Имя профиля, у которого раскрыта панель действий (одна кнопка «Настройки» вместо
+  // строки из одиннадцати кнопок — она выдавливала текст профиля в столбик).
+  const [actionsOpen, setActionsOpen] = useState<string | null>(null)
   // QR-модалка выдачи ключей бэкенд-боксов. Диалог «Ключи» убран:
   // полное копирование только на странице Ключей (решение 2026-10-06).
   const [keysQrUrl, setKeysQrUrl] = useState<string | null>(null)
@@ -1572,7 +1575,47 @@ export function ServerSettings({
                       </div>
                     )}
                   </div>
-                  <div className={styles.profileActions}>
+                  <div className={styles.profileRowActions}>
+                    {profile.subscription_url && (
+                      <Button size="sm" variant="secondary" onPress={() => copyUrl(profile)}>
+                        <Copy size={13} />
+                        {t('settings.copy')}
+                      </Button>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      isDisabled={busy}
+                      aria-expanded={actionsOpen === profile.name}
+                      onPress={() =>
+                        setActionsOpen(actionsOpen === profile.name ? null : profile.name)
+                      }
+                    >
+                      <Settings2 size={14} />
+                      {t('settings.profileSettings')}
+                    </Button>
+                    {profile.multi_route && (
+                      <span
+                        className={styles.protectedProfile}
+                        title={t('settings.mainProfileHint')}
+                      >
+                        <Lock size={13} />
+                        {t('settings.mainProfile')}
+                      </span>
+                    )}
+                  </div>
+                  {/* Одна строка действий вместо одиннадцати кнопок: они выдавливали
+                      текст профиля в столбик по буквам. Панель раскрывается на месте. */}
+                  <div
+                    className={styles.profileSettings}
+                    hidden={actionsOpen !== profile.name}
+                  >
+                    <div className={styles.settingsGroup}>
+                      <span className={styles.settingsGroupTitle}>
+                        {t('settings.groupRoute')}
+                      </span>
+                      <p className={styles.settingsHint}>{t('settings.groupRouteHint')}</p>
+                      <div className={styles.settingsButtons}>
                     <Button
                       size="sm"
                       variant="secondary"
@@ -1635,12 +1678,14 @@ export function ServerSettings({
                       <Zap size={14} />
                       {t('settings.pqBtn')}
                     </Button>
-                    {profile.subscription_url && (
-                      <Button size="sm" variant="secondary" onPress={() => copyUrl(profile)}>
-                        <Copy size={13} />
-                        {t('settings.copy')}
-                      </Button>
-                    )}
+                      </div>
+                    </div>
+                    <div className={styles.settingsGroup}>
+                      <span className={styles.settingsGroupTitle}>
+                        {t('settings.groupLinks')}
+                      </span>
+                      <p className={styles.settingsHint}>{t('settings.groupLinksHint')}</p>
+                      <div className={styles.settingsButtons}>
                     {profile.subscription_url_clash && (
                       <Button
                         size="sm"
@@ -1661,6 +1706,14 @@ export function ServerSettings({
                         {t('settings.copySingbox')}
                       </Button>
                     )}
+                      </div>
+                    </div>
+                    <div className={styles.settingsGroup}>
+                      <span className={styles.settingsGroupTitle}>
+                        {t('settings.groupLimits')}
+                      </span>
+                      <p className={styles.settingsHint}>{t('settings.groupLimitsHint')}</p>
+                      <div className={styles.settingsButtons}>
                     <Button
                       size="sm"
                       variant="secondary"
@@ -1681,6 +1734,14 @@ export function ServerSettings({
                         {t('settings.trafficBtn')}
                       </Button>
                     )}
+                      </div>
+                    </div>
+                    <div className={styles.settingsGroup}>
+                      <span className={styles.settingsGroupTitle}>
+                        {t('settings.groupAccess')}
+                      </span>
+                      <p className={styles.settingsHint}>{t('settings.groupAccessHint')}</p>
+                      <div className={styles.settingsButtons}>
                     {profile.subscription_url && (
                       <Button
                         size="sm"
@@ -1692,21 +1753,26 @@ export function ServerSettings({
                         {t('settings.revokeBtn')}
                       </Button>
                     )}
-                    {profile.multi_route ? (
-                      <span className={styles.protectedProfile} title={t('settings.mainProfileHint')}>
-                        <Lock size={13} />
-                        {t('settings.mainProfile')}
-                      </span>
-                    ) : (
-                      <Button
-                        size="sm"
-                        variant="danger-soft"
-                        isDisabled={busy}
-                        onPress={() => setConfirmRemove(profile)}
-                      >
-                        <Trash2 size={14} />
-                        {t('settings.deleteKey')}
-                      </Button>
+                      </div>
+                    </div>
+                    {profile.multi_route ? null : (
+                      <div className={styles.settingsGroup}>
+                        <span className={styles.settingsGroupTitle}>
+                          {t('settings.groupDelete')}
+                        </span>
+                        <p className={styles.settingsHint}>{t('settings.groupDeleteHint')}</p>
+                        <div className={styles.settingsButtons}>
+                          <Button
+                            size="sm"
+                            variant="danger-soft"
+                            isDisabled={busy}
+                            onPress={() => setConfirmRemove(profile)}
+                          >
+                            <Trash2 size={14} />
+                            {t('settings.deleteKey')}
+                          </Button>
+                        </div>
+                      </div>
                     )}
                   </div>
                 </div>
