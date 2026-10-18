@@ -2,6 +2,11 @@
   "app": {
     "title": "Xrayebator"
   },
+  "calendar": {
+    "previousMonth": "上个月",
+    "nextMonth": "下个月",
+    "pickDay": "选择 {{date}}"
+  },
   "dashboard": {
     "title": "我的服务器",
     "add": "添加",

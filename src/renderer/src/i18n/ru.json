@@ -2,6 +2,11 @@
   "app": {
     "title": "Xrayebator"
   },
+  "calendar": {
+    "previousMonth": "Предыдущий месяц",
+    "nextMonth": "Следующий месяц",
+    "pickDay": "Выбрать {{date}}"
+  },
   "dashboard": {
     "title": "Мои серверы",
     "add": "Добавить",

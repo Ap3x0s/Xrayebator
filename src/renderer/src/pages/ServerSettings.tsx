@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import QRCode from 'qrcode'
-import { Button, TextField, Label, Input, Chip, Spinner, AlertDialog } from '@heroui/react'
+import { Button, TextField, Label, Input, Chip, Spinner, AlertDialog, Dropdown, DropdownItem } from '@heroui/react'
 import {
   Settings2,
   Play,
@@ -22,7 +22,8 @@ import {
   Zap,
   ShieldCheck,
   Bell,
-  Send
+  Send,
+  ChevronDown
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type {
@@ -148,7 +149,6 @@ export function ServerSettings({
   const [createExpireOpen, setCreateExpireOpen] = useState(false)
 
   const [updating, setUpdating] = useState(false)
-  const [updateMenuOpen, setUpdateMenuOpen] = useState(false)
   const [uninstalling, setUninstalling] = useState(false)
   const [confirmUninstall, setConfirmUninstall] = useState(false)
   const [confirmRemove, setConfirmRemove] = useState<ServerProfile | null>(null)
@@ -861,7 +861,6 @@ export function ServerSettings({
     } finally {
       setBusy(false)
       setUpdating(false)
-      setUpdateMenuOpen(false)
     }
   }
 
@@ -1165,54 +1164,56 @@ export function ServerSettings({
         <span className={styles.serverName}>{server.name}</span>
         {connected && (
           <div className={styles.headerActions}>
-            <div className={styles.updateMenuWrap}>
-              <Button
-                variant="secondary"
-                size="sm"
+            <Dropdown>
+              <Dropdown.Trigger
+                className={styles.updateTrigger}
+                aria-label={updating ? t('settings.updating') : t('settings.updateServer')}
                 isDisabled={busy}
-                onPress={() => setUpdateMenuOpen((open) => !open)}
               >
                 <CloudDownload
                   size={16}
                   className={updating ? styles.iconDownloading : undefined}
                 />
-                {updating ? t('settings.updating') : t('settings.updateServer')}
-              </Button>
-              {updateMenuOpen && (
-                <div className={styles.updateMenu}>
-                  <button
-                    className={styles.updateMenuItem}
-                    disabled={busy}
-                    onClick={() => void updateServer()}
+                <span className={styles.updateTriggerLabel}>
+                  {updating ? t('settings.updating') : t('settings.updateServer')}
+                </span>
+                <ChevronDown size={14} className={styles.updateTriggerChevron} />
+              </Dropdown.Trigger>
+              <Dropdown.Popover placement="bottom end" className={styles.updatePopover}>
+                <Dropdown.Menu>
+                  <DropdownItem
+                    key="auto"
+                    className={styles.updateItem}
+                    onAction={() => void updateServer()}
                   >
-                    {t('settings.updateBranchAuto')}
-                    <span className={styles.updateMenuHint}>
+                    <span>{t('settings.updateBranchAuto')}</span>
+                    <span className={styles.updateItemHint}>
                       {t('settings.updateBranchAutoHint')}
                     </span>
-                  </button>
-                  <button
-                    className={styles.updateMenuItem}
-                    disabled={busy}
-                    onClick={() => void updateServer('main')}
+                  </DropdownItem>
+                  <DropdownItem
+                    key="main"
+                    className={styles.updateItem}
+                    onAction={() => void updateServer('main')}
                   >
-                    {t('settings.updateBranchMain')}
-                    <span className={styles.updateMenuHint}>
+                    <span>{t('settings.updateBranchMain')}</span>
+                    <span className={styles.updateItemHint}>
                       {t('settings.updateBranchMainHint')}
                     </span>
-                  </button>
-                  <button
-                    className={`${styles.updateMenuItem} ${styles.updateMenuBeta}`}
-                    disabled={busy}
-                    onClick={() => void updateServer('dev')}
+                  </DropdownItem>
+                  <DropdownItem
+                    key="dev"
+                    className={`${styles.updateItem} ${styles.updateItemBeta}`}
+                    onAction={() => void updateServer('dev')}
                   >
-                    {t('settings.updateBranchDev')}
-                    <span className={styles.updateMenuHint}>
+                    <span>{t('settings.updateBranchDev')}</span>
+                    <span className={styles.updateItemHint}>
                       {t('settings.updateBranchDevHint')}
                     </span>
-                  </button>
-                </div>
-              )}
-            </div>
+                  </DropdownItem>
+                </Dropdown.Menu>
+              </Dropdown.Popover>
+            </Dropdown>
             <Button
               variant="danger-soft"
               size="sm"
