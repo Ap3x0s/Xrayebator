@@ -53,7 +53,7 @@ import { copyText } from '../lib/clipboard'
 import { shouldAutoConnectServer } from './server-access'
 import styles from './ServerSettings.module.css'
 import hystLogo from '../assets/hysteria-logo.svg'
-import amneziaLogo from '../assets/amnezia-logo.png'
+import amneziaLogo from '../assets/amnezia-logo.jpg'
 
 interface ServerSettingsProps {
   server: Server
@@ -1857,7 +1857,12 @@ export function ServerSettings({
                 <p className={styles.sectionHint}>{t('settings.backendsHint')}</p>
                 <p className={styles.hint}>{t('settings.backendsDevNote')}</p>
                 {backendsError !== null ? (
-                  <p className={styles.hint}>{t('settings.backendsUnsupported')}</p>
+                  <>
+                    <p className={styles.hint}>{t('settings.backendsUnsupported')}</p>
+                    {/* Показываем и саму ошибку: без неё «старый менеджер» неотличим
+                        от сетевого сбоя, прав или битого ответа сервера. */}
+                    <p className={styles.error}>{backendsError}</p>
+                  </>
                 ) : backendsLoading || backends === null ? (
                   <>
                     <div className={styles.backendSkeleton} />

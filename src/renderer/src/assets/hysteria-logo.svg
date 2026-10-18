@@ -3,10 +3,10 @@
   <defs>
     <style>
       .cls-1{fill:#ffbc00;}
-      /* Приложение всегда dark-only (класс dark на <html>), а media query слушал
-         СИСТЕМНУЮ тему: на Windows в light-режиме чёрные полигоны ложились на
-         тёмную карточку и логотип был не виден. Фиксируем белый. */
-      .cls-2{fill:#ffffff;}
+      .cls-2{fill:#000000;}
+      @media (prefers-color-scheme: dark) {
+        .cls-2{fill:#ffffff;}
+      }
     </style>
   </defs>
   <polygon class="cls-2" points="72.8 140.45 60.1 285.55 102.51 285.55 111.5 182.86 111.54 182.86 115.21 140.45 72.8 140.45"/>

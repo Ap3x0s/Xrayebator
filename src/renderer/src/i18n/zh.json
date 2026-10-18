@@ -409,7 +409,7 @@
     "trafficDisabledTitle": "因流量用尽已停用该配置档",
     "backendsTitle": "多协议后端",
     "backendsHint": "同一服务器上的额外传输。与 Xray 并行运行；传输访问由配置档授权决定。",
-    "backendsUnsupported": "该服务器运行旧版管理器——请先更新（上方按钮），然后即可管理后端。",
+    "backendsUnsupported": "服务器报告其管理器不支持后端管理——通常是旧分支（main）。请用上方按钮把管理器更新到 dev 分支，该分区即可使用。",
     "backendsHyst": "Hysteria 2",
     "backendsHystSub": "高速 UDP 传输 · QUIC",
     "backendsHystNote": "密钥会自动加入 HAPP/v2rayNG 订阅。客户端：HAPP、Hiddify、v2rayN。一条链接——所有设备同时使用。",

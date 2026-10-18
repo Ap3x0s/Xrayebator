@@ -409,7 +409,7 @@
     "trafficDisabledTitle": "Profile disabled due to the traffic limit",
     "backendsTitle": "Multi-protocol backends",
     "backendsHint": "Extra transports on the same server. They run alongside Xray; transport access is decided by per-profile grants.",
-    "backendsUnsupported": "This server runs an older manager version — update it (button above) to manage backends.",
+    "backendsUnsupported": "The server reports that its manager cannot manage backends — usually an old branch (main). Update the manager with the button above, choosing the dev branch, and this section starts working.",
     "backendsHyst": "Hysteria 2",
     "backendsHystSub": "fast UDP transport · QUIC",
     "backendsHystNote": "The key is added to the HAPP/v2rayNG subscription automatically. Clients: HAPP, Hiddify, v2rayN. One link — all devices simultaneously.",
