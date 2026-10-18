@@ -2641,6 +2641,64 @@ _backend_unit_state() {
   fi
 }
 
+# Поднять простаивающий бэкенд (юнит не активен после перезагрузки или ручного
+# down). Только запуск: ничего не пересоздаёт и реестр не трогает.
+# 0 — поднят или уже был активен, 1 — не установлен / не поднялся.
+_backend_start_runtime() {
+  local type=$1
+  _backend_installed "$type" || return 1
+  case "$type" in
+    hysteria2)
+      systemctl is-active --quiet "$HYSTERIA2_UNIT" 2>/dev/null && return 0
+      systemctl start "$HYSTERIA2_UNIT" 2>/dev/null || return 1
+      sleep 1
+      systemctl is-active --quiet "$HYSTERIA2_UNIT" 2>/dev/null
+      ;;
+    awg)
+      # У AWG два слоя: модуль ядра (грузится на старте ОС) и юнит интерфейса.
+      _awg_ensure_runtime
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+# CLI: поднять бэкенд, который установлен, но не работает (state != active).
+# Единственная мутация — systemctl start; stdout несёт только JSON.
+backend_start_command() {
+  local type=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --type) type="${2:-}"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+  if [[ "$type" != "awg" && "$type" != "hysteria2" ]]; then
+    echo '{"ok":false,"error":"type"}'
+    return 2
+  fi
+  if ! _backend_installed "$type"; then
+    jq -n --arg t "$type" '{ok: false, type: $t, error: "not_installed"}'
+    return 1
+  fi
+  local unit state
+  unit=$(_backend_field "$type" unit)
+  state=$(_backend_unit_state "$unit")
+  if [[ "$state" == "active" ]]; then
+    jq -n --arg t "$type" '{ok: true, type: $t, state: "active", already: true}'
+    return 0
+  fi
+  local rc=0
+  exec 3>&1; exec 1>&2
+  _backend_start_runtime "$type" || rc=$?
+  exec 1>&3
+  if [[ $rc != 0 ]]; then
+    jq -n --arg t "$type" '{ok: false, type: $t, error: "start_failed"}'
+    return 1
+  fi
+  state=$(_backend_unit_state "$unit")
+  jq -n --arg t "$type" --arg s "$state" '{ok: true, type: $t, state: $s}'
+}
+
 # Машиночитаемый статус реестра бэкендов. ТОЛЬКО JSON на stdout
 # (JSON-гигиена CLI как у profile-*).
 _backend_status_json() {
@@ -3632,6 +3690,11 @@ AWG_SUBNET_PREFIX="10.8.1"
 AWG_SUBNET="${AWG_SUBNET_PREFIX}.0/24"
 AWG_MTU=1280
 AWG_SYSCTL_FILE="/etc/sysctl.d/99-xrayebator-awg.conf"
+# Модуль amneziawg существует только в загруженном ядре. systemd-modules-load
+# читает этот файл на старте (до юнитов), поэтому он и есть условие того, что
+# после перезагрузки awg-quick@awg0 поднимется, а не упадёт с
+# «Unknown device type» (живой дефект: ребут → интерфейса нет, туннель лежит).
+AWG_MODULES_LOAD_FILE="/etc/modules-load.d/xrayebator-awg.conf"
 AWG_REPO_MODULE="amnezia-vpn/amneziawg-linux-kernel-module"
 AWG_REPO_TOOLS="amnezia-vpn/amneziawg-tools"
 
@@ -3803,16 +3866,42 @@ _awg_install_packages_manual() {
   command -v awg >/dev/null 2>&1
 }
 
-# Проверка живого модуля: modprobe + lsmod. Без него backend не регистрируем.
+# Проверка живого модуля: modprobe + lsmod + прописка в modules-load.d.
+# Без modules-load.d модуль после перезагрузки не загружается, юнит интерфейса
+# падает, а реестр продолжает показывать installed — то есть «установлено» и
+# «работает» расходятся. Без живого модуля backend не регистрируем.
 _awg_verify_module() {
   modprobe amneziawg 2>/dev/null || true
-  lsmod 2>/dev/null | grep -q '^amneziawg '
+  lsmod 2>/dev/null | grep -q '^amneziawg ' || return 1
+  if [[ "$(cat "$AWG_MODULES_LOAD_FILE" 2>/dev/null)" != "amneziawg" ]]; then
+    printf 'amneziawg\n' > "$AWG_MODULES_LOAD_FILE" 2>/dev/null || true
+    chmod 644 "$AWG_MODULES_LOAD_FILE" 2>/dev/null || true
+  fi
+  return 0
+}
+
+# Поднять рантайм AWG: модуль ядра + юнит интерфейса. Идемпотентно, ничего не
+# пересоздаёт — только запускает. Нужен после перезагрузки и после ручного down.
+_awg_ensure_runtime() {
+  _awg_verify_module || return 1
+  if ! systemctl is-active --quiet "$AWG_UNIT" 2>/dev/null; then
+    systemctl start "$AWG_UNIT" 2>/dev/null || return 1
+    sleep 1
+  fi
+  awg show "$AWG_IFACE" >/dev/null 2>&1
 }
 
 # Установка AWG. Возвращает: 0=ok, 1=ошибка, 2=уже установлена.
 _awg_install() {
   if _backend_installed awg; then
-    echo -e "${YELLOW}ℹ AmneziaWG уже установлен.${NC}"
+    # Установка уже есть, но рантайм мог отвалиться (перезагрузка без модуля,
+    # ручной down): чиним и говорим об этом прямо, а не просто «уже установлен».
+    if _awg_ensure_runtime; then
+      echo -e "${GREEN}ℹ AmneziaWG уже установлен, интерфейс ${AWG_IFACE} работает.${NC}"
+    else
+      echo -e "${YELLOW}ℹ AmneziaWG уже установлен, но интерфейс ${AWG_IFACE} не поднялся.${NC}"
+      echo -e "${YELLOW}  Проверьте: modprobe amneziawg; journalctl -u ${AWG_UNIT}${NC}"
+    fi
     echo -e "${YELLOW}  Для переустановки: сначала 'awg-uninstall'.${NC}"
     return 2
   fi
@@ -3953,6 +4042,9 @@ _awg_uninstall() {
   rm -f /etc/amnezia/amneziawg/awg0.conf 2>/dev/null
   rm -rf "$AWG_DIR"
   rm -f "$AWG_SYSCTL_FILE"
+  # Своя запись в modules-load.d: без неё модуль грузится на каждой перезагрузке
+  # «ни за чем» (в системе он остаётся, как и пакеты).
+  rm -f "$AWG_MODULES_LOAD_FILE"
 
   if [[ "$port" =~ ^[0-9]+$ ]]; then
     close_firewall_port "$port" udp
@@ -10805,6 +10897,23 @@ _pq_add_route_for_profile() {
 }
 
 
+# Загрузка модуля amneziawg при старте ОС (существующие установки AWG).
+# Модуль жил только в загруженном ядре: после перезагрузки awg-quick@awg0 падал
+# с «Unknown device type», интерфейса не было, а реестр показывал installed —
+# туннель лежал до ручного modprobe. Дописываем modules-load.d и поднимаем
+# рантайм. Возврат 1 = конфиг Xray не менялся (нужен только marker).
+_migrate_awg_module_2026() {
+  [[ -f /usr/local/etc/xray/.awg_module_2026 ]] && return 1
+  _backend_installed awg || return 1
+  if _awg_ensure_runtime; then
+    echo -e "${GREEN}  ✓ Модуль amneziawg загружен и прописан в ${AWG_MODULES_LOAD_FILE}${NC}"
+    return 1
+  fi
+  echo -e "${RED}  ✗ Модуль/интерфейс amneziawg не поднялись — туннель AWG не работает${NC}"
+  echo -e "${YELLOW}    Проверьте: modprobe amneziawg; journalctl -u ${AWG_UNIT}${NC}"
+  return 2
+}
+
 # Регенерация subhttp.sh: форматы Clash/mihomo и sing-box (существующие установки).
 # Обработчик живёт в heredoc менеджера, поэтому новая логика появляется на сервере
 # только после повторной генерации. Маркер проверяем и внутри — так миграция
@@ -10882,6 +10991,7 @@ main_menu() {
   run_migration "traffic_timer_2026" "Таймер учёта трафика профилей (5 мин)" _migrate_traffic_timer_2026 || ((migration_failures++))
   run_migration "subhttp_traffic_2026" "Subhttp: реальный traffic в subscription-userinfo" _migrate_subhttp_traffic_2026 || ((migration_failures++))
   run_migration "alerts_monitor_2026" "Таймер мониторинга сервера (Telegram-алерты)" _migrate_alerts_monitor_2026 || ((migration_failures++))
+  run_migration "awg_module_2026" "Загрузка модуля amneziawg при старте ОС (AWG)" _migrate_awg_module_2026 || ((migration_failures++))
 
   # Aggregate report (RESEARCH §«Error reporting»): чтобы пользователь не пропустил
   # failure среди скроллящегося TUI вывода.
@@ -14547,6 +14657,7 @@ quickstart_command() {
   run_migration "traffic_timer_2026" "Traffic accounting timer" _migrate_traffic_timer_2026 >/dev/null 2>&1 || true
   run_migration "subhttp_traffic_2026" "Subhttp traffic userinfo" _migrate_subhttp_traffic_2026 >/dev/null 2>&1 || true
   run_migration "alerts_monitor_2026" "Telegram alerts monitor timer" _migrate_alerts_monitor_2026 >/dev/null 2>&1 || true
+  run_migration "awg_module_2026" "AWG kernel module load at boot" _migrate_awg_module_2026 >/dev/null 2>&1 || true
   run_migration "subhttp_happ_xhttp_compat_2026" "Subhttp HAPP XHTTP compat" _migrate_subhttp_happ_xhttp_compat_2026 >/dev/null 2>&1 || true
   run_migration "subhttp_no_default_happ_routing_2026" "Subhttp no default HAPP routing profile" _migrate_subhttp_no_default_happ_routing_2026 >/dev/null 2>&1 || true
   run_migration "subhttp_stale_profiles_410_2026" "Subhttp stale profile 410 handler" _migrate_subhttp_stale_profiles_410_2026 >/dev/null 2>&1 || true
@@ -15150,6 +15261,7 @@ happ_setup_command() {
   run_migration "subhttp_traffic_2026" "Subhttp traffic userinfo" _migrate_subhttp_traffic_2026 >/dev/null 2>&1 || true
   run_migration "alerts_monitor_2026" "Telegram alerts monitor timer" _migrate_alerts_monitor_2026 >/dev/null 2>&1 || true
   run_migration "subhttp_formats_2026" "Subhttp Clash/sing-box formats" _migrate_subhttp_formats_2026 >/dev/null 2>&1 || true
+  run_migration "awg_module_2026" "AWG kernel module load at boot" _migrate_awg_module_2026 >/dev/null 2>&1 || true
   fix_xray_permissions >/dev/null 2>&1 || true
 
   # 1. Убедиться, что subscription server установлен и запущен
@@ -18401,6 +18513,10 @@ if [[ "$XRAYEBATOR_SOURCED" -eq 0 ]]; then
       ;;
     backend-status)
       _backend_status_json
+      ;;
+    backend-start)
+      shift
+      backend_start_command "$@"
       ;;
     hysteria2-install)
       shift

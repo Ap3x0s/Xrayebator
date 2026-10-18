@@ -23,7 +23,18 @@ FAKEBIN="$TMP_ROOT/fakebin"
 mkdir -p "$FAKEBIN"
 cat > "$FAKEBIN/systemctl" <<'EOF'
 #!/usr/bin/env bash
-exit 0
+# Фейковый systemctl. Без FAKE_SYSTEMCTL_STATE_FILE ведёт себя как прежняя
+# заглушка (юнит всегда active); с ним — состояние читается из файла, а start
+# его меняет: так проверяется «установлен, но не работает».
+state_file="${FAKE_SYSTEMCTL_STATE_FILE:-}"
+case "$1" in
+  is-active)
+    [[ -z "$state_file" ]] && exit 0
+    [[ "$(cat "$state_file" 2>/dev/null)" == "active" ]] && exit 0 || exit 3
+    ;;
+  start) [[ -n "$state_file" ]] && printf 'active' > "$state_file"; exit 0 ;;
+  *) exit 0 ;;
+esac
 EOF
 cat > "$FAKEBIN/awg" <<'EOF'
 #!/usr/bin/env bash
@@ -31,7 +42,7 @@ case "$1" in
   genkey) openssl rand -base64 32 ;;
   genpsk) openssl rand -base64 32 ;;
   pubkey) cat >/dev/null; openssl rand -base64 32 ;;
-  show)   exit 0 ;;
+  show)   [[ -n "${FAKE_AWG_SHOW_FAIL:-}" ]] && exit 1; exit 0 ;;
   *)      exit 0 ;;
 esac
 EOF
@@ -39,12 +50,27 @@ cat > "$FAKEBIN/awg-quick" <<'EOF'
 #!/usr/bin/env bash
 exit 0
 EOF
-chmod 755 "$FAKEBIN"/systemctl "$FAKEBIN"/awg "$FAKEBIN"/awg-quick
+# Ядро: modprobe/lsmod подменяются, иначе на CI «живого модуля» нет и проверка
+# modules-load.d была бы недостоверной. По умолчанию модуля НЕТ.
+cat > "$FAKEBIN/modprobe" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+cat > "$FAKEBIN/lsmod" <<'EOF'
+#!/usr/bin/env bash
+[[ -n "${FAKE_LSMOD_WITH_MODULE:-}" ]] && echo "amneziawg 20480 0"
+echo "other_module 1 0"
+EOF
+chmod 755 "$FAKEBIN"/systemctl "$FAKEBIN"/awg "$FAKEBIN"/awg-quick "$FAKEBIN"/modprobe "$FAKEBIN"/lsmod
 export PATH="$FAKEBIN:$PATH"
 export XRAYEBATOR_SERVER_ADDR_OVERRIDE="203.0.113.10"
 
 # shellcheck disable=SC1091
 source ./xrayebator || fail "source ./xrayebator failed"
+
+# modules-load.d — системный путь: в тесте пишем в tmp, чтобы не трогать хост.
+AWG_MODULES_LOAD_FILE="$TMP_ROOT/modules-load.d/xrayebator-awg.conf"
+mkdir -p "$(dirname "$AWG_MODULES_LOAD_FILE")"
 
 # 1) junk-параметры: дефолтный диалект Amnezia (совместимость с их мобильными
 #    клиентами) + уникальность S1..S4, включая 3.1-поля. Прогон с фиксированными
@@ -232,7 +258,58 @@ rc=0; _awg_uninstall >/dev/null 2>&1 || rc=$?
 [[ "$rc" == "2" ]] || fail "uninstall rc=$rc on not-installed (expected 2)"
 pass "awg uninstall is a safe no-op (rc 2) when not installed"
 
-# 6) статика: диспетчер и меню
+# 6) Модуль ядра при старте ОС + backend-start. Живой дефект: после перезагрузки
+#    amneziawg не загружался, awg-quick@awg0 падал с «Unknown device type»,
+#    интерфейса не было, а реестр показывал installed — туннель лежал.
+#    Возвращаем реестр: выше его вычистили как «не установлено».
+_backend_set awg '(.awg.installed) = true' || fail "restore installed"
+_backend_set awg '(.awg.port) = $p' --argjson p 51820 || fail "restore port"
+_backend_set awg '(.awg.unit) = $u' --arg u "awg-quick@awg0.service" || fail "restore unit"
+
+# Нет живого модуля → проверка падает и modules-load.d НЕ пишется (иначе сервер
+# обещал бы загрузку модуля, которого нет в системе).
+export FAKE_LSMOD_WITH_MODULE=""
+if _awg_verify_module; then fail "_awg_verify_module must fail without a live module"; fi
+[[ ! -f "$AWG_MODULES_LOAD_FILE" ]] || fail "modules-load.d written without a live module"
+# Модуль есть → он прописан в modules-load.d, иначе туннель не поднимется после ребута
+export FAKE_LSMOD_WITH_MODULE=1
+_awg_verify_module || fail "_awg_verify_module with live module"
+grep -qx 'amneziawg' "$AWG_MODULES_LOAD_FILE" || fail "modules-load.d entry missing"
+pass "modules-load.d written only with a live module (reboot-safe)"
+
+# Рантайм: юнит спит → поднимаем; интерфейс не появился → честная ошибка
+export FAKE_SYSTEMCTL_STATE_FILE="$TMP_ROOT/unit-state"
+printf '' > "$FAKE_SYSTEMCTL_STATE_FILE"
+_awg_ensure_runtime || fail "_awg_ensure_runtime did not start the sleeping unit"
+[[ "$(cat "$FAKE_SYSTEMCTL_STATE_FILE")" == "active" ]] || fail "unit was not started"
+export FAKE_AWG_SHOW_FAIL=1
+if _awg_ensure_runtime; then fail "_awg_ensure_runtime must fail when the interface is absent"; fi
+unset FAKE_AWG_SHOW_FAIL
+pass "_awg_ensure_runtime loads the module, starts the unit, verifies the interface"
+
+# backend-start: активный → already (без запуска), спящий → поднимает
+printf 'active' > "$FAKE_SYSTEMCTL_STATE_FILE"
+out=$(backend_start_command --type awg) || fail "backend-start (active) rc"
+jq -e '.ok == true and .already == true and .state == "active"' <<<"$out" >/dev/null \
+  || fail "backend-start on an active backend: $out"
+printf '' > "$FAKE_SYSTEMCTL_STATE_FILE"
+out=$(backend_start_command --type awg) || fail "backend-start (sleeping) rc"
+jq -e '.ok == true and .state == "active" and (.already // false) == false' <<<"$out" >/dev/null \
+  || fail "backend-start did not bring the unit up: $out"
+pass "backend-start: already for a running backend, starts a sleeping one"
+
+# Неизвестный тип и неустановленный бэкенд — ошибки, а не «ok»
+rc=0; out=$(backend_start_command --type nope 2>/dev/null) || rc=$?
+[[ "$rc" == "2" ]] || fail "backend-start unknown type rc=$rc (expected 2)"
+jq -e '.ok == false and .error == "type"' <<<"$out" >/dev/null || fail "unknown type JSON: $out"
+safe_jq_write --arg t awg 'del(.[$t])' "$BACKENDS_REGISTRY_FILE" || fail "registry del (2)"
+rc=0; out=$(backend_start_command --type awg 2>/dev/null) || rc=$?
+[[ "$rc" == "1" ]] || fail "backend-start not-installed rc=$rc (expected 1)"
+jq -e '.ok == false and .error == "not_installed"' <<<"$out" >/dev/null \
+  || fail "not-installed JSON: $out"
+pass "backend-start rejects an unknown type and an uninstalled backend"
+
+# 7) статика: диспетчер и меню
 grep -Fq '    awg-install)' xrayebator || fail "dispatch awg-install missing"
 grep -Fq '    awg-uninstall)' xrayebator || fail "dispatch awg-uninstall missing"
 grep -Fq '    awg-status)' xrayebator || fail "dispatch awg-status missing"
@@ -245,7 +322,13 @@ grep -Fq 'awg_conf_menu() {' xrayebator || fail "awg_conf_menu definition missin
 grep -Fq 'backend_status_menu() {' xrayebator || fail "backend_status_menu definition missing"
 grep -Fq '_backend_apply_profile_lifecycle "$name" revoked' xrayebator || fail "revoke lifecycle wiring missing"
 grep -Fq '"$(basename "$profile_file" .json)" expired' xrayebator || fail "expire lifecycle wiring missing"
-pass "CLI dispatch, menu, lifecycle wiring present (12/13)"
+grep -Fq '    backend-start)' xrayebator || fail "dispatch backend-start missing"
+grep -Fq 'AWG_MODULES_LOAD_FILE="/etc/modules-load.d/xrayebator-awg.conf"' xrayebator \
+  || fail "modules-load.d path constant missing"
+grep -Fq '_migrate_awg_module_2026() {' xrayebator || fail "awg module migration missing"
+grep -Fq 'run_migration "awg_module_2026"' xrayebator || fail "awg module migration not registered"
+grep -Fq 'rm -f "$AWG_MODULES_LOAD_FILE"' xrayebator || fail "uninstall must drop modules-load.d entry"
+pass "CLI dispatch, menu, lifecycle wiring present (12/13) + awg module boot/migration"
 
 echo ""
 pass "amneziawg backend (slice 4): all checks green"
