@@ -49,7 +49,7 @@ GUI 会显示部署日志和步骤状态，但进行中的部署没有 IPC 取�
 向导显示步骤索引和实际执行工作的实时控制台：SSH 连接、`xrayebator inspect --json` 调用、返回的组件状态、订阅探测和最终结果。订阅 URL 是 bearer credential，因此其令牌在进入控制台前会被遮蔽（`…`）；密码和密钥字节完全不会出现在其中。
 ### Server keys
 
-Server keys 会从保存的 `subscription_url` 刷新订阅，并显示返回的 VLESS 线路。每条 VLESS 链接都可以复制或生成二维码；订阅 URL 也可以复制，页面还提供复制全部内容的操作。此页面不会在服务器上创建独立订阅，也不会轮换订阅令牌（轮换在 Server settings 的配置档卡片上进行）。当服务器存在多协议后端时，页面还会从持久化本地存储中显示它们的密钥：每个持有授权的配置档一张 Hysteria 2 卡片（`hysteria2://` 链接，复制+二维码；卡片芯片标注所属配置档名称：`HYSTERIA2 · <配置档> · UDP :<端口>`），以及一张 AmneziaWG 卡片——客户端 `.conf`，其中 `Endpoint`/`Address` 以键值字段呈现，去掉服务注释头的完整 `.conf` 以文本和二维码提供，可导入 AmneziaVPN/AmneziaWG。后端卡片立即从持久化存储渲染，并与 VLESS 线路并行刷新；spinner 位于卡片内部，仅在数据获取期间可见。AWG 卡片有两个二维码：普通二维码用于独立版 AmneziaWG 客户端，「QR · AmneziaVPN」则是应用原生压缩 `vpn://` 形态（`amnezia-awg2` 容器、服务器级 junk 字段、`protocol_version` 3.1），是完整版 AmneziaVPN 的推荐导入路径。
+Server keys 会从保存的 `subscription_url` 刷新订阅，并显示返回的 VLESS 线路。每条 VLESS 链接都可以复制或生成二维码；订阅 URL 也可以复制，页面还提供复制全部内容的操作。此页面不会在服务器上创建独立订阅，也不会轮换订阅令牌（轮换在 Server settings 的配置档卡片上进行）。当服务器存在多协议后端时，页面还会从持久化本地存储中显示它们的密钥：每个持有授权的配置档一张 Hysteria 2 卡片（`hysteria2://` 链接，复制+二维码；卡片芯片标注所属配置档名称：`HYSTERIA2 · <配置档> · UDP :<端口>`），以及一张 AmneziaWG 卡片——客户端 `.conf`，其中 `Endpoint`/`Address` 以键值字段呈现，去掉服务注释头的完整 `.conf` 以文本和二维码提供，可导入 AmneziaVPN/AmneziaWG。后端卡片立即从持久化存储渲染，并与 VLESS 线路并行刷新；spinner 位于卡片内部，仅在数据获取期间可见。AWG 卡片有两个二维码：普通二维码用于独立版 AmneziaWG 客户端，「QR · AmneziaVPN」则是应用原生压缩 `vpn://` 形态（`amnezia-awg2` 容器、服务器级 junk 字段、`protocol_version` 3.1），是完整版 AmneziaVPN 的推荐导入路径。**「客户端链接」**卡片展示同一订阅的客户端格式——来自服务器 `subscription_url_clash`/`subscription_url_singbox` 的 Clash/mihomo（YAML）与 sing-box（JSON）：每个配置档一个区块，包含完整等宽链接以及复制和二维码，无需自己猜 `?target=` 后缀。该卡片缓存在同一个本地存储中（服务器卡片里的 `subscriptionFormats`），由主进程在每次成功读取配置档列表时写入——与 VLESS/Hysteria/AWG 密钥一样，下次进入瞬时渲染，服务器不可达时也不会消失。这里不会向服务器写回任何内容：服务器只负责提供链接。
 
 ### Server settings
 
@@ -63,8 +63,9 @@ Server settings 先通过 SSH 认证。如果卡片中已有系统钥匙串保�
 - 更新服务器安装（分支菜单：「按服务器上固定的分支」——`.current_branch`，否则 main；**main 是最新的稳定版本**；**dev 是包含全部新功能的最新版本，但可能不稳定**；从 dev 切回只需更新到 main）；
 - 确认后卸载服务器安装；
 - 在明确确认后重置固定的 SSH host key；
-- 管理多协议后端（与菜单项 11–13 对齐）：合并面板「补充协议」（正在开发中——界面和行为可能变化）显示 Hysteria 2 与 AmneziaWG 状态（版本、端口、TLS 模式 / 接口、junk 摘要），提供安装/卸载、订阅中 `hysteria2://` 行的总开关和 AWG 3.1 切换——后两者均带明确确认；
-- 配置档列表中每个配置档的后端卡片：标题为配置档名称，副标题为协议，绿色状态行（「已激活 · SNI …」或「已激活 · UDP <端口>」）；操作有二维码（AmneziaWG 另有「QR · AmneziaVPN」）、有效期、Revoke 和删除。删除配置档会立即吊销其后端密钥——AWG peer 从 `awg0.conf` 移除，Hysteria 密码从 `server.yaml` 移除（不残留孤立凭据），名称立即可复用。完整复制功能只在 Server keys 页面；
+- 管理多协议后端（与菜单项 11–13 对齐）：合并面板「补充协议」（正在开发中——界面和行为可能变化）显示 Hysteria 2 与 AmneziaWG 状态（版本、端口、TLS 模式 / 接口、junk 摘要），提供安装/卸载、**后端已安装但未运行时的「启动」按钮**、订阅中 `hysteria2://` 行的总开关和 AWG 3.1 切换——后两者均带明确确认；
+- 配置档列表中每个配置档的后端卡片：标题为配置档名称，副标题为协议，状态行分为绿色「已激活 …」、红色**「未运行」**（单元未激活：通常是重启后内核模块没有加载）和灰色「未安装」；操作只有二维码（AmneziaWG 另有「QR · AmneziaVPN」）与**「设置」**，处于「未运行」时还会出现「启动」按钮（`backend-start`）。有效期、重签与删除已移入设置窗口：它们作用于整个配置档，而不是某个协议的密钥。删除配置档会立即吊销其后端密钥——AWG peer 从 `awg0.conf` 移除，Hysteria 密码从 `server.yaml` 移除（不残留孤立凭据），名称立即可复用。完整复制功能只在 Server keys 页面；
+- 配置档的**「设置」**窗口（现在配置档行里唯一的操作按钮，紧挨「复制」）：分组为「线路」（SNI、Fingerprint、端口、PQ）、「限制」（有效期、流量）、「访问」（重签订阅）和「删除」——取代了原先挤在一行里的十一个按钮。从窗口中打开嵌套对话框时（SNI、端口、PQ、有效期、流量、重签、删除）窗口会自动关闭，两个模态框不会叠加；
 - 为配置档添加 PQ 线路：配置档旁的「PQ」按钮打开传输选择对话框并调用 `profile-pq`；返回结果里带有现成的 VLESS 链接，可一键复制。配置档行中的「PQ」/「PQ ×N」芯片显示它已拥有多少条后量子线路（`pq_routes`）；
 - **「订阅与 TLS」**卡片：来自 `dns01-status` 的订阅模式、域名、提供商和证书剩余天数。如果订阅已降级为 `http_tls`，卡片会说明原因（Let's Encrypt 未能验证 http-01，通常是 80 端口被过滤）并提供**「用 DNS-01 修复」**——即 `repair-dns01`。其他模式下按钮名为「配置 DNS-01」，调用 `dns01-setup`。提供商需显式选择（Cloudflare——具有 DNS:Edit 权限的令牌，Route53——AWS 密钥）；凭据发送到服务器，不在本地保存；
 - **「通知」**卡片：Telegram 告警状态（`alerts-status`）——是否启用投递、chat_id、机器人名称以及监控定时器是否运行；操作有启用/停用（`alerts-enable`/`alerts-disable`）和测试消息（`alerts-test`）。机器人令牌有意不通过 GUI 输入：它保存在 `alerts.json`（0600 root）中，并在终端用 `alerts-setup` 配置，以免在 renderer 中重复保存该机密。

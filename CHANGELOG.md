@@ -161,8 +161,9 @@ Next `0.6.5` cut: the server manager plus the GUI traffic-limit card.
   fingerprint is client-side, expiry and traffic limit are profile-level; the Clash/sing-box links moved
   to the Keys page, where they belong. Destructive "soft" buttons (`danger-soft`: delete profile, uninstall a
   backend, revoke keys) no longer inherit HeroUI's light-pink fill: the palette defines them as a
-  muted red tint (14% of `--danger` over the card) with the standard danger text, which is AA-compliant
-  and reads as an action rather than a highlight.
+  muted red tint (24% of `--danger` over the card, 32% on hover) with HeroUI's standard danger text, which is
+  AA-compliant and reads as an action rather than a highlight — only the background is overridden, so the
+  label stays exactly as legible as it was before.
 - **`xrayebator backend-start --type hysteria2|awg`** brings an *installed* backend whose unit is not
   active back up; the desktop GUI shows it as the **Start** button next to the honest "Not running"
   state. The only mutation is `systemctl start` (plus the kernel module for AWG) and it answers JSON —

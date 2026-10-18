@@ -1653,7 +1653,7 @@ export function ServerSettings({
                           <AlertDialog.Header>
                             <div className={styles.actionsHead}>
                               <span className={styles.actionsHeadIcon}>
-                                <Settings2 size={18} />
+                                <Settings2 size={20} />
                               </span>
                               <div className={styles.actionsHeadText}>
                                 <span className={styles.actionsKicker}>
@@ -1662,14 +1662,14 @@ export function ServerSettings({
                                 <AlertDialog.Heading className={styles.actionsTitle}>
                                   {profile.name}
                                 </AlertDialog.Heading>
-                                <div className={styles.actionsMeta}>
-                                  <Chip size="sm" color="accent">
-                                    {transportLabel(profile)}
-                                  </Chip>
-                                  {profile.sni && (
+                                {/* Транспорт и число маршрутов в окне не дублируем: их
+                                    видно в строке профиля, а в окне бэкенда эта плашка
+                                    вообще не про то, что здесь делают. */}
+                                {profile.sni && (
+                                  <div className={styles.actionsMeta}>
                                     <span className={styles.profileSni}>{profile.sni}</span>
-                                  )}
-                                </div>
+                                  </div>
+                                )}
                               </div>
                             </div>
                           </AlertDialog.Header>
@@ -2401,7 +2401,7 @@ export function ServerSettings({
                     <AlertDialog.Header>
                       <div className={styles.actionsHead}>
                         <span
-                          className={`${styles.backendIcon} ${
+                          className={`${styles.actionsHeadIcon} ${
                             actionTarget?.kind === 'hysteria2'
                               ? styles.backendIconHyst
                               : styles.backendIconAwg
@@ -2410,11 +2410,7 @@ export function ServerSettings({
                           <img
                             src={actionTarget?.kind === 'hysteria2' ? hystLogo : amneziaLogo}
                             alt=""
-                            className={
-                              actionTarget?.kind === 'hysteria2'
-                                ? styles.backendIconSvg
-                                : styles.backendIconImg
-                            }
+                            className={styles.actionsHeadImg}
                           />
                         </span>
                         <div className={styles.actionsHeadText}>
@@ -2426,13 +2422,6 @@ export function ServerSettings({
                           <AlertDialog.Heading className={styles.actionsTitle}>
                             {actionTarget?.profile.name ?? ''}
                           </AlertDialog.Heading>
-                          {actionTarget && (
-                            <div className={styles.actionsMeta}>
-                              <Chip size="sm" color="accent">
-                                {transportLabel(actionTarget.profile)}
-                              </Chip>
-                            </div>
-                          )}
                         </div>
                       </div>
                     </AlertDialog.Header>

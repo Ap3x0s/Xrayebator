@@ -288,16 +288,21 @@
   justify-content: center;
   flex: none;
   overflow: hidden;
+  /* Тинт протокола приходит переменными от .backendIconHyst/.backendIconAwg —
+     их же читает бейдж окна (.actionsHeadIcon), поэтому порядок правил в файле
+     больше не решает, какой фон победит. */
+  background: var(--badge-tint, transparent);
+  color: var(--badge-ink, inherit);
 }
 
 .backendIconHyst {
-  background: rgba(250, 204, 21, 0.14);
-  color: #facc15;
+  --badge-tint: rgba(250, 204, 21, 0.14);
+  --badge-ink: #facc15;
 }
 
 .backendIconAwg {
-  background: rgba(56, 189, 248, 0.14);
-  color: #38bdf8;
+  --badge-tint: rgba(56, 189, 248, 0.14);
+  --badge-ink: #38bdf8;
 }
 
 /* Логотипы протоколов: SVG Hysteria — вписан, JPG Amnezia — заливает бейдж */
@@ -884,16 +889,27 @@
 }
 
 .actionsHeadIcon {
-  width: 38px;
-  height: 38px;
-  border-radius: 11px;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex: none;
   overflow: hidden;
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-  color: var(--accent);
+  background: var(--badge-tint, color-mix(in srgb, var(--accent) 14%, transparent));
+  color: var(--badge-ink, var(--accent));
+}
+
+/* Логотип протокола внутри бейджа: с полями, иначе растр Amnezia заливает
+   значок до краёв и рядом с векторной иконкой настроек смотрится «забитым».
+   Радиус — потому что JPG Amnezia непрозрачный: квадрат внутри бейджа должен
+   читаться как логотип, а не как чёрная заплата. */
+.actionsHeadImg {
+  width: 68%;
+  height: 68%;
+  object-fit: contain;
+  border-radius: 8px;
 }
 
 .actionsHeadText {
