@@ -136,6 +136,24 @@ Next `0.6.5` cut: the server manager plus the GUI traffic-limit card.
   `repair-dns01`, otherwise *Set up DNS-01* -> `dns01-setup`) and a **Notifications** card
   (`alerts-status`, enable/disable, test message). The bot token is deliberately still configured only
   through `alerts-setup` in the terminal, so the secret is not duplicated in the renderer.
+- **Server settings became four sections instead of one long scroll** (GUI). A UX audit of the desktop
+  app found the settings screen to be a wall of five sections — connection, profile creation, profile
+  list, extra protocols, subscription/TLS and notifications — where reaching the profile list (the
+  reason for most visits) meant scrolling past two forms. The screen is now split into **Profiles |
+  Extra protocols | Subscription and TLS | Notifications** (`role=tablist`/`tabpanel`), the sections are
+  hidden rather than unmounted so a half-typed profile name survives a tab switch, and the connection
+  block stays a common gate. The same pass fixed a batch of smaller findings: the update-branch menu is
+  now a HeroUI `Dropdown` (keyboard, Escape, click-outside, chevron) instead of a hand-rolled popover
+  whose styles referenced a CSS variable that did not exist (`--text`), deployment and import logs are
+  selectable and gained a **Copy log** button (the operator's main diagnostic artifact used to be
+  unselectable), status indicators and the calendar carry localised `aria-label`s, confirmation dialogs
+  for backend actions name the action on the title and the red button instead of a generic
+  "Confirm"/"Done" pair, dialog errors are shown inside the dialog instead of behind its overlay,
+  clipboard writes report failure instead of silently pretending to succeed, `--text-2` was raised to
+  the WCAG-AA compliant `#8b949e`, small hints went from 11px to 12px, the *Create profile* button moved
+  to the end of the form with an explanation of why it is disabled, the empty state of the keys page
+  links to the profiles, and the i18n files are now guarded by a key-parity test
+  (`tests/unit/i18n-parity.test.ts`) plus the first render smoke test of the settings screen.
 
 ### Fixed
 
@@ -233,6 +251,23 @@ Next `0.6.5` cut: the server manager plus the GUI traffic-limit card.
   live: `dns01-test` reported that footer instead of the actual
   `Error creating new order :: Cannot issue for "<domain>": … forbidden by policy`. The parser now also
   reads the line after `An unexpected error occurred:` and filters the boilerplate out of the fallback.
+- **The profile row squeezed its own text into a one-letter-wide column.** In the profile list
+  `.profileActions` had `flex-shrink: 0` without wrapping while `.profileMain` was `flex: 1` with
+  `min-width: 0`, so the eleven action buttons demanded their full width and crushed the profile block:
+  the subscription URL broke per character and the badges stacked vertically. The card now wraps the
+  action row as a whole (`flex-wrap`), the buttons themselves wrap, and the profile block keeps a 320px
+  base width. A long-standing layout weakness, not a regression of the section split — the row's CSS is
+  untouched by the audit commits.
+- **The update-branch menu lost its former look after moving to HeroUI `Dropdown`.** HeroUI centres the
+  text of a button-based menu item, gives every item its own background, padding and press-scale, so the
+  menu no longer matched the popover it replaced. The items are styled back: left-aligned text,
+  transparent background, highlight only under the cursor or keyboard focus, 8px radius, 12px grey hints
+  and the previous popover radii/padding.
+- **"This server runs an older manager version" gave no way to diagnose itself.** The notice now prints
+  the server's actual error next to the hint, and the hint names the cause and the fix (update the
+  manager to the `dev` branch with the button above). Found on a live server: it had been switched to
+  `main`, where the `backend-status` command does not exist at all, so the GUI was honestly hiding
+  backend management — the install/enable UI is intact and returns as soon as the manager is on `dev`.
 
 ## [0.6.5-beta.2] - 2026-10-14
 
