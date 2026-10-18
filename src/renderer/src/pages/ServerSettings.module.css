@@ -183,6 +183,57 @@
   gap: 20px;
 }
 
+/* Разделы настроек. Раньше это была одна стена из пяти секций в общем скролле:
+   до списка профилей (90% визитов) приходилось прокручивать подключение и форму
+   создания. Панели скрываются атрибутом hidden, а не размонтированием: введённое
+   имя/счётчик не теряются при переключении вкладки. */
+.sectionTabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 4px;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.sectionTab {
+  flex: 1 1 auto;
+  min-width: 120px;
+  padding: 8px 12px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-1);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.sectionTab:hover {
+  background: var(--bg-2);
+  color: var(--text-0);
+}
+
+.sectionTabActive,
+.sectionTabActive:hover {
+  background: var(--bg-2);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  color: var(--text-0);
+}
+
+.sectionPane {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.sectionPane[hidden] {
+  display: none;
+}
+
 .connectCard,
 .createCard,
 .listCard {
@@ -685,6 +736,21 @@
   font-weight: 600;
   white-space: nowrap;
   align-self: end;
+}
+
+/* Кнопка создания — в конце формы (после выбора протокола и бэкенда) с пояснением,
+   почему она неактивна. */
+.createFooter {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.createDisabledHint {
+  font-size: 12px;
+  color: var(--text-2);
 }
 
 .createPreview {

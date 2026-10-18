@@ -81,6 +81,37 @@ export const FINGERPRINTS = [
 ] as const
 
 /**
+ * Разделы экрана настроек. Раньше это была одна вертикальная стена из пяти секций:
+ * оператору, которому нужен только список профилей (большинство визитов), приходилось
+ * прокручивать блок подключения и форму создания.
+ */
+type SettingsSection = 'profiles' | 'backends' | 'subscription' | 'alerts'
+export const SETTINGS_SECTIONS: { id: SettingsSection; labelKey: string }[] = [
+  { id: 'profiles', labelKey: 'settings.sectionProfiles' },
+  { id: 'backends', labelKey: 'settings.sectionBackends' },
+  { id: 'subscription', labelKey: 'settings.sectionSubscription' },
+  { id: 'alerts', labelKey: 'settings.sectionAlerts' }
+]
+
+/**
+ * Пропсы панели раздела. Раздел не размонтируется, а скрывается атрибутом `hidden`
+ * (см. styles.sectionPane): иначе при переключении вкладки терялись бы введённые имя,
+ * счётчик и выбранный протокол ещё не созданного профиля.
+ */
+export function sectionPaneProps(
+  id: SettingsSection,
+  active: SettingsSection
+): React.ComponentProps<'div'> {
+  return {
+    id: `pane-${id}`,
+    role: 'tabpanel',
+    'aria-labelledby': `tab-${id}`,
+    hidden: active !== id,
+    className: styles.sectionPane
+  }
+}
+
+/**
  * Диалоги подтверждения действий с бэкендами: заголовок и красная кнопка называют
  * конкретное действие. Раньше у всех шести был обезличенный заголовок «Подтвердите
  * действие» и кнопка «Готово» — на самом рискованном шаге оператор не читал, что
@@ -157,6 +188,9 @@ export function ServerSettings({
   const [keysQrData, setKeysQrData] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
+  // Раздел настроек. Панели скрываются атрибутом hidden (см. styles.sectionPane),
+  // поэтому введённое в форме имя и счётчик не теряются при переключении.
+  const [section, setSection] = useState<SettingsSection>('profiles')
   const [hostKeyFingerprint, setHostKeyFingerprint] = useState<string | null>(
     server.hostKeyFingerprint ?? null
   )
@@ -1322,6 +1356,26 @@ export function ServerSettings({
 
         {connected && (
           <>
+            <nav className={styles.sectionTabs} role="tablist" aria-label={t('settings.sectionsAria')}>
+              {SETTINGS_SECTIONS.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  role="tab"
+                  id={`tab-${s.id}`}
+                  aria-selected={section === s.id}
+                  aria-controls={`pane-${s.id}`}
+                  className={`${styles.sectionTab} ${
+                    section === s.id ? styles.sectionTabActive : ''
+                  }`}
+                  onClick={() => setSection(s.id)}
+                >
+                  {t(s.labelKey)}
+                </button>
+              ))}
+            </nav>
+
+            <div {...sectionPaneProps('profiles', section)}>
             <section
               className={`${styles.createCard} ${creating ? styles.createCardBusy : ''}`}
             >
@@ -1365,19 +1419,6 @@ export function ServerSettings({
                   {createExpire
                     ? t('settings.createExpireSet', { date: createExpire })
                     : t('settings.createExpire')}
-                </Button>
-                <Button
-                  variant="primary"
-                  size="lg"
-                  className={styles.createBtn}
-                  isDisabled={busy || !accessReady || !name.trim()}
-                  onPress={() => {
-                    if (backendSel) void createBackendProfiles(backendSel)
-                    else void create()
-                  }}
-                >
-                  {busy && <Spinner size="sm" />}
-                  {t('settings.createBtn')}
                 </Button>
               </div>
               <div className={styles.createPreview}>
@@ -1472,6 +1513,29 @@ export function ServerSettings({
                     </span>
                   </button>
                 </div>
+              </div>
+              {/* Действие — в конце формы: поток «имя → счётчик → протокол → бэкенд»
+                  идёт сверху вниз, а кнопка в середине строки читалась как «создать
+                  только по имени», игнорируя выбранный ниже протокол. */}
+              <div className={styles.createFooter}>
+                {!name.trim() && (
+                  <span className={styles.createDisabledHint}>
+                    {t('settings.createNeedName')}
+                  </span>
+                )}
+                <Button
+                  variant="primary"
+                  size="lg"
+                  className={styles.createBtn}
+                  isDisabled={busy || !accessReady || !name.trim()}
+                  onPress={() => {
+                    if (backendSel) void createBackendProfiles(backendSel)
+                    else void create()
+                  }}
+                >
+                  {busy && <Spinner size="sm" />}
+                  {t('settings.createBtn')}
+                </Button>
               </div>
             </section>
 
@@ -1776,7 +1840,9 @@ export function ServerSettings({
                 </Fragment>
               ))}
             </section>
+            </div>
 
+            <div {...sectionPaneProps('backends', section)}>
             <section>
               <div className={styles.listCard}>
                 <h2 className={styles.sectionTitle}>
@@ -1951,7 +2017,9 @@ export function ServerSettings({
                 )}
               </div>
             </section>
+            </div>
 
+            <div {...sectionPaneProps('subscription', section)}>
             <section className={styles.listCard}>
               <h2 className={styles.sectionTitle}>
                 <Lock size={16} /> {t('settings.dns01Title')}
@@ -2078,7 +2146,9 @@ export function ServerSettings({
                 </>
               )}
             </section>
+            </div>
 
+            <div {...sectionPaneProps('alerts', section)}>
             <section className={styles.listCard}>
               <h2 className={styles.sectionTitle}>
                 <Bell size={16} /> {t('settings.alertsTitle')}
@@ -2132,6 +2202,7 @@ export function ServerSettings({
                 </Button>
               </div>
             </section>
+            </div>
 
             <AlertDialog.Root
               isOpen={pqTarget !== null}
