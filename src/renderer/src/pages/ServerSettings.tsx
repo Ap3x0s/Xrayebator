@@ -23,7 +23,8 @@ import {
   ShieldCheck,
   Bell,
   Send,
-  ChevronDown
+  ChevronDown,
+  Link2
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type {
@@ -78,6 +79,29 @@ export const FINGERPRINTS = [
   'ios',
   'random'
 ] as const
+
+/**
+ * Диалоги подтверждения действий с бэкендами: заголовок и красная кнопка называют
+ * конкретное действие. Раньше у всех шести был обезличенный заголовок «Подтвердите
+ * действие» и кнопка «Готово» — на самом рискованном шаге оператор не читал, что
+ * именно подтверждает (удаление Hysteria 2 и включение AWG 3.1 выглядели одинаково).
+ */
+const BACKEND_CONFIRM_ACTION_KEYS: Record<
+  | 'hysteria2-uninstall'
+  | 'awg-uninstall'
+  | 'awg31-on'
+  | 'awg31-off'
+  | 'hysteria2-revoke-all'
+  | 'awg-revoke-all',
+  string
+> = {
+  'hysteria2-uninstall': 'settings.backendsActionHystUninstall',
+  'awg-uninstall': 'settings.backendsActionAwgUninstall',
+  'awg31-on': 'settings.backendsActionAwg31On',
+  'awg31-off': 'settings.backendsActionAwg31Off',
+  'hysteria2-revoke-all': 'settings.backendsActionRevokeHystAll',
+  'awg-revoke-all': 'settings.backendsActionRevokeAwgAll'
+}
 
 export const SNI_CATEGORIES = [
   'ru_whitelist',
@@ -159,6 +183,9 @@ export function ServerSettings({
   const [fpValue, setFpValue] = useState<string>('firefox')
   const [fpBusy, setFpBusy] = useState(false)
   const [fpDone, setFpDone] = useState(false)
+  // Ошибка показывается В САМОМ диалоге: страница за оверлеем, и баннер вверху
+  // оператор просто не видит, оставаясь с открытым диалогом и без объяснения.
+  const [fpError, setFpError] = useState<string | null>(null)
 
   const [sniTarget, setSniTarget] = useState<ServerProfile | null>(null)
   const [sniRoute, setSniRoute] = useState<number>(1)
@@ -166,6 +193,7 @@ export function ServerSettings({
   const [sniBusy, setSniBusy] = useState(false)
   const [sniDone, setSniDone] = useState(false)
   const [sniList, setSniList] = useState<SniEntry[] | null>(null)
+  const [sniError, setSniError] = useState<string | null>(null)
 
   const [portTarget, setPortTarget] = useState<ServerProfile | null>(null)
   const [portRoute, setPortRoute] = useState<number>(1)
@@ -173,6 +201,7 @@ export function ServerSettings({
   const [portValue, setPortValue] = useState('')
   const [portBusy, setPortBusy] = useState(false)
   const [portDone, setPortDone] = useState(false)
+  const [portError, setPortError] = useState<string | null>(null)
 
   // Revoke: выбор «только ссылка» / «полный отзыв» → подтверждение → выполнение.
   const [revokeTarget, setRevokeTarget] = useState<ServerProfile | null>(null)
@@ -529,6 +558,7 @@ export function ServerSettings({
     if (!fpTarget || !accessReady) return
     setFpBusy(true)
     setError(null)
+    setFpError(null)
     const input = {
       name: fpTarget.name,
       fingerprint: fpValue,
@@ -546,10 +576,10 @@ export function ServerSettings({
           setFpDone(false)
         }, 400)
       } else {
-        setError(result.error ?? t('settings.fpFailed'))
+        setFpError(result.error ?? t('settings.fpFailed'))
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setFpError(err instanceof Error ? err.message : String(err))
     } finally {
       setFpBusy(false)
     }
@@ -559,6 +589,7 @@ export function ServerSettings({
     if (!sniTarget || !sniValue.trim() || !accessReady) return
     setSniBusy(true)
     setError(null)
+    setSniError(null)
     const input = {
       name: sniTarget.name,
       sni: sniValue.trim(),
@@ -576,10 +607,10 @@ export function ServerSettings({
           setSniDone(false)
         }, 400)
       } else {
-        setError(result.error ?? t('settings.sniFailed'))
+        setSniError(result.error ?? t('settings.sniFailed'))
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setSniError(err instanceof Error ? err.message : String(err))
     } finally {
       setSniBusy(false)
     }
@@ -589,6 +620,7 @@ export function ServerSettings({
     if (!portTarget || !accessReady) return
     setPortBusy(true)
     setError(null)
+    setPortError(null)
     const input = {
       name: portTarget.name,
       port: portMode === 'random' ? ('random' as const) : Number(portValue),
@@ -600,7 +632,8 @@ export function ServerSettings({
         const fresh = await window.api.profiles.list(server.id, access)
         setProfiles(fresh.profiles ?? [])
         if (result.firewall_warning) {
-          setError(t('settings.firewallWarning'))
+          // Предупреждение тоже показываем в диалоге: страница за оверлеем.
+          setPortError(t('settings.firewallWarning'))
           return
         }
         toastText(t('settings.portChanged', { name: portTarget.name, port: result.port ?? input.port }))
@@ -610,10 +643,10 @@ export function ServerSettings({
           setPortDone(false)
         }, 400)
       } else {
-        setError(result.error ?? t('settings.portFailed'))
+        setPortError(result.error ?? t('settings.portFailed'))
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setPortError(err instanceof Error ? err.message : String(err))
     } finally {
       setPortBusy(false)
     }
@@ -1480,6 +1513,7 @@ export function ServerSettings({
                         setSniValue(profile.sni ?? '')
                         setSniRoute(1)
                         setSniList(null)
+                        setSniError(null)
                       }}
                     >
                       <Globe2 size={14} />
@@ -1493,6 +1527,7 @@ export function ServerSettings({
                         setFpTarget(profile)
                         setFpValue(profile.fingerprint || 'firefox')
                         setFpRoute(1)
+                        setFpError(null)
                       }}
                     >
                       <Fingerprint size={14} />
@@ -1507,6 +1542,7 @@ export function ServerSettings({
                         setPortRoute(1)
                         setPortMode('random')
                         setPortValue('')
+                        setPortError(null)
                       }}
                     >
                       <EthernetPort size={14} />
@@ -2196,7 +2232,11 @@ export function ServerSettings({
                 <AlertDialog.Icon status="warning">
                   <Zap size={20} />
                 </AlertDialog.Icon>
-                <AlertDialog.Heading>{t('settings.backendsConfirmTitle')}</AlertDialog.Heading>
+                <AlertDialog.Heading>
+                  {t('settings.backendsConfirmTitleTemplate', {
+                    action: confirmBackend ? t(BACKEND_CONFIRM_ACTION_KEYS[confirmBackend]) : ''
+                  })}
+                </AlertDialog.Heading>
               </AlertDialog.Header>
               <AlertDialog.Body>
                 {confirmBackend === 'hysteria2-uninstall' && t('settings.backendsConfirmHyst')}
@@ -2223,7 +2263,7 @@ export function ServerSettings({
                     setConfirmBackend(null)
                   }}
                 >
-                  {t('settings.done')}
+                  {confirmBackend ? t(BACKEND_CONFIRM_ACTION_KEYS[confirmBackend]) : t('settings.done')}
                 </Button>
               </AlertDialog.Footer>
             </AlertDialog.Dialog>
@@ -2302,7 +2342,9 @@ export function ServerSettings({
                         onClick={() => void runRevoke('token')}
                       >
                         <span className={styles.revokeOptionTitle}>
-                          <CalendarClock size={14} />
+                          {/* Календарь здесь читался как «срок»: эта опция выдаёт новую
+                              ссылку подписки, uuid не меняется. */}
+                          <Link2 size={14} />
                           {t('settings.revokeTokenTitle')}
                         </span>
                         <span className={styles.revokeOptionDesc}>
@@ -2751,6 +2793,7 @@ export function ServerSettings({
                   </div>
                 </div>
                 <p className={styles.fpNote}>{t('settings.fpRemember')}</p>
+                {fpError && <p className={styles.error}>{fpError}</p>}
               </AlertDialog.Body>
               <AlertDialog.Footer>
                 <Button variant="secondary" isDisabled={fpBusy} onPress={() => setFpTarget(null)}>
@@ -2902,6 +2945,7 @@ export function ServerSettings({
                   </TextField>
                 </div>
                 <p className={styles.fpNote}>{t('settings.sniReconnectHint')}</p>
+                {sniError && <p className={styles.error}>{sniError}</p>}
               </AlertDialog.Body>
               <AlertDialog.Footer>
                 <Button variant="secondary" isDisabled={sniBusy} onPress={() => setSniTarget(null)}>
@@ -3025,6 +3069,7 @@ export function ServerSettings({
                   </TextField>
                 </div>
                 <p className={styles.fpNote}>{t('settings.portReconnectHint')}</p>
+                {portError && <p className={styles.error}>{portError}</p>}
               </AlertDialog.Body>
               <AlertDialog.Footer>
                 <Button variant="secondary" isDisabled={portBusy} onPress={() => setPortTarget(null)}>

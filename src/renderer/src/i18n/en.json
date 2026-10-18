@@ -206,9 +206,9 @@
     "copyFailed": "Could not copy — select the text and copy it manually",
     "created": "Profiles created: {{count}}",
     "deleted": "Profile «{{name}}» deleted",
-    "deleteKey": "Delete key",
-    "deleteKeyTitle": "Delete key?",
-    "deleteKeyBody": "Key «{{name}}» will be removed from server «{{server}}» together with its port binding and firewall rules. This action cannot be undone.",
+    "deleteKey": "Delete profile",
+    "deleteKeyTitle": "Delete profile?",
+    "deleteKeyBody": "Profile «{{name}}» will be removed from server «{{server}}» together with its port binding and firewall rules — all of its keys stop working. This action cannot be undone.",
     "createFailed": "Failed to create profile",
     "deleteFailed": "Failed to delete profile",
     "mainProfile": "Main",
@@ -439,6 +439,13 @@
     "backendsExpiryBtn": "Expiry",
     "backendsExpiryChoose": "Choose the profile whose expiry you want to change:",
     "backendsConfirmRevokeHystAll": "Re-issue all Hysteria 2 keys? Old passwords stop working.",
-    "backendsConfirmRevokeAwgAll": "Re-issue all AWG peer keys? Old .conf files stop working."
+    "backendsConfirmRevokeAwgAll": "Re-issue all AWG peer keys? Old .conf files stop working.",
+    "backendsConfirmTitleTemplate": "{{action}}?",
+    "backendsActionHystUninstall": "Uninstall Hysteria 2",
+    "backendsActionAwgUninstall": "Uninstall AmneziaWG",
+    "backendsActionAwg31On": "Enable AWG 3.1 mode",
+    "backendsActionAwg31Off": "Disable AWG 3.1 mode",
+    "backendsActionRevokeHystAll": "Re-issue all Hysteria 2 keys",
+    "backendsActionRevokeAwgAll": "Re-issue all AmneziaWG keys"
   }
 }

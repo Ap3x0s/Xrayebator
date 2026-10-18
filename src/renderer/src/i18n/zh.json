@@ -205,9 +205,9 @@
     "copyFailed": "复制失败——请手动选中文本复制",
     "created": "已创建配置文件：{{count}}",
     "deleted": "配置文件「{{name}}」已删除",
-    "deleteKey": "删除密钥",
-    "deleteKeyTitle": "删除密钥？",
-    "deleteKeyBody": "密钥「{{name}}」将从服务器「{{server}}」上删除，包括端口绑定和防火墙规则。此操作无法撤销。",
+    "deleteKey": "删除配置档",
+    "deleteKeyTitle": "删除配置档？",
+    "deleteKeyBody": "配置档「{{name}}」将从服务器「{{server}}」上删除，包括端口绑定和防火墙规则——它的所有密钥都会失效。此操作无法撤销。",
     "createFailed": "无法创建配置文件",
     "deleteFailed": "无法删除配置文件",
     "mainProfile": "主要",
@@ -438,6 +438,13 @@
     "backendsExpiryBtn": "有效期",
     "backendsExpiryChoose": "选择要更改有效期的配置档：",
     "backendsConfirmRevokeHystAll": "重新签发所有 Hysteria 2 密钥？旧密码将失效。",
-    "backendsConfirmRevokeAwgAll": "重新签发所有 AWG peer 密钥？旧 .conf 将失效。"
+    "backendsConfirmRevokeAwgAll": "重新签发所有 AWG peer 密钥？旧 .conf 将失效。",
+    "backendsConfirmTitleTemplate": "{{action}}？",
+    "backendsActionHystUninstall": "卸载 Hysteria 2",
+    "backendsActionAwgUninstall": "卸载 AmneziaWG",
+    "backendsActionAwg31On": "启用 AWG 3.1 模式",
+    "backendsActionAwg31Off": "停用 AWG 3.1 模式",
+    "backendsActionRevokeHystAll": "重新签发所有 Hysteria 2 密钥",
+    "backendsActionRevokeAwgAll": "重新签发所有 AmneziaWG 密钥"
   }
 }
