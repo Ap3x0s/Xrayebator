@@ -102,4 +102,82 @@ rm -f "$SELFSTEAL_DOMAIN_FILE"
 [[ "$res" == "steal.example.com" ]] || fail "self-steal домен должен иметь приоритет (получено: '$res')"
 [[ ! -s "$PROBE_LOG" ]] || fail "при self-steal домене проба SNI не нужна"
 
-echo "✓ SNI-достижимость: недоступный дефолт заменяется доступным кандидатом, полная недоступность оставляет прежний дефолт, результат кэшируется — OK"
+# ─── 6. Критерий пробы: «Verify return code: 0» САМ ПО СЕБЕ не доказательство ───
+# Живой дефект 2026-10-20: openssl печатает «Verify return code: 0 (ok)» даже когда
+# рукопожатие не состоялось (проверять нечего). Из-за этого проба объявляла доступными
+# online.vtb.ru (TLS 1.2 only — Reality требует 1.3) и splitter.wb.ru (alert 40), и
+# свежие профили получали мёртвый SNI: 4 из 6 PQ-маршрутов отдавали http 000, а смена
+# SNI на www.cloudflare.com на том же порту — 200.
+good_out='CONNECTED(00000003)
+depth=2 C = US, O = "Cloudflare, Inc."
+verify return:1
+---
+Protocol  : TLSv1.3
+Cipher    : TLS_AES_128_GCM_SHA256
+---
+Verify return code: 0 (ok)
+---
+DONE'
+_sni_tls_output_ok_pure "$good_out" || fail "годный ответ TLS1.3 с проверенным сертификатом отклонён"
+
+# TLS1.3-хост недоступен: alert + «нет сертификата», но Verify return code: 0 всё равно печатается
+alert_out='40672CF67D7F0000:error:0A000410:SSL routines:ssl3_read_bytes:sslv3 alert handshake failure
+---
+no peer certificate available
+---
+No client certificate CA names sent
+---
+Verify return code: 0 (ok)
+---
+DONE'
+if _sni_tls_output_ok_pure "$alert_out"; then
+  fail "проба считает доступным хост с alert handshake failure (нет сертификата) — это же и был живой дефект"
+fi
+
+# Хост только с TLS 1.2: принудительный -tls1_3 не даёт строки Protocol: TLSv1.3
+tls12_out='Protocol  : TLSv1.2
+Cipher    : ECDHE-RSA-AES256-GCM-SHA384
+---
+Verify return code: 0 (ok)
+---
+DONE'
+if _sni_tls_output_ok_pure "$tls12_out"; then
+  fail "проба принимает TLS 1.2-хост, а Reality требует TLS 1.3"
+fi
+
+# Сертификат не проверен (self-signed в цепочке)
+badcert_out='Protocol  : TLSv1.3
+---
+Verify return code: 19 (self-signed certificate in certificate chain)
+---
+DONE'
+if _sni_tls_output_ok_pure "$badcert_out"; then
+  fail "проба принимает хост с непроверенным сертификатом"
+fi
+
+# Пустой вывод (таймаут/нет сети) — не доказательство
+if _sni_tls_output_ok_pure ""; then
+  fail "пустой вывод openssl не должен считаться доступностью"
+fi
+
+# ─── 7. Порядок кандидатов: голова списка → глобальные фолбэки → хвост списка ───
+# Иначе на зарубежном VPS весь мёртвый ru_whitelist съедал по таймауту на строку.
+WORKDIR_LONG=$(mktemp -d "$WORKDIR/long.XXXXXX")
+{ printf '%s\n' '# комментарий'
+  for i in 1 2 3 4 5 6 7 8 9 10; do printf 'dead%s.example|test|1\n' "$i"; done
+} > "$WORKDIR_LONG/sni_list.txt"
+SNI_LIST="$WORKDIR_LONG/sni_list.txt"
+SNI_REACH_HEAD_MAX=4
+reset_cache
+: > "$PROBE_LOG"
+_monitor_sni_reachable() { echo "$1" >> "$PROBE_LOG"; return 1; }
+_default_sni_for_transport tcp >/dev/null
+[[ -s "$PROBE_LOG" ]] || fail "проба не вызвана — сценарий порядка кандидатов не отработал"
+grep -q 'www.cloudflare.com' "$PROBE_LOG" \
+  || fail "глобальные фолбэки должны пробоваться раньше хвоста списка"
+fallback_line=$(grep -n 'www.cloudflare.com' "$PROBE_LOG" | head -1 | cut -d: -f1)
+tail_line=$(grep -n 'dead10.example' "$PROBE_LOG" | head -1 | cut -d: -f1)
+[[ "$fallback_line" -lt "$tail_line" ]] \
+  || fail "фолбэк cloudflare должен идти до хвоста списка ($fallback_line vs $tail_line)"
+
+echo "✓ SNI-достижимость: недоступный дефолт заменяется доступным кандидатом, полная недоступность оставляет прежний дефолт, результат кэшируется, критерий требует состоявшийся TLS 1.3, порядок кандидатов ограничен — OK"

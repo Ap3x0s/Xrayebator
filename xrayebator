@@ -861,6 +861,22 @@ _profile_route_count() {
   jq -r '(.routes // []) | length' "$profile_file" 2>/dev/null || echo 0
 }
 
+# Уникальные порты профиля (JSON-массив): union top-level .port и всех .routes[].port.
+# Общий для profile-delete / revoke / expire — источник истины "где лежат клиенты".
+#
+# Почему union, а не «routes, если он непустой»: profile-create пишет одно-маршрутную
+# форму (транспорт/порт только в top-level), а profile-pq дописывает .routes. Профиль
+# с ОБОИМИ формами отдавал в delete свой топ-порт как неучтённый — инбаунд оставался в
+# config.json вместе с клиентом удалённого профиля и продолжал слушать порт (живой
+# дефект 2026-10-20: после шести create+pq+delete шесть инбаундов с живыми uuid).
+# Для нормального multi-route профиля .port обычно дублирует routes[0].port — union
+# даёт тот же набор.
+_profile_ports_json() {
+  local profile_file="$1"
+  jq -c '[.port, (.routes[]?.port)] | map(select(type == "number")) | unique' \
+    "$profile_file" 2>/dev/null
+}
+
 _generate_vless_urls_for_profile() {
   local profile_file="$1"
   [[ -f "$profile_file" ]] || return 1
@@ -7098,9 +7114,47 @@ _reality_dest_for_sni() {
 declare -A _SNI_REACH_CACHE=()
 # Таймаут пробы SNI при выборе дефолта (короче мониторингового: это интерактивный путь).
 SNI_REACH_TIMEOUT="${SNI_REACH_TIMEOUT:-6}"
+# Сколько первых строк sni_list.txt пробовать ДО глобальных фолбэков. Список держится
+# whitelist-хостами РФ, и на зарубежном VPS они почти все мертвы: каждая мёртвая проба
+# стоит полный таймаут, поэтому без ограничения создание профиля упиралось в минуты.
+SNI_REACH_HEAD_MAX="${SNI_REACH_HEAD_MAX:-4}"
+
+# Годен ли вывод `openssl s_client -tls1_3` как доказательство доступности SNI.
+#
+# Причина существования (живой дефект 2026-10-20, Ubuntu 22.04, VPS в Германии):
+# openssl печатает «Verify return code: 0 (ok)» ДАЖЕ когда рукопожатие не состоялось.
+# Если сертификата не получено, проверять нечего — и код 0 означает «нечего
+# проверять», а не «сертификат валиден». Рядом при этом стоит «no peer certificate
+# available» и alert. Из-за этого проба объявляла доступными online.vtb.ru (TLS 1.2
+# only, Reality требует 1.3) и splitter.wb.ru (рукопожатие рвётся, alert 40) —
+# свежесозданные профили получали заведомо мёртвый SNI: 4 из 6 PQ-маршрутов и
+# обычный tcp-маршрут отдавали http 000, а смена SNI на www.cloudflare.com на том же
+# порту давала 200. То есть дефект был не в PQ, а в критерии пробы.
+#
+# Годен только состоявшийся TLS 1.3 с проверенным сертификатом:
+#  - нет «no peer certificate» и alert/errno (рукопожатие состоялось);
+#  - Protocol: TLSv1.3 (Reality требует именно 1.3; TLS 1.2-only хост — мёртвый dest);
+#  - Verify return code: 0 (цепочка проверена этим самым хостом).
+_sni_tls_output_ok_pure() {
+  local out="$1"
+  [[ -n "$out" ]] || return 1
+  if grep -q 'no peer certificate' <<<"$out"; then
+    return 1
+  fi
+  if grep -qiE 'handshake failure|SSL alert|sslv3 alert|errno=' <<<"$out"; then
+    return 1
+  fi
+  if ! grep -qE 'Protocol[[:space:]]*:[[:space:]]*TLSv1\.3' <<<"$out"; then
+    return 1
+  fi
+  if ! grep -q 'Verify return code: 0' <<<"$out"; then
+    return 1
+  fi
+  return 0
+}
 
 # Доступен ли SNI с ЭТОГО сервера. Критерий — как у probe-test и мониторинга
-# (_monitor_sni_reachable: openssl Verify return code: 0, иначе HTTP-код curl).
+# (_monitor_sni_reachable: состоявшийся TLS 1.3 + проверенный сертификат).
 # Нужен потому, что Reality отдаёт клиенту сертификат, полученный у dest: если
 # dest недоступен с VPS, рукопожатие у клиента висит, хотя конфиг валиден.
 _sni_reachable_from_here() {
@@ -7153,9 +7207,10 @@ _default_sni_for_transport() {
       ;;
     *)
       primary=$(grep -v '^#' "$SNI_LIST" 2>/dev/null | grep -v '^[[:space:]]*$' | head -n 1 | cut -d'|' -f1)
-      # Дефолт 2026-10-06: www.cloudflare.com — самый стабильный (глобальный
-      # anycast, TLS1.3, не режется ТСПУ). Список обычно перекрывает фолбэк:
-      # берётся первая строка sni_list.txt, она держится cloudflare-first.
+      # Первая строка списка — это НЕ «cloudflare-first»: на живом сервере файл
+      # начинается с ru_whitelist (www.ozon.ru, api.ozon.ru, ...). Поэтому порядок
+      # кандидатов ниже ограничивает перебор головой списка и уводит глобальные
+      # фолбэки вперёд хвоста — иначе мёртвый whitelist съедал минуты на таймаутах.
       [[ -z "$primary" ]] && primary="www.cloudflare.com"
       ;;
   esac
@@ -7165,17 +7220,35 @@ _default_sni_for_transport() {
   # хотя конфиг валиден. Живой случай (реальное развёртывание, 2026-10-17): дефолтный
   # www.ozon.ru недоступен, и 5 из 7 маршрутов свежего деплоя не работали —
   # проверка каналов клиентом Xray показала таймауты, а после смены SNI на
-  # доступный заработали все 7. Критерий тот же, что у probe-test и мониторинга.
-  # Кандидаты: пер-транспортный дефолт, затем список sni_list.txt, затем глобальные
-  # фолбэки. Если недоступен НИ ОДИН (нет сети/DNS) — возвращаем прежний дефолт:
-  # проба не должна ломать развёртывание на изолированном хосте.
-  local -a candidates=("$primary")
+  # доступный заработали все 7. Критерий — состоявшийся TLS 1.3 + проверенный
+  # сертификат (_sni_tls_output_ok_pure), а не голый «Verify return code: 0».
+  # Порядок: пер-транспортный дефолт → первые SNI_REACH_HEAD_MAX строк списка →
+  # глобальные фолбэки → остаток списка. Раньше список шёл целиком до фолбэков, и на
+  # зарубежном VPS (весь ru_whitelist мёртв) создание профиля упиралось в минуты:
+  # каждая мёртвая проба съедает полный таймаут, а cloudflare/yandex/google отвечают
+  # за десятки миллисекунд. Если недоступен НИ ОДИН (нет сети/DNS) — возвращаем
+  # прежний дефолт: проба не должна ломать развёртывание на изолированном хосте.
+  local -a list_entries=() candidates=()
   local line
   while IFS= read -r line; do
     line="${line%%|*}"
-    [[ -n "$line" ]] && candidates+=("$line")
+    [[ -n "$line" ]] && list_entries+=("$line")
   done < <(grep -v '^#' "$SNI_LIST" 2>/dev/null | grep -v '^[[:space:]]*$')
+
+  candidates=("$primary")
+  local idx=0
+  # idx=$((idx+1)), а НЕ ((idx++)): последний возвращает rc=1, когда idx был 0, и
+  # вызов под `set -e` (validation/, чужие обёртки) молча убивал менеджер на первом
+  # же кандидате — без сообщения, на самом старте выбора SNI.
+  while [[ "$idx" -lt "${#list_entries[@]}" ]] && [[ "$idx" -lt "$SNI_REACH_HEAD_MAX" ]]; do
+    candidates+=("${list_entries[$idx]}")
+    idx=$((idx + 1))
+  done
   candidates+=("www.cloudflare.com" "api-maps.yandex.ru" "www.google.com")
+  while [[ "$idx" -lt "${#list_entries[@]}" ]]; do
+    candidates+=("${list_entries[$idx]}")
+    idx=$((idx + 1))
+  done
 
   local candidate
   for candidate in "${candidates[@]}"; do
@@ -7475,7 +7548,10 @@ probe_sni() {
     -servername "$sni" \
     -tls1_3 \
     </dev/null 2>&1)
-  echo "$tls_out" | grep -q "Verify return code: 0" && tls_status="OK"
+  # Тот же критерий, что у выбора SNI: «Verify return code: 0» печатается и при
+  # провалившемся рукопожатии, поэтому probe-test раньше бодро писал TLS OK
+  # заведомо мёртвым хостам (см. _sni_tls_output_ok_pure).
+  _sni_tls_output_ok_pure "$tls_out" && tls_status="OK"
 
   local http_code latency
   read -r http_code latency < <(
@@ -10890,6 +10966,9 @@ _pq_add_route_for_profile() {
     return 1
   fi
 
+  # Метка базового маршрута при разворачивании одно-маршрутной формы: имя транспорта,
+  # как у соседних маршрутов multi-route профилей (xhttp-legacy, tcp-mux, ...).
+  local base_label="$transport"
   local tmp jq_err
   tmp=$(mktemp) || return 1
   jq_err=$(mktemp) || return 1
@@ -10899,14 +10978,37 @@ _pq_add_route_for_profile() {
   # PQ-маршрут молча не добавлялся на двух поддерживаемых системах, а CI на jq 1.7
   # этого не видел. Ошибку jq больше не глушим: именно `2>/dev/null` превращал
   # реальную причину в бодрое «проверьте config.json и свободные порты».
+  #
+  # Профиль, созданный profile-create, живёт в одно-маршрутной форме: транспорт/порт/
+  # SNI только в top-level, `.routes` вообще нет. Дописать ему `.routes` из одного
+  # PQ-маршрута нельзя — базовый маршрут выпадал из подписки, из channel-test
+  # (проверялся 1 маршрут вместо 2) и из profile-delete (порт оставался в config.json
+  # с живым клиентом удалённого профиля). Поэтому сначала разворачиваем одно-маршрутную
+  # форму в `.routes`, и только потом дописываем PQ.
   if ! jq --argjson port "$port" --arg transport "$transport" --arg sni "$sni" \
-       --arg lbl "${transport}-pq" --arg gs "$grpc_service_name" --arg xp "$xhttp_path" \
-       '.routes = ((.routes // []) + [{
+       --arg lbl "${transport}-pq" --arg base_lbl "$base_label" \
+       --arg gs "$grpc_service_name" --arg xp "$xhttp_path" \
+       '.routes = (
+          (if ((.routes // []) | length) > 0 then (.routes // []) else
+            [{
+              label: $base_lbl,
+              transport: (.transport // "tcp"),
+              port: .port,
+              sni: (.sni // $sni),
+              fingerprint: (.fingerprint // "chrome"),
+              pq_enabled: (.pq_enabled // false),
+              schema_version: 2
+            }
+            + (if (.grpc_service_name // "") != "" then {grpc_service_name: .grpc_service_name} else {} end)
+            + (if (.xhttp_path // "") != "" then {xhttp_path: .xhttp_path} else {} end)]
+          end)
+        ) |
+        .routes += [{
           label: $lbl, transport: $transport, port: $port, sni: $sni,
           fingerprint: (.fingerprint // "chrome"), pq_enabled: true, schema_version: 2
         }
         + (if $gs != "" then {grpc_service_name: $gs} else {} end)
-        + (if $xp != "" then {xhttp_path: $xp} else {} end)])' \
+        + (if $xp != "" then {xhttp_path: $xp} else {} end)]' \
        "$profile_file" > "$tmp" 2>"$jq_err"; then
     echo -e "${RED}✗ PQ: jq не собрал маршрут профиля: $(head -1 "$jq_err" 2>/dev/null)${NC}" >&2
     rm -f "$tmp" "$jq_err"
@@ -12012,18 +12114,8 @@ _move_profile_client_between_inbounds() {
     ' "$CONFIG_FILE"
 }
 
-# Уникальные порты профиля (JSON-массив): routes[] multi-route или top-level .port.
-# Общий для profile-delete / revoke / expire — источник истины "где лежат клиенты".
-_profile_ports_json() {
-  local profile_file="$1"
-  local rcount
-  rcount=$(_profile_route_count "$profile_file")
-  if [[ "$rcount" =~ ^[0-9]+$ ]] && [[ "$rcount" -gt 0 ]]; then
-    jq -c '[.routes[]?.port | select(type == "number")] | unique' "$profile_file" 2>/dev/null
-  else
-    jq -c '[.port | select(type == "number")] | unique' "$profile_file" 2>/dev/null
-  fi
-}
+# _profile_ports_json определена рядом с _profile_route_count (union top-level .port и
+# .routes[].port): delete/revoke/expire обязаны видеть порты обеих форм профиля.
 
 # Заменяет id клиента во всех inbounds на данных портах (revoke --full).
 _replace_uuid_in_config() {
@@ -12432,14 +12524,10 @@ delete_profile_menu() {
     if [[ "$confirm" =~ ^[yYдД]$ ]]; then
       local profile_file="$PROFILES_DIR/$profile_name.json"
       local uuid=$(jq -r '.uuid' "$profile_file")
-      local route_count
-      route_count=$(_profile_route_count "$profile_file")
+      # Порт берём union'ом форм (.port + .routes[].port): профиль, которому
+      # profile-pq дописал .routes, иначе терял свой базовый инбаунд при удалении.
       local ports_json
-      if [[ "$route_count" =~ ^[0-9]+$ ]] && [[ "$route_count" -gt 0 ]]; then
-        ports_json=$(jq -c '[.routes[]?.port | select(type == "number")] | unique' "$profile_file" 2>/dev/null)
-      else
-        ports_json=$(jq -c '[.port | select(type == "number")] | unique' "$profile_file" 2>/dev/null)
-      fi
+      ports_json=$(_profile_ports_json "$profile_file")
       if [[ -z "$uuid" || "$uuid" == "null" ]] ||
          ! jq -e 'type == "array" and length > 0' <<< "$ports_json" >/dev/null 2>&1; then
         echo -e "${RED}✗ Профиль повреждён: нет корректных uuid/port${NC}"
@@ -14559,11 +14647,17 @@ inspect_command() {
 
   # Мультибэкенд: сводка реестра. STRICT read-only: inspect ничего не создаёт —
   # при отсутствии файла реестра просто пустой объект; секреты не включаем.
+  #
+  # map_values, а НЕ with_entries с правкой «.value» справа от «|=»: справа от «|=»
+  # входом уже является значение записи, поэтому «.value.installed» там читает поле
+  # «value» внутри самой записи — его нет, `// false` даёт false. Живой дефект
+  # 2026-10-20: inspect отдавал installed:false и version:null обоим бэкендам, хотя
+  # registry содержал installed:true/v2.13.0/443 и backend-status в тот же момент — то же.
   local backends_json="{}"
   if [[ -s "$BACKENDS_REGISTRY_FILE" ]]; then
     backends_json=$(jq -c \
-      'with_entries(.value |= {installed: (.value.installed // false),
-        version: (.value.version // null), port: (.value.port // null)})' \
+      'map_values({installed: (.installed // false),
+        version: (.version // null), port: (.port // null)})' \
       "$BACKENDS_REGISTRY_FILE" 2>/dev/null) || backends_json="{}"
     [[ -n "$backends_json" ]] || backends_json="{}"
   fi
@@ -15723,14 +15817,12 @@ profile_delete_command() {
     return 1
   fi
 
-  local uuid route_count ports_json
+  local uuid ports_json
   uuid=$(jq -r '.uuid // empty' "$profile_file")
-  route_count=$(_profile_route_count "$profile_file")
-  if [[ "$route_count" =~ ^[0-9]+$ ]] && [[ "$route_count" -gt 0 ]]; then
-    ports_json=$(jq -c '[.routes[]?.port | select(type == "number")] | unique' "$profile_file" 2>/dev/null)
-  else
-    ports_json=$(jq -c '[.port | select(type == "number")] | unique' "$profile_file" 2>/dev/null)
-  fi
+  # Порт — union форм: топ-level .port и .routes[].port. Профиль, которому profile-pq
+  # дописал .routes, иначе терял базовый инбаунд: клиент удалённого профиля оставался в
+  # config.json, а порт продолжал слушать.
+  ports_json=$(_profile_ports_json "$profile_file")
 
   if [[ -z "$uuid" || "$uuid" == "null" ]] ||
      ! jq -e 'type == "array" and length > 0' <<< "$ports_json" >/dev/null 2>&1; then
@@ -16463,6 +16555,16 @@ profile_pq_command() {
     echo '{"ok":false,"error":"PQ-ключи не сгенерированы: обновите Xray-core до 25.9.5+ и войдите в меню (миграция mlkem_keys)"}'
     return 1
   fi
+  # Дубль считаем и для одно-маршрутной формы: у профиля, созданного profile-create с
+  # --transport xhttp, PQ уже включён на уровне top-level (.pq_enabled), и его инбаунд
+  # несёт decryption=mlkem — второй PQ-маршрут того же транспорта был бы бессмыслен.
+  if jq -e --arg t "$transport" '
+       ((.routes // []) | length) == 0 and (.transport // "tcp") == $t
+         and (.pq_enabled // false) == true
+     ' "$profile_file" >/dev/null 2>&1; then
+    echo "{\"ok\":false,\"error\":\"У профиля уже есть PQ-маршрут ${transport}\"}"
+    return 1
+  fi
   if jq -e --arg t "$transport" 'any((.routes // [])[]; .pq_enabled == true and .transport == $t)' \
        "$profile_file" >/dev/null 2>&1; then
     echo "{\"ok\":false,\"error\":\"У профиля уже есть PQ-маршрут ${transport}\"}"
@@ -16864,7 +16966,9 @@ _monitor_sni_reachable() {
   if command -v openssl >/dev/null 2>&1; then
     out=$(timeout "$ALERTS_SNI_TIMEOUT" openssl s_client -connect "${sni}:443" \
       -servername "$sni" -tls1_3 </dev/null 2>&1) || true
-    grep -q "Verify return code: 0" <<<"$out"
+    # Критерий — общий с выбором дефолтного SNI: одного «Verify return code: 0» мало,
+    # openssl печатает его и при провалившемся рукопожатии (см. _sni_tls_output_ok_pure).
+    _sni_tls_output_ok_pure "$out"
     return
   fi
   local code

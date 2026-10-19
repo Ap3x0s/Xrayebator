@@ -66,11 +66,18 @@ cat > "$PROFILES_DIR/sample.json" <<'JSON'
  "routes": [{"label": "tcp-vision", "transport": "tcp", "port": 10001, "sni": "www.ozon.ru", "fingerprint": "chrome"}]}
 JSON
 
+# Одно-маршрутная форма (сценарий 7) живёт на порту 20001, и её uuid обязан быть
+# клиентом этого инбаунда: _generate_vless_url_pure не выдаёт ссылку на маршрут,
+# клиента которого нет в config.json (проверка рассинхрона профиля и конфига).
+safe_jq_write --argjson port 20001 --arg uuid "99999999-8888-7777-6666-555555555555" \
+  '(.inbounds[] | select(.port == $port) | .settings.clients) += [{"id": $uuid, "flow": "xtls-rprx-vision"}]' \
+  "$CONFIG_FILE" || fail "не удалось подготовить инбаунд 20001 под одно-маршрутную форму"
+
 # build_transport_defaults только ПОДБИРАЕТ свободный порт — инбаунд создаёт сам
 # _pq_add_route_for_profile через add_inbound. Поэтому подменяем его на СВОБОДНЫЙ
 # порт: тест обязан пройти реальный путь создания инбаунда, иначе он снова закроет
 # регрессию, на которой маршрут добавлялся, а порт не слушал (живой Ubuntu 22.04).
-build_transport_defaults() { printf '%s\n' "30001||"; }
+build_transport_defaults() { printf '%s\n' "${NEXT_PORT:-30001}||"; }
 reserve_port() { return 0; }
 _default_sni_for_transport() { printf '%s\n' "www.ozon.ru"; }
 # В CI нет root/systemd: фиксируем вызовы, но систему не трогаем.
@@ -83,7 +90,6 @@ open_firewall_port() { FIREWALL_OPENED="$1"; return 0; }
 close_firewall_port() { return 0; }
 
 _pq_add_route_for_profile "$PROFILES_DIR/sample.json" "tcp" || fail "PQ-маршрут не создан"
-
 # 0) Инбаунд под PQ-порт действительно создан. Регрессия живого теста: раньше маршрут
 #    добавлялся на порт, которого нет в config.json — порт не слушал, UFW не
 #    открывался, а profile-pq отдавал ok:true с пустым link.
@@ -125,10 +131,54 @@ jq -e '.ok == false and (.error | test("уже есть"))' <<<"$out" >/dev/null
 VLESS_DECRYPTION_FILE="$WORKDIR/missing-decryption"
 out=$(profile_pq_command --name sample --transport grpc) || true
 jq -e '.ok == false and (.error | test("PQ-ключи"))' <<<"$out" >/dev/null || fail "нет проверки PQ-ключей: $out"
+# Возвращаем ключи: сценарии ниже снова идут через рабочий путь создания PQ.
+VLESS_DECRYPTION_FILE="$WORKDIR/.vless_decryption"
 
 # 6) v2ray/base64-тело выкидывает PQ ЛЮБОГО транспорта (фильтр в heredoc'е handler'а)
 handler=$(awk '/cat > \/usr\/local\/bin\/subhttp\.sh << '\''SUBHTTP_EOF'\''/{f=1;next} /^SUBHTTP_EOF$/{f=0} f' xrayebator)
 grep -q 'encryption=none' <<<"$handler" || fail "в handler'е нет фильтра PQ"
 grep -q '\[?&\]encryption=' <<<"$handler" || fail "фильтр PQ должен быть транспортно-независимым (не только xhttp)"
+
+# 7) Одно-маршрутный профиль (так его пишет profile-create: транспорт/порт/SNI только
+#    в top-level, .routes нет) не должен терять базовый маршрут при добавлении PQ.
+#    Живой дефект 2026-10-20: profile-pq дописывал .routes из одного PQ-маршрута, и
+#    базовый инбаунд выпадал из подписки, из channel-test (1 маршрут вместо 2) и из
+#    profile-delete — порт оставался в config.json с живым клиентом удалённого профиля.
+cat > "$PROFILES_DIR/single.json" <<'JSON'
+{"name": "single", "uuid": "99999999-8888-7777-6666-555555555555", "fingerprint": "chrome",
+ "transport": "tcp", "port": 20001, "sni": "www.ozon.ru"}
+JSON
+jq -e '(.routes // []) | length == 0' "$PROFILES_DIR/single.json" >/dev/null \
+  || fail "фикстура single должна быть одно-маршрутной"
+# Свободный порт под PQ-инбаунд этого сценария: 30001 уже занят PQ-инбаундом выше.
+NEXT_PORT=30003
+_pq_add_route_for_profile "$PROFILES_DIR/single.json" "tcp" || fail "PQ для одно-маршрутного профиля"
+jq -e '(.routes | length) == 2' "$PROFILES_DIR/single.json" >/dev/null \
+  || fail "одно-маршрутная форма не развёрнута в .routes (базовый маршрут потерян)"
+jq -e '.routes[0].port == 20001 and .routes[0].transport == "tcp"
+       and (.routes[0].pq_enabled // false) == false' "$PROFILES_DIR/single.json" >/dev/null \
+  || fail "базовый маршрут развёрнут неверно (порт/транспорт/pq)"
+jq -e '.routes[1].pq_enabled == true and .routes[1].port == 30003' "$PROFILES_DIR/single.json" >/dev/null \
+  || fail "PQ-маршрут одно-маршрутного профиля не добавлен"
+single_urls=$(_generate_vless_urls_for_profile "$PROFILES_DIR/single.json") || fail "ссылки single"
+single_count=$(grep -c 'vless://' <<<"$single_urls" || true)
+[[ "$single_count" -eq 2 ]] \
+  || fail "одно-маршрутный профиль после PQ должен отдавать 2 ссылки (получено: $single_count)"
+
+# 8) Порт'ы профиля — union форм: иначе delete/expire не видят базовый инбаунд.
+ports=$(_profile_ports_json "$PROFILES_DIR/single.json")
+jq -e 'sort == [20001, 30003]' <<<"$ports" >/dev/null \
+  || fail "union портов профиля неверен: $ports"
+
+# 9) Дубль PQ на транспорте, который уже PQ в одно-маршрутной форме (xhttp от
+#    profile-create несёт pq_enabled в top-level и decryption в инбаунде) — отказ.
+cat > "$PROFILES_DIR/single-xhttp.json" <<'JSON'
+{"name": "single-xhttp", "uuid": "77777777-6666-5555-4444-333333333333", "fingerprint": "chrome",
+ "transport": "xhttp", "port": 10001, "sni": "www.ozon.ru", "xhttp_path": "/xhttp-aa",
+ "pq_enabled": true, "schema_version": 2}
+JSON
+out=$(profile_pq_command --name single-xhttp --transport xhttp) || true
+jq -e '.ok == false and (.error | test("уже есть"))' <<<"$out" >/dev/null \
+  || fail "одно-маршрутный PQ xhttp должен отклоняться как дубль: $out"
 
 echo "✓ PQ-маршруты: отдельный инбаунд с decryption, ссылка с ML-KEM, обычный маршрут без изменений, CLI-контракт — OK"

@@ -172,6 +172,50 @@ Next `0.6.5` cut: the server manager plus the GUI traffic-limit card.
 
 ### Fixed
 
+- **The SNI probe accepted hosts it could not reach, so brand-new profiles got dead routes.**
+  `openssl s_client` prints `Verify return code: 0 (ok)` **even when the handshake never happened** —
+  with no peer certificate there is nothing to verify, and `0` means "nothing failed to verify", not
+  "the chain is valid". The reachability probe grepped exactly that string, so `online.vtb.ru` (a
+  TLS 1.2-only site, while Reality requires TLS 1.3 — it answers `sslv3 alert handshake failure`,
+  `no peer certificate available`) and `splitter.wb.ru` (no TLS at all) were classified as *reachable*.
+  Measured live on 2026-10-20: of six freshly created PQ routes only two worked, and the four dead ones
+  (`tcp`, `tcp-utls`, `tcp-mux`, `xhttp`) all carried such an SNI — switching the SNI of the very same
+  port and route to `www.cloudflare.com` returned HTTP 200, both for a PQ route (5174 ms) and for a
+  plain one (5180 ms). So the PQ layer itself was fine; the selection criterion was not. The new pure
+  seam `_sni_tls_output_ok_pure` now requires a *completed* TLS 1.3 handshake **with a verified
+  certificate** (no `no peer certificate`, no alert, `Protocol : TLSv1.3`, `Verify return code: 0`),
+  and both `_monitor_sni_reachable` and `probe-test` use it — `probe-test` had been printing `TLS OK`
+  for the same dead hosts. Candidate order is also bounded now: the per-transport default, then at most
+  `SNI_REACH_HEAD_MAX` (4) entries of `sni_list.txt`, then the global fallbacks
+  (`www.cloudflare.com`, `api-maps.yandex.ru`, `www.google.com`), then the rest of the list. The list
+  is *not* cloudflare-first as an old comment claimed — it starts with `ru_whitelist` (`www.ozon.ru`,
+  …), which is entirely dead from a foreign VPS, and every dead candidate costs a full timeout, so
+  profile creation crawled for minutes. `((idx++))` in that loop was replaced by `idx=$((idx + 1))`:
+  the former returns 1 when the index was 0 and silently killed any caller running under `set -e`.
+- **`profile-pq` threw away the base route of a profile it was asked to extend.** A profile created by
+  `profile-create` lives in the single-route shape (transport/port/SNI only at top level, no `routes`
+  array); `profile-pq` appended `routes` containing just the PQ entry, so the original route silently
+  vanished from the subscription, from `channel-test` (it checked 1 route instead of 2) and from
+  `profile-delete`. `_pq_add_route_for_profile` now expands the single-route shape into `routes` first
+  (keeping port/transport/SNI/fingerprint and the `grpc`/`xhttp` metadata) and only then appends the
+  `<transport>-pq` route. `profile-pq` also refuses a duplicate on a transport that is already
+  post-quantum in the single-route shape, which is the normal case for `--transport xhttp`.
+- **`profile-delete` left orphaned inbounds that kept serving the deleted profile.** The ports of a
+  profile were computed as "`routes[].port` if `routes` is non-empty, otherwise `.port`", so a mixed
+  profile — exactly what `profile-pq` used to produce — hid its base port from the cleanup: the inbound
+  stayed in `config.json` **with the deleted profile's uuid still in `settings.clients`**, and the port
+  kept listening (live: six leftovers after six create/`profile-pq`/delete cycles). `_profile_ports_json`
+  now returns the union of the top-level `.port` and every `.routes[].port`, and all three call sites
+  (interactive delete, `profile-delete`, `expire`) share it instead of re-implementing the choice.
+- **`inspect --json` reported every backend as not installed.** The registry summary was built with
+  `with_entries(... .value |= …)`, but to the right of `|=` the input is already the entry *value*, so
+  `.value.installed` read a non-existent inner `value` field and `// false` turned it into `false`
+  unconditionally. The live registry held `installed:true`, `version:"v2.13.0"`, `port:443` for
+  hysteria2 and `kernel-dkms`/`51997` for awg, and `backend-status` reported both as `installed:true`
+  in the same second, while the GUI import saw two absent backends. Now `map_values`, covered by a
+  functional assertion in `validation/test-quickstart-email-and-inspect.sh` (which also pins the
+  installed/version/port whitelist, so registry secrets cannot leak into the summary).
+
 - **Default SNI could be unreachable from the VPS, killing most channels.** Reality serves the client a
   certificate fetched from the SNI's real site (`dest`), so an unreachable `dest` hangs the handshake
   even though the config is perfectly valid. On a live deployment the first line of `sni_list.txt`
@@ -179,7 +223,8 @@ Next `0.6.5` cut: the server manager plus the GUI traffic-limit card.
   showed 12-second timeouts for exactly those routes, while `grpc` and `tcp-xudp` (reachable SNIs)
   worked instantly; after switching the SNI to a reachable host all 7 worked. `_default_sni_for_transport`
   now verifies reachability from the server with the same criterion as `probe-test`/monitoring
-  (openssl `Verify return code: 0`), walks the `sni_list.txt` candidates plus global fallbacks, caches
+  (openssl `Verify return code: 0` — a criterion later proven too weak, see the SNI-probe bullet above),
+  walks the `sni_list.txt` candidates plus global fallbacks, caches
   one probe per SNI, and keeps the old behaviour when nothing is reachable (no internet/DNS must not
   break a deployment). Guarded by `validation/test-sni-reachability.sh`.
 - **`quickstart --pq` never added a post-quantum route.** The flag was parsed and a static test
