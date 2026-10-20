@@ -74,7 +74,12 @@ sudo systemctl status xrayebator-sub --no-pager -l
 curl -sS -i http://127.0.0.1:8080/sub/                        # 预期返回 404
 jq -r '.routes[] | [.label,.transport,.port,(.pq_enabled // false)] | @tsv' \
   /usr/local/etc/xray/profiles/<profile>.json
+sudo xrayebator channel-test --name <profile>                 # 每条线路跑真实流量
 ```
+
+`channel-test` 是唯一能证明线路真的承载流量的检查：它按订阅中的每条链接启动本地 Xray 客户端并发出
+HTTP 请求，按线路返回 `ok`、`http` 与延迟，PQ 线路也包含在内。请运行两次：Xray 重启后的首次运行要付
+连接预热的代价（实机配置档为 ~5.1 秒，第二次 ~150 毫秒），因此单次偏慢不足以判断通道已坏。
 
 如果 UFW 已经启用，请对比操作前后的 numbered rules：安装不应重新启用防火墙，也不应更改其默认策略。
 
