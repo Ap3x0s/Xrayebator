@@ -46,9 +46,17 @@
    кнопку и читался как незавершённое состояние. Галочка появляется тем же popIn,
    что галочка выполненного шага деплоя (.stepCheck). */
 .btnSuccess {
+  /* Обводка как у готового шага деплоя (.step.done): 1px rgba(63,185,80,.35).
+     border-color недостаточно: у кнопки HeroUI рамки может не быть вовсе
+     (border-width: 0), и цвет рисовать нечего. outline с offset:-1px даёт ту же
+     линию внутри габарита кнопки, поэтому она видна всегда и НЕ меняет размер
+     (иначе кнопка выросла бы на 2px в момент успеха). */
   border-color: rgba(63, 185, 80, 0.35) !important;
+  outline: 1px solid rgba(63, 185, 80, 0.35);
+  outline-offset: -1px;
   color: var(--success) !important;
   background: color-mix(in srgb, var(--success) 14%, var(--bg-2)) !important;
+  transition: color 0.3s, background 0.3s, border-color 0.3s;
 }
 
 .btnSuccess svg {

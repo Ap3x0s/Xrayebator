@@ -181,8 +181,10 @@ Next `0.6.5` cut: the server manager plus the GUI traffic-limit card.
 
 - **The "Done" button is green, not glowing.** The success state of the five action dialogs (expiry, limit, fingerprint, SNI,
   port) used a 14 px green `box-shadow`, which read as a blur — as if the action were still running or the button were disabled.
-  It now uses the same green as the deploy screen's finished step: green text, `rgba(63,185,80,.35)` border and a 14% green fill,
-  with no shadow at all, and the check mark pops in with the same easing as that step.
+  It now uses the same green as the deploy screen's finished step: green text, a 14% green fill and that step's
+  `rgba(63,185,80,.35)` outline — drawn with `outline-offset: -1px` so the line appears even on a HeroUI button that has no
+  border of its own and never changes the button's size — with no shadow at all, and the check mark pops in with the same
+  easing as that step.
 
 ### Fixed
 
