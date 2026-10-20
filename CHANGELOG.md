@@ -185,7 +185,11 @@ Next `0.6.5` cut: the server manager plus the GUI traffic-limit card.
   seam `_sni_tls_output_ok_pure` now requires a *completed* TLS 1.3 handshake **with a verified
   certificate** (no `no peer certificate`, no alert, no `Cipher is (NONE)`, `TLSv1\.3` present,
   `Verify return code: 0`), and a success is confirmed by a second attempt because some hosts answer only
-  intermittently (`splitter.wb.ru` failed with alert 40 in one measurement and passed in another),
+  intermittently (`splitter.wb.ru` failed with alert 40 in one measurement and passed in another), and a
+  host that completes the handshake but never answers HTTP is rejected too — `www.wildberries.ru` passed the
+  TLS probe in 1.7 s and returned `000` to `curl`, and a route with that SNI hung for 10 s (`reality` sends a
+  real ClientHello to the dest and waits for the session to continue, not just for a certificate); the HTTP
+  status itself is irrelevant, only that a response arrived,
   and both `_monitor_sni_reachable` and `probe-test` use it — `probe-test` had been printing `TLS OK`
   for the same dead hosts, and its budget now matches the selection one (3 s) — with the old 8 s a host that
   completed a handshake in 6 s was displayed as `TLS OK` while selection rejected it, so the diagnostic

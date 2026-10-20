@@ -7193,7 +7193,22 @@ _sni_reachable_from_here() {
     # таком dest рвёт рукопожатие у клиента, поэтому «прошло один раз» не
     # доказательство. Стоит +50…200 мс у здорового хоста (провал — сразу таймаут).
     if _monitor_sni_reachable "$sni"; then
-      ok=1
+      # Третье условие — сайт обязан ОТВЕТИТЬ по HTTP. Хосты, которые завершают
+      # рукопожатие и «зависают» дальше, для Reality тоже мёртвые: живой
+      # www.wildberries.ru проходил TLS-пробу за 1.7 с, но отдавал http 000, и маршрут
+      # с таким SNI висел 10 с (живой замер 2026-10-20). reality шлёт реальный
+      # ClientHello к dest и ждёт от него продолжения сессии, а не только сертификат.
+      # Код ответа не важен (403/404 — нормальная практика), важно что он есть.
+      local http_code="000"
+      if command -v curl >/dev/null 2>&1; then
+        http_code=$(curl -s -o /dev/null --connect-timeout "$SNI_REACH_TIMEOUT" \
+          --max-time "$SNI_REACH_TIMEOUT" -w '%{http_code}' "https://${sni}/" 2>/dev/null || echo 000)
+      fi
+      # Нет curl (или он не смог) — не отбраковываем по этому признаку: два
+      # состоявшихся TLS 1.3 уже достаточное основание, чтобы не ломать развёртывание.
+      if [[ "$http_code" != "000" ]] || ! command -v curl >/dev/null 2>&1; then
+        ok=1
+      fi
     fi
   fi
   if [[ "$saved" == "__unset__" ]]; then

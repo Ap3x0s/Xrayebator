@@ -49,6 +49,11 @@ reset_cache() {
   declare -gA _SNI_REACH_CACHE=()
 }
 
+# Пробы в тесте обязаны быть безсетевыми: сценарии подменяют _monitor_sni_reachable,
+# но _sni_reachable_from_here дополнительно спрашивает curl — без заглушки результат
+# зависел бы от того, отвечает ли хост из CI. По умолчанию «сайт отвечает 200».
+curl() { printf '%s' "200"; }
+
 # Доступен только cloudflare (ozon недоступен — как на живом сервере).
 only_cloudflare() {
   echo "$1" >> "$PROBE_LOG"
@@ -198,8 +203,25 @@ fi
 reset_cache
 stable_counter=0
 _monitor_sni_reachable() { stable_counter=$((stable_counter + 1)); return 0; }
+curl() { printf '%s' "200"; }   # сайт отвечает по HTTP
 _sni_reachable_from_here "stable.example" || fail "стабильный хост отклонён"
 [[ "$stable_counter" -eq 2 ]] || fail "успешный SNI должен проверяться дважды (замеров: $stable_counter)"
+
+# ─── 6c. TLS состоялся, но сайт не отвечает по HTTP — тоже негодный dest ───
+# Живой www.wildberries.ru: рукопожатие за 1.7 с, curl даёт 000, и маршрут с таким
+# SNI висел 10 с. Reality шлёт реальный ClientHello и ждёт продолжения сессии.
+reset_cache
+_monitor_sni_reachable() { return 0; }
+curl() { printf '%s' "000"; }
+if _sni_reachable_from_here "tarpit.example"; then
+  fail "хост с TLS-рукопожатием без HTTP-ответа не должен считаться доступным"
+fi
+# А вот код ответа не важен: 403 — нормальная практика, такой dest годится.
+reset_cache
+curl() { printf '%s' "403"; }
+_sni_reachable_from_here "forbidden.example" || fail "хост с HTTP 403 должен приниматься (важен факт ответа)"
+# Возвращаем заглушку по умолчанию, чтобы не влиять на дальнейшие сценарии.
+curl() { printf '%s' "200"; }
 
 # ─── 7. Порядок кандидатов: голова списка → глобальные фолбэки → хвост списка ───
 # Иначе на зарубежном VPS весь мёртвый ru_whitelist съедал по таймауту на строку.
