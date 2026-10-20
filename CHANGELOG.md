@@ -179,6 +179,11 @@ Next `0.6.5` cut: the server manager plus the GUI traffic-limit card.
   the name. A long hostname is truncated with the full value in `title`, so the row height never depends on the SNI length.
   Buttons were not touched.
 
+- **The "Done" button is green, not glowing.** The success state of the five action dialogs (expiry, limit, fingerprint, SNI,
+  port) used a 14 px green `box-shadow`, which read as a blur — as if the action were still running or the button were disabled.
+  It now uses the same green as the deploy screen's finished step: green text, `rgba(63,185,80,.35)` border and a 14% green fill,
+  with no shadow at all, and the check mark pops in with the same easing as that step.
+
 ### Fixed
 
 - **The "valid until" line on the Keys page appeared late and pushed the card down.** Expiry came only from

@@ -40,11 +40,33 @@
   }
 }
 
+/* Кнопка «Готово»: зелёный из экрана деплоя — тот же цвет и та же рамка, что у
+   .step.done (текст --success, рамка rgba(63,185,80,.35)), плюс заливка 14%, чтобы
+   кнопка именно «становилась зелёной». Свечение убрано: box-shadow 14px размывал
+   кнопку и читался как незавершённое состояние. Галочка появляется тем же popIn,
+   что галочка выполненного шага деплоя (.stepCheck). */
 .btnSuccess {
-  border-color: var(--success) !important;
+  border-color: rgba(63, 185, 80, 0.35) !important;
   color: var(--success) !important;
   background: color-mix(in srgb, var(--success) 14%, var(--bg-2)) !important;
-  box-shadow: 0 0 14px color-mix(in srgb, var(--success) 30%, transparent);
+}
+
+.btnSuccess svg {
+  animation: btnSuccessPop 0.35s ease;
+}
+
+@keyframes btnSuccessPop {
+  0% {
+    opacity: 0;
+    transform: scale(0.5) rotate(-12deg);
+  }
+  60% {
+    transform: scale(1.1) rotate(3deg);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+  }
 }
 
 .iconDownloading {
