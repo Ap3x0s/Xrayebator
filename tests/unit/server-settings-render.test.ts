@@ -46,16 +46,16 @@ describe('ServerSettings render', () => {
 })
 
 describe('settings sections', () => {
-  it('lists all four sections with distinct ids', () => {
+  it('lists all three sections with distinct ids', () => {
     const ids = SETTINGS_SECTIONS.map((s) => s.id)
-    expect(ids).toEqual(['profiles', 'backends', 'subscription', 'alerts'])
-    expect(new Set(SETTINGS_SECTIONS.map((s) => s.labelKey)).size).toBe(4)
+    expect(ids).toEqual(['profiles', 'backends', 'subscription'])
+    expect(new Set(SETTINGS_SECTIONS.map((s) => s.labelKey)).size).toBe(3)
   })
 
   it('hides the inactive panes instead of unmounting them', () => {
     // Контракт: панель всегда в DOM (иначе терялись бы введённые значения), неактивная
     // — скрыта атрибутом hidden и связана с вкладкой через aria.
-    for (const id of ['profiles', 'backends', 'subscription', 'alerts'] as const) {
+    for (const id of ['profiles', 'backends', 'subscription'] as const) {
       const active = sectionPaneProps(id, id)
       expect(active.hidden).toBe(false)
       expect(active.id).toBe(`pane-${id}`)

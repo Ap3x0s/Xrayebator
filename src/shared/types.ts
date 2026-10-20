@@ -556,34 +556,6 @@ export interface Dns01RepairResult {
   error?: string
 }
 
-/** Ответ `alerts-status`: конфиг Telegram-алертов и состояние таймера мониторинга. */
-export interface AlertsStatusResult {
-  ok: boolean
-  /** true — alerts.json есть (токен и chat_id записаны через TUI/CLI). */
-  configured: boolean
-  enabled: boolean
-  chat_id: string
-  bot_username: string
-  timer_installed: boolean
-  timer_active: boolean
-  last_run: number
-  events: Record<string, unknown>
-  sni: Record<string, unknown>
-  error?: string
-}
-
-export interface AlertsToggleResult {
-  ok: boolean
-  enabled?: boolean
-  error?: string
-}
-
-export interface AlertsTestResult {
-  ok: boolean
-  sent?: boolean
-  error?: string
-}
-
 /** Ответ `profile-pq` — добавление пост-квантового маршрута профилю. */
 export interface ProfilePqResult {
   ok: boolean
@@ -705,18 +677,6 @@ export interface ElectronAPI {
       access: SshAccessInput,
       input: Dns01Input
     ) => Promise<Dns01RepairResult>
-  }
-  alerts: {
-    /** Конфиг Telegram-алертов + состояние таймера мониторинга. */
-    status: (serverId: string, access: SshAccessInput) => Promise<AlertsStatusResult>
-    /** Тестовое сообщение в настроенный чат. */
-    test: (serverId: string, access: SshAccessInput) => Promise<AlertsTestResult>
-    /** Включить/выключить отправку (конфиг с токеном остаётся на месте). */
-    toggle: (
-      serverId: string,
-      access: SshAccessInput,
-      on: boolean
-    ) => Promise<AlertsToggleResult>
   }
   server: {
     /**

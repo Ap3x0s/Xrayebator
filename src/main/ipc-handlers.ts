@@ -617,24 +617,6 @@ export function registerIpcHandlers({ store }: IpcContext): void {
     }
   )
 
-  ipcMain.handle('alerts:status', async (_e, serverId: string, access: SshAccessInput) => {
-    const manager = await maintenanceManagerFor(serverId, access)
-    return manager.alertsStatus()
-  })
-
-  ipcMain.handle('alerts:test', async (_e, serverId: string, access: SshAccessInput) => {
-    const manager = await maintenanceManagerFor(serverId, access)
-    return manager.alertsTest()
-  })
-
-  ipcMain.handle(
-    'alerts:toggle',
-    async (_e, serverId: string, access: SshAccessInput, on: boolean) => {
-      const manager = await maintenanceManagerFor(serverId, access)
-      return manager.alertsToggle(Boolean(on))
-    }
-  )
-
   const backendManagerFor = async (
     serverId: string,
     access: SshAccessInput

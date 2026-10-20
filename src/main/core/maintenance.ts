@@ -3,13 +3,7 @@ import { shellCommand } from './shell-command'
 import { describeFailure, isUnknownCommandFailure, unknownCommandHint } from './cli-failure'
 import { extractJson } from './profiles'
 import { dns01CliArgs, isDns01Ready, isValidDns01Domain, type Dns01Input } from '@shared/dns01'
-import type {
-  AlertsStatusResult,
-  AlertsTestResult,
-  AlertsToggleResult,
-  Dns01RepairResult,
-  Dns01StatusResult
-} from '@shared/types'
+import type { Dns01RepairResult, Dns01StatusResult } from '@shared/types'
 
 /** Человекочитаемая причина, почему набор DNS-01 неполный (для ошибки в GUI). */
 function dns01Problem(input: Dns01Input): string | null {
@@ -125,64 +119,5 @@ export class MaintenanceManager {
     const problem = dns01Problem(input)
     if (problem) return { ok: false, error: problem }
     return this.dns01(['repair-dns01', ...dns01CliArgs(input)])
-  }
-
-  async alertsStatus(): Promise<AlertsStatusResult> {
-    try {
-      const payload = extractJson(await this.run(['alerts-status'])) as AlertsStatusResult
-      return {
-        ok: payload.ok === true,
-        configured: payload.configured === true,
-        enabled: payload.enabled === true,
-        chat_id: payload.chat_id ?? '',
-        bot_username: payload.bot_username ?? '',
-        timer_installed: payload.timer_installed === true,
-        timer_active: payload.timer_active === true,
-        last_run: payload.last_run ?? 0,
-        events: payload.events ?? {},
-        sni: payload.sni ?? {},
-        error: payload.error
-      }
-    } catch (err) {
-      return {
-        ok: false,
-        configured: false,
-        enabled: false,
-        chat_id: '',
-        bot_username: '',
-        timer_installed: false,
-        timer_active: false,
-        last_run: 0,
-        events: {},
-        sni: {},
-        error: err instanceof Error ? err.message : String(err)
-      }
-    }
-  }
-
-  /** Тестовое сообщение: единственная проверка, что токен и чат действительно живые. */
-  async alertsTest(): Promise<AlertsTestResult> {
-    try {
-      const payload = extractJson(await this.run(['alerts-test'])) as AlertsTestResult
-      return { ok: payload.ok === true, sent: payload.sent === true, error: payload.error }
-    } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) }
-    }
-  }
-
-  /**
-   * Вкл/выкл отправку. Токен бота через GUI не принимаем осознанно: он живёт в
-   * alerts.json (0600 root) и настраивается через TUI/CLI `alerts-setup` — тот же
-   * уровень доверия, что и SSH-пароль, но без дублирования секрета в renderer'е.
-   */
-  async alertsToggle(on: boolean): Promise<AlertsToggleResult> {
-    try {
-      const payload = extractJson(
-        await this.run([on ? 'alerts-enable' : 'alerts-disable'])
-      ) as AlertsToggleResult
-      return { ok: payload.ok === true, enabled: payload.enabled, error: payload.error }
-    } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) }
-    }
   }
 }

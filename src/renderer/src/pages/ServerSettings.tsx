@@ -21,14 +21,11 @@ import {
   RefreshCw,
   Zap,
   ShieldCheck,
-  Bell,
-  Send,
   ChevronDown,
   Link2
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type {
-  AlertsStatusResult,
   BackendEntry,
   BackendStatusResult,
   Dns01StatusResult,
@@ -86,12 +83,11 @@ export const FINGERPRINTS = [
  * оператору, которому нужен только список профилей (большинство визитов), приходилось
  * прокручивать блок подключения и форму создания.
  */
-type SettingsSection = 'profiles' | 'backends' | 'subscription' | 'alerts'
+type SettingsSection = 'profiles' | 'backends' | 'subscription'
 export const SETTINGS_SECTIONS: { id: SettingsSection; labelKey: string }[] = [
   { id: 'profiles', labelKey: 'settings.sectionProfiles' },
   { id: 'backends', labelKey: 'settings.sectionBackends' },
-  { id: 'subscription', labelKey: 'settings.sectionSubscription' },
-  { id: 'alerts', labelKey: 'settings.sectionAlerts' }
+  { id: 'subscription', labelKey: 'settings.sectionSubscription' }
 ]
 
 /**
@@ -295,9 +291,6 @@ export function ServerSettings({
   const [dns01AwsKeyId, setDns01AwsKeyId] = useState('')
   const [dns01AwsSecret, setDns01AwsSecret] = useState('')
   const [dns01Busy, setDns01Busy] = useState(false)
-  const [alertsStatus, setAlertsStatus] = useState<AlertsStatusResult | null>(null)
-  const [alertsError, setAlertsError] = useState<string | null>(null)
-  const [alertsBusy, setAlertsBusy] = useState(false)
   const [pqTarget, setPqTarget] = useState<ServerProfile | null>(null)
   const [pqTransport, setPqTransport] = useState<string>('tcp')
   const [pqBusy, setPqBusy] = useState(false)
@@ -346,7 +339,7 @@ export function ServerSettings({
       const result = await window.api.profiles.list(server.id, access)
       setProfiles(result.profiles ?? [])
       await backendsP
-      // Состояние подписки и мониторинга — параллельно и best-effort: их отсутствие
+      // Состояние подписки — параллельно и best-effort: его отсутствие
       // (старый менеджер на сервере) не должно ронять страницу профилей.
       void window.api.dns01
         .status(server.id, access)
@@ -357,15 +350,6 @@ export function ServerSettings({
         })
         .catch((err: unknown) =>
           setDns01Error(err instanceof Error ? err.message : String(err))
-        )
-      void window.api.alerts
-        .status(server.id, access)
-        .then((s) => {
-          setAlertsStatus(s)
-          setAlertsError(null)
-        })
-        .catch((err: unknown) =>
-          setAlertsError(err instanceof Error ? err.message : String(err))
         )
       const refreshed = await window.api.servers.get(server.id)
       setHostKeyFingerprint(refreshed?.hostKeyFingerprint ?? null)
@@ -466,50 +450,6 @@ export function ServerSettings({
       setDns01Error(err instanceof Error ? err.message : String(err))
     } finally {
       setDns01Busy(false)
-    }
-  }
-
-  /** Вкл/выкл отправку алертов. Токен бота живёт на сервере и здесь не принимается. */
-  const toggleAlerts = async (on: boolean): Promise<void> => {
-    if (!accessReady) {
-      setError(t('settings.errorPassword'))
-      return
-    }
-    setAlertsBusy(true)
-    setAlertsError(null)
-    try {
-      const res = await window.api.alerts.toggle(server.id, access, on)
-      if (!res.ok) {
-        setAlertsError(res.error ?? t('settings.alertsFailed'))
-        return
-      }
-      setAlertsStatus(await window.api.alerts.status(server.id, access))
-      toastText(on ? t('settings.alertsOn') : t('settings.alertsOff'))
-    } catch (err) {
-      setAlertsError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setAlertsBusy(false)
-    }
-  }
-
-  const testAlerts = async (): Promise<void> => {
-    if (!accessReady) {
-      setError(t('settings.errorPassword'))
-      return
-    }
-    setAlertsBusy(true)
-    setAlertsError(null)
-    try {
-      const res = await window.api.alerts.test(server.id, access)
-      if (!res.ok) {
-        setAlertsError(res.error ?? t('settings.alertsFailed'))
-        return
-      }
-      toastText(t('settings.alertsTestSent'))
-    } catch (err) {
-      setAlertsError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setAlertsBusy(false)
     }
   }
 
@@ -2337,62 +2277,6 @@ export function ServerSettings({
                   </div>
                 </>
               )}
-            </section>
-            </div>
-
-            <div {...sectionPaneProps('alerts', section)}>
-            <section className={styles.listCard}>
-              <h2 className={styles.sectionTitle}>
-                <Bell size={16} /> {t('settings.alertsTitle')}
-              </h2>
-              <p className={styles.sectionHint}>{t('settings.alertsHint')}</p>
-              {alertsError && <p className={styles.error}>{alertsError}</p>}
-              {alertsStatus && !alertsStatus.configured && (
-                <p className={styles.serverTooOld}>{t('settings.alertsNotConfigured')}</p>
-              )}
-              {alertsStatus?.configured && (
-                <p className={styles.hint}>
-                  {alertsStatus.enabled
-                    ? t('settings.alertsEnabled')
-                    : t('settings.alertsDisabled')}
-                  {alertsStatus.chat_id ? ` · chat ${alertsStatus.chat_id}` : ''}
-                  {alertsStatus.bot_username ? ` · @${alertsStatus.bot_username}` : ''}
-                  {` · ${t('settings.alertsTimer')}: ${
-                    alertsStatus.timer_active
-                      ? t('settings.alertsTimerActive')
-                      : t('settings.alertsTimerInactive')
-                  }`}
-                </p>
-              )}
-              <div className={styles.profileActions}>
-                {alertsStatus?.configured && (
-                  <>
-                    <Button
-                      size="sm"
-                      variant={alertsStatus.enabled ? 'secondary' : 'primary'}
-                      isDisabled={alertsBusy}
-                      onPress={() => void toggleAlerts(!alertsStatus.enabled)}
-                    >
-                      {alertsStatus.enabled
-                        ? t('settings.alertsDisable')
-                        : t('settings.alertsEnable')}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      isDisabled={alertsBusy || !alertsStatus.enabled}
-                      onPress={() => void testAlerts()}
-                    >
-                      <Send size={14} />
-                      {t('settings.alertsTest')}
-                    </Button>
-                  </>
-                )}
-                <Button size="sm" variant="secondary" isDisabled={busy} onPress={() => void load()}>
-                  <RefreshCw size={14} />
-                  {t('settings.alertsRefresh')}
-                </Button>
-              </div>
             </section>
             </div>
 

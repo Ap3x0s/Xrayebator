@@ -1,9 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { Dns01Input } from '@shared/dns01'
 import type {
-  AlertsStatusResult,
-  AlertsTestResult,
-  AlertsToggleResult,
   AwgConfResult,
   BackendGrantResult,
   BackendSimpleResult,
@@ -163,18 +160,6 @@ const api: ElectronAPI = {
       access: SshAccessInput,
       input: Dns01Input
     ): Promise<Dns01RepairResult> => ipcRenderer.invoke('dns01:repair', serverId, access, input)
-  },
-
-  alerts: {
-    status: (serverId: string, access: SshAccessInput): Promise<AlertsStatusResult> =>
-      ipcRenderer.invoke('alerts:status', serverId, access),
-    test: (serverId: string, access: SshAccessInput): Promise<AlertsTestResult> =>
-      ipcRenderer.invoke('alerts:test', serverId, access),
-    toggle: (
-      serverId: string,
-      access: SshAccessInput,
-      on: boolean
-    ): Promise<AlertsToggleResult> => ipcRenderer.invoke('alerts:toggle', serverId, access, on)
   },
 
   backends: {
