@@ -7112,8 +7112,10 @@ _reality_dest_for_sni() {
 
 # Кэш проверок доступности SNI в пределах запуска менеджера: одна проба на SNI.
 declare -A _SNI_REACH_CACHE=()
-# Таймаут пробы SNI при выборе дефолта (короче мониторингового: это интерактивный путь).
-SNI_REACH_TIMEOUT="${SNI_REACH_TIMEOUT:-6}"
+# Таймаут пробы SNI при выборе дефолта. Живые хосты отвечают за 40–250 мс (замер на
+# VPS 2026-10-20), поэтому бюджет короткий: каждая мёртвая проба съедает его целиком,
+# и два мёртвых ozon в голове списка стоили 12 с на каждое создание профиля.
+SNI_REACH_TIMEOUT="${SNI_REACH_TIMEOUT:-3}"
 # Сколько первых строк sni_list.txt пробовать ДО глобальных фолбэков. Список держится
 # whitelist-хостами РФ, и на зарубежном VPS они почти все мертвы: каждая мёртвая проба
 # стоит полный таймаут, поэтому без ограничения создание профиля упиралось в минуты.
@@ -7133,7 +7135,14 @@ SNI_REACH_HEAD_MAX="${SNI_REACH_HEAD_MAX:-4}"
 #
 # Годен только состоявшийся TLS 1.3 с проверенным сертификатом:
 #  - нет «no peer certificate» и alert/errno (рукопожатие состоялось);
-#  - Protocol: TLSv1.3 (Reality требует именно 1.3; TLS 1.2-only хост — мёртвый dest);
+#  - в выводе есть TLSv1.3. Именно `TLSv1\.3`, а НЕ строка `Protocol  : TLSv1.3`:
+#    OpenSSL 3.0 на Ubuntu 22.04 при -tls1_3 вообще не печатает блок «Protocol  :»,
+#    версия видна только в «New, TLSv1.3, Cipher is …». Первая редакция этой пробы
+#    требовала именно блок Protocol — и отбраковала www.cloudflare.com, google и
+#    yandex-maps (все три живые), после чего перебор уходил в хвост списка: создание
+#    профиля занимало 67–84 с. Так что проверяем версию подстрокой, а не полем.
+#  - Cipher не «(NONE)»: на провалившемся рукопожатии openssl печатает
+#    «New, (NONE), Cipher is (NONE)».
 #  - Verify return code: 0 (цепочка проверена этим самым хостом).
 _sni_tls_output_ok_pure() {
   local out="$1"
@@ -7144,7 +7153,10 @@ _sni_tls_output_ok_pure() {
   if grep -qiE 'handshake failure|SSL alert|sslv3 alert|errno=' <<<"$out"; then
     return 1
   fi
-  if ! grep -qE 'Protocol[[:space:]]*:[[:space:]]*TLSv1\.3' <<<"$out"; then
+  if grep -q 'Cipher is (NONE)' <<<"$out"; then
+    return 1
+  fi
+  if ! grep -q 'TLSv1\.3' <<<"$out"; then
     return 1
   fi
   if ! grep -q 'Verify return code: 0' <<<"$out"; then
@@ -7176,7 +7188,13 @@ _sni_reachable_from_here() {
   local ok=0 saved="${ALERTS_SNI_TIMEOUT-__unset__}"
   ALERTS_SNI_TIMEOUT="$SNI_REACH_TIMEOUT"
   if _monitor_sni_reachable "$sni"; then
-    ok=1
+    # Второе рукопожатие подряд. Часть хостов доступна «через раз» — живой
+    # splitter.wb.ru в одном замере падал (alert 40), в другом проходил. Reality на
+    # таком dest рвёт рукопожатие у клиента, поэтому «прошло один раз» не
+    # доказательство. Стоит +50…200 мс у здорового хоста (провал — сразу таймаут).
+    if _monitor_sni_reachable "$sni"; then
+      ok=1
+    fi
   fi
   if [[ "$saved" == "__unset__" ]]; then
     unset ALERTS_SNI_TIMEOUT
@@ -8381,16 +8399,9 @@ if [[ "$sub_format" == "happ" ]]; then
 fi
 
 prepare_happ_vless_urls() {
-  local input line has_legacy_xhttp=false
+  local input line
   local -a tcp_vision=() tcp_xudp=() tcp_utls=() grpc_routes=() tcp_mux=() xhttp_legacy=() other=()
   input=$(cat)
-
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    if [[ "$line" == vless://* && "$line" == *"encryption=none"* && "$line" == *"&type=xhttp&"* ]]; then
-      has_legacy_xhttp=true
-      break
-    fi
-  done <<< "$input"
 
   append_mode_param() {
     local uri="$1" param="$2"
@@ -8402,9 +8413,13 @@ prepare_happ_vless_urls() {
   }
 
   while IFS= read -r line || [[ -n "$line" ]]; do
-    if [[ "$line" == vless://* && "$line" == *"&type=xhttp&"* && "$has_legacy_xhttp" == "true" && "$line" != *"encryption=none"* ]]; then
-      continue
-    fi
+    # Здесь БЫЛА ветка «если в профиле есть legacy xhttp (encryption=none), то любой
+    # другой xhttp-маршрут выкинуть». Она появилась, когда HAPP не умел VLESS
+    # Encryption и PQ-xhttp в теле был для него мусором. Сегодня HAPP держит ML-KEM
+    # на любом транспорте (маршрут tcp-pq в теле живёт и работает), поэтому правило
+    # выкидывало рабочий xhttp-pq: в живом теле подписки было 7 ссылок вместо 8, а
+    # channel-test того же профиля проверял 8 рабочих маршрутов (2026-10-20).
+    # Единственное, что осталось обязательным, — параметры mode для xhttp/grpc.
     if [[ "$line" == vless://* && "$line" == *"&type=xhttp&"* && "$line" != *"&mode="* ]]; then
       line=$(append_mode_param "$line" "mode=auto")
     elif [[ "$line" == vless://* && "$line" == *"&type=grpc&"* && "$line" != *"&mode="* ]]; then
@@ -8528,10 +8543,15 @@ elif [[ "$sub_format" == "singbox" ]]; then
   if ! _subscription_render_singbox_pure "$profile_file" "$hysteria2_uri" "$subscription_title" > "$body_tmp"; then
     emit_500 "cannot render sing-box JSON"
   fi
-elif [[ "$universal_sub" == "true" ]]; then
+elif [[ "$sub_format" == "v2ray" ]]; then
   # v2rayNG сначала пытается Base64-decode subscription body. Даём ему
   # классический v2ray-sub: только proxy URI, без HAPP comments/routing.
-  # Фильтруем PQ xhttp (encryption=mlkem768...): клиенты без ML-KEM не смогут
+  # Условие именно по sub_format, а НЕ по universal_sub (флаг считается из UA):
+  # `?target=v2ray` / `?target=base64` выставляют формат, но universal_sub остаётся
+  # false, и тело уходило в HAPP-ветку — plaintext со всеми маршрутами, включая PQ.
+  # Живой дефект 2026-10-20: тело `?target=v2ray` было побайтово равно HAPP-телу
+  # (4885 Б, 7 vless + hysteria2 + happ://routing, без base64).
+  # Фильтруем PQ (encryption=mlkem768...): клиенты без ML-KEM не смогут
   # подключиться, а legacy xhttp (encryption=none) сохраняем. V11.
   {
     printf '%s' "$vless_urls" | awk '
@@ -11070,6 +11090,28 @@ _migrate_subhttp_formats_2026() {
   return 0
 }
 
+# Регенерация subhttp.sh: `?target=v2ray|base64` отдаёт base64-тело, а HAPP-тело
+# больше не теряет PQ-маршрут на xhttp.
+# Две живые находки 2026-10-20, обе видны только в реальном ответе подписки:
+#  1) ветка base64 была под условием $universal_sub (флаг из User-Agent), поэтому
+#     явный ?target=v2ray уходил в HAPP-ветку: тело совпадало побайтово с HAPP
+#     (4885 Б, 7 vless + hysteria2 + happ://routing) и отдавалось plaintext'ом;
+#  2) HAPP-ветка выбрасывала любой xhttp-маршрут без encryption=none, если в профиле
+#     был legacy xhttp, — то есть xhttp-pq пропадал из подписки (7 ссылок вместо 8),
+#     хотя маршрут рабочий (channel-test: http 200 за 242 мс).
+# Обработчик живёт в heredoc менеджера, поэтому на существующих серверах правка
+# появляется только после повторной генерации — отсюда эта миграция.
+_migrate_subhttp_v2ray_pq_2026() {
+  [[ -f /usr/local/etc/xray/.subhttp_v2ray_pq_2026 ]] && return 1
+  if [[ -f /usr/local/etc/xray/.subscription_installed ]]; then
+    if ! _subscription_repair_handler; then
+      echo -e "${RED}✗ Не удалось регенерировать subhttp.sh (v2ray/base64 и PQ в HAPP)${NC}"
+      return 2
+    fi
+  fi
+  return 0
+}
+
 # Главное меню
 main_menu() {
   # Run migrations on first launch after upgrade.
@@ -11131,6 +11173,7 @@ main_menu() {
   run_migration "traffic_user_stats_2026" "User-level статистика трафика (ремонт F1)" _migrate_traffic_user_stats_2026 || ((migration_failures++))
   run_migration "traffic_timer_2026" "Таймер учёта трафика профилей (5 мин)" _migrate_traffic_timer_2026 || ((migration_failures++))
   run_migration "subhttp_traffic_2026" "Subhttp: реальный traffic в subscription-userinfo" _migrate_subhttp_traffic_2026 || ((migration_failures++))
+  run_migration "subhttp_v2ray_pq_2026" "Subhttp: base64 для ?target=v2ray + PQ на xhttp в HAPP" _migrate_subhttp_v2ray_pq_2026 || ((migration_failures++))
   run_migration "alerts_monitor_2026" "Таймер мониторинга сервера (Telegram-алерты)" _migrate_alerts_monitor_2026 || ((migration_failures++))
   run_migration "awg_module_2026" "Загрузка модуля amneziawg при старте ОС (AWG)" _migrate_awg_module_2026 || ((migration_failures++))
 
@@ -14789,6 +14832,7 @@ quickstart_command() {
   run_migration "traffic_user_stats_2026" "User-level traffic statistics (repair)" _migrate_traffic_user_stats_2026 >/dev/null 2>&1 || true
   run_migration "traffic_timer_2026" "Traffic accounting timer" _migrate_traffic_timer_2026 >/dev/null 2>&1 || true
   run_migration "subhttp_traffic_2026" "Subhttp traffic userinfo" _migrate_subhttp_traffic_2026 >/dev/null 2>&1 || true
+  run_migration "subhttp_v2ray_pq_2026" "Subhttp v2ray base64 and HAPP PQ xhttp" _migrate_subhttp_v2ray_pq_2026 >/dev/null 2>&1 || true
   run_migration "alerts_monitor_2026" "Telegram alerts monitor timer" _migrate_alerts_monitor_2026 >/dev/null 2>&1 || true
   run_migration "awg_module_2026" "AWG kernel module load at boot" _migrate_awg_module_2026 >/dev/null 2>&1 || true
   run_migration "subhttp_happ_xhttp_compat_2026" "Subhttp HAPP XHTTP compat" _migrate_subhttp_happ_xhttp_compat_2026 >/dev/null 2>&1 || true
@@ -15392,6 +15436,7 @@ happ_setup_command() {
   run_migration "traffic_user_stats_2026" "User-level traffic statistics (repair)" _migrate_traffic_user_stats_2026 >/dev/null 2>&1 || true
   run_migration "traffic_timer_2026" "Traffic accounting timer" _migrate_traffic_timer_2026 >/dev/null 2>&1 || true
   run_migration "subhttp_traffic_2026" "Subhttp traffic userinfo" _migrate_subhttp_traffic_2026 >/dev/null 2>&1 || true
+  run_migration "subhttp_v2ray_pq_2026" "Subhttp v2ray base64 and HAPP PQ xhttp" _migrate_subhttp_v2ray_pq_2026 >/dev/null 2>&1 || true
   run_migration "alerts_monitor_2026" "Telegram alerts monitor timer" _migrate_alerts_monitor_2026 >/dev/null 2>&1 || true
   run_migration "subhttp_formats_2026" "Subhttp Clash/sing-box formats" _migrate_subhttp_formats_2026 >/dev/null 2>&1 || true
   run_migration "awg_module_2026" "AWG kernel module load at boot" _migrate_awg_module_2026 >/dev/null 2>&1 || true

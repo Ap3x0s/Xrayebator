@@ -183,7 +183,9 @@ Next `0.6.5` cut: the server manager plus the GUI traffic-limit card.
   port and route to `www.cloudflare.com` returned HTTP 200, both for a PQ route (5174 ms) and for a
   plain one (5180 ms). So the PQ layer itself was fine; the selection criterion was not. The new pure
   seam `_sni_tls_output_ok_pure` now requires a *completed* TLS 1.3 handshake **with a verified
-  certificate** (no `no peer certificate`, no alert, `Protocol : TLSv1.3`, `Verify return code: 0`),
+  certificate** (no `no peer certificate`, no alert, no `Cipher is (NONE)`, `TLSv1\.3` present,
+  `Verify return code: 0`), and a success is confirmed by a second attempt because some hosts answer only
+  intermittently (`splitter.wb.ru` failed with alert 40 in one measurement and passed in another),
   and both `_monitor_sni_reachable` and `probe-test` use it — `probe-test` had been printing `TLS OK`
   for the same dead hosts. Candidate order is also bounded now: the per-transport default, then at most
   `SNI_REACH_HEAD_MAX` (4) entries of `sni_list.txt`, then the global fallbacks
@@ -192,6 +194,21 @@ Next `0.6.5` cut: the server manager plus the GUI traffic-limit card.
   …), which is entirely dead from a foreign VPS, and every dead candidate costs a full timeout, so
   profile creation crawled for minutes. `((idx++))` in that loop was replaced by `idx=$((idx + 1))`:
   the former returns 1 when the index was 0 and silently killed any caller running under `set -e`.
+- **The subscription body lied about the format and dropped a working PQ route.** Two defects that only a
+  real response could show. First, the branch that base64-encodes the v2ray body was guarded by the
+  `universal_sub` flag, which is derived from the `User-Agent` — so an explicit `?target=v2ray` (or
+  `?target=base64`) set the format but never that flag, fell into the HAPP branch and returned a plaintext
+  HAPP body: byte-identical to the HAPP one (4885 B, 7 `vless://` + the hysteria2 line + the
+  `happ://routing` line), PQ routes included. The branch now keys off the resolved `sub_format`.
+  Second, the HAPP body discarded every xhttp route that was not `encryption=none` whenever the profile had
+  a legacy xhttp route; that rule predated HAPP's ML-KEM support and silently removed `xhttp-pq`, so the
+  body carried 7 links for a profile whose 8 routes all answered `channel-test` — the subscription simply
+  did not offer that route. Both live fixes are verified end-to-end on the server: the HAPP body now has all
+  8 links (2 with `encryption=mlkem…`), `?target=v2ray|base64` decodes to 6 `vless://` + 1 `hysteria2://`
+  with no PQ, and Xray clients built from the URLs *taken out of the body* connect with HTTP 200
+  (`xhttp-pq`, `xhttp-legacy`, `tcp-pq`). Because the handler is generated from a heredoc, existing servers
+  get the fix through migration `subhttp_v2ray_pq_2026` (registered in `main_menu`, `quickstart` and
+  `happ-setup`, verified live by running it exactly as the menu does).
 - **`profile-pq` threw away the base route of a profile it was asked to extend.** A profile created by
   `profile-create` lives in the single-route shape (transport/port/SNI only at top level, no `routes`
   array); `profile-pq` appended `routes` containing just the PQ entry, so the original route silently

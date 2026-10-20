@@ -308,6 +308,45 @@ grep -q '_migrate_subhttp_formats_2026' xrayebator || fail "нет функци�
 formats_regs=$(grep -c 'run_migration "subhttp_formats_2026"' xrayebator || true)
 [[ "$formats_regs" -ge 3 ]] || fail "subhttp_formats_2026 зарегистрирована ${formats_regs} раз (<3: main/quickstart/happ-setup)"
 
+# ═══════════ 5b. Тело подписки: base64 для ?target=v2ray и PQ-xhttp в HAPP ═══════════
+# Обе находки живого прогона 2026-10-20, обе видны только в реальном ответе:
+#  - ветка base64 стояла под $universal_sub (флаг из User-Agent), поэтому явный
+#    ?target=v2ray уходил в HAPP-ветку и отдавал plaintext со всеми маршрутами;
+#  - HAPP-ветка выбрасывала любой xhttp без encryption=none, если был legacy xhttp,
+#    и теряла рабочий xhttp-pq (7 ссылок в теле против 8 рабочих маршрутов).
+grep -Fq 'elif [[ "$sub_format" == "v2ray" ]]' "$SUBHTTP_TMP" \
+  || fail "тело base64 должно выбираться по sub_format, а не по UA-флагу universal_sub"
+if grep -Fq 'has_legacy_xhttp' "$SUBHTTP_TMP"; then
+  fail "хендлер снова выбрасывает xhttp-маршруты, если в профиле есть legacy xhttp (теряется xhttp-pq)"
+fi
+
+# Функционально: prepare_happ_vless_urls обязан вернуть ОБА xhttp-маршрута и mode=auto.
+HAPP_FN_TMP=$(mktemp /tmp/xrayebator-happfn.XXXXXX)
+awk '/^prepare_happ_vless_urls\(\) \{$/{f=1} f{print} f&&/^\}$/{exit}' "$SUBHTTP_TMP" > "$HAPP_FN_TMP"
+[[ -s "$HAPP_FN_TMP" ]] || fail "prepare_happ_vless_urls не извлечена из хендлера"
+# shellcheck disable=SC1090
+source "$HAPP_FN_TMP"
+rm -f "$HAPP_FN_TMP"
+happ_out=$(printf '%s\n' \
+  'vless://u@203.0.113.10:10006?encryption=none&security=reality&type=xhttp&path=%2Fxhttp-test#s-xhttp-legacy' \
+  'vless://u@203.0.113.10:10007?encryption=mlkem768x25519plus.native.test&security=reality&type=xhttp&path=%2Fxhttp-pq#s-xhttp-pq' \
+  | prepare_happ_vless_urls)
+[[ "$(grep -c 'vless://' <<<"$happ_out")" -eq 2 ]] \
+  || fail "HAPP-тело обязано сохранять оба xhttp-маршрута, получено: $(grep -c 'vless://' <<<"$happ_out")"
+grep -q 's-xhttp-pq' <<<"$happ_out" || fail "HAPP-тело потеряло PQ-маршрут на xhttp"
+[[ "$(grep -c 'mode=auto' <<<"$happ_out")" -eq 2 ]] || fail "оба xhttp-маршрута обязаны получить mode=auto"
+# ...и не потеряло ничего из других транспортов.
+happ_out2=$(printf '%s\n' \
+  'vless://u@ip:1?encryption=none&type=tcp&headerType=none#s-tcp-vision' \
+  'vless://u@ip:2?encryption=mlkem768x25519plus.native.test&type=tcp&headerType=none#s-tcp-pq' \
+  'vless://u@ip:3?encryption=none&type=grpc&serviceName=g&mode=gun#s-grpc' | prepare_happ_vless_urls)
+[[ "$(grep -c 'vless://' <<<"$happ_out2")" -eq 3 ]] || fail "HAPP-тело потеряло tcp/grpc-маршруты"
+
+# Миграция, которая доводит правку до существующих серверов (обработчик — heredoc).
+grep -q '_migrate_subhttp_v2ray_pq_2026' xrayebator || fail "нет функции миграции subhttp_v2ray_pq_2026"
+v2ray_regs=$(grep -c 'run_migration "subhttp_v2ray_pq_2026"' xrayebator || true)
+[[ "$v2ray_regs" -ge 3 ]] || fail "subhttp_v2ray_pq_2026 зарегистрирована ${v2ray_regs} раз (<3: main/quickstart/happ-setup)"
+
 jq '. + {sub_token: "abcdef0123456789abcdef0123456789"}' "$PROFILES_DIR/sample.json" \
   > "$PROFILES_DIR/sample.json.tmp" && mv "$PROFILES_DIR/sample.json.tmp" "$PROFILES_DIR/sample.json"
 profiles_json=$(

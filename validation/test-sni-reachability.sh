@@ -108,49 +108,68 @@ rm -f "$SELFSTEAL_DOMAIN_FILE"
 # online.vtb.ru (TLS 1.2 only — Reality требует 1.3) и splitter.wb.ru (alert 40), и
 # свежие профили получали мёртвый SNI: 4 из 6 PQ-маршрутов отдавали http 000, а смена
 # SNI на www.cloudflare.com на том же порту — 200.
+# Фикстуры сняты с РЕАЛЬНОГО вывода Ubuntu 22.04 (OpenSSL 3.0), а не придуманы.
+# Первая редакция пробы требовала строку `Protocol  : TLSv1.3`, которой OpenSSL 3.0
+# при -tls1_3 не печатает вовсе: версия видна только в «New, TLSv1.3, Cipher is …».
+# Из-за этого живые www.cloudflare.com, www.google.com и api-maps.yandex.ru были
+# отбракованы, перебор уходил в хвост списка, и создание профиля занимало 67–84 с.
 good_out='CONNECTED(00000003)
-depth=2 C = US, O = "Cloudflare, Inc."
+depth=0 CN = www.cloudflare.com
 verify return:1
 ---
-Protocol  : TLSv1.3
-Cipher    : TLS_AES_128_GCM_SHA256
+Certificate chain
+ 0 s:CN = www.cloudflare.com
+---
+New, TLSv1.3, Cipher is TLS_AES_256_GCM_SHA384
+Secure Renegotiation IS NOT supported
 ---
 Verify return code: 0 (ok)
----
-DONE'
+---'
 _sni_tls_output_ok_pure "$good_out" || fail "годный ответ TLS1.3 с проверенным сертификатом отклонён"
+# Старые сборки openssl печатают блок Protocol: — эта форма тоже обязана приниматься.
+_sni_tls_output_ok_pure 'Protocol  : TLSv1.3
+Cipher    : TLS_AES_128_GCM_SHA256
+Verify return code: 0 (ok)' || fail "форма ответа со строкой Protocol: TLSv1.3 отклонена"
 
 # TLS1.3-хост недоступен: alert + «нет сертификата», но Verify return code: 0 всё равно печатается
-alert_out='40672CF67D7F0000:error:0A000410:SSL routines:ssl3_read_bytes:sslv3 alert handshake failure
+alert_out='4047FE17F77F0000:error:0A000410:SSL routines:ssl3_read_bytes:sslv3 alert handshake failure
+CONNECTED(00000003)
 ---
 no peer certificate available
 ---
 No client certificate CA names sent
 ---
-Verify return code: 0 (ok)
+SSL handshake has read 7 bytes and written 247 bytes
+Verification: OK
 ---
-DONE'
+New, (NONE), Cipher is (NONE)
+---
+Verify return code: 0 (ok)
+---'
 if _sni_tls_output_ok_pure "$alert_out"; then
   fail "проба считает доступным хост с alert handshake failure (нет сертификата) — это же и был живой дефект"
 fi
 
-# Хост только с TLS 1.2: принудительный -tls1_3 не даёт строки Protocol: TLSv1.3
-tls12_out='Protocol  : TLSv1.2
-Cipher    : ECDHE-RSA-AES256-GCM-SHA384
+# Успешный, но TLS 1.2-хост: Reality требует именно 1.3.
+tls12_out='CONNECTED(00000003)
+---
+Certificate chain
+ 0 s:CN = example.org
+---
+New, TLSv1.2, Cipher is ECDHE-RSA-AES256-GCM-SHA384
 ---
 Verify return code: 0 (ok)
----
-DONE'
+---'
 if _sni_tls_output_ok_pure "$tls12_out"; then
   fail "проба принимает TLS 1.2-хост, а Reality требует TLS 1.3"
 fi
 
 # Сертификат не проверен (self-signed в цепочке)
-badcert_out='Protocol  : TLSv1.3
+badcert_out='---
+New, TLSv1.3, Cipher is TLS_AES_256_GCM_SHA384
 ---
 Verify return code: 19 (self-signed certificate in certificate chain)
----
-DONE'
+---'
 if _sni_tls_output_ok_pure "$badcert_out"; then
   fail "проба принимает хост с непроверенным сертификатом"
 fi
@@ -159,6 +178,28 @@ fi
 if _sni_tls_output_ok_pure ""; then
   fail "пустой вывод openssl не должен считаться доступностью"
 fi
+
+# ─── 6b. Флапающий хост: одно успешное рукопожатие из двух — не доступность ───
+# Живой splitter.wb.ru проходил пробу в одном замере и падал (alert 40) в другом;
+# Reality на таком dest рвёт рукопожатие у клиента, поэтому проба делает два замера.
+reset_cache
+flap_counter=0
+_monitor_sni_reachable() {
+  flap_counter=$((flap_counter + 1))
+  # 1-й замер проходит, 2-й падает — ровно поведение флапающего хоста.
+  [[ "$flap_counter" -eq 1 ]]
+}
+if _sni_reachable_from_here "flap.example"; then
+  fail "одно успешное рукопожатие из двух не должно считаться доступностью"
+fi
+[[ "$flap_counter" -ge 2 ]] || fail "проба обязана делать второй замер, а сделала $(flap_counter) замер(ов)"
+
+# Стабильный хост: два замера подряд — доступен.
+reset_cache
+stable_counter=0
+_monitor_sni_reachable() { stable_counter=$((stable_counter + 1)); return 0; }
+_sni_reachable_from_here "stable.example" || fail "стабильный хост отклонён"
+[[ "$stable_counter" -eq 2 ]] || fail "успешный SNI должен проверяться дважды (замеров: $stable_counter)"
 
 # ─── 7. Порядок кандидатов: голова списка → глобальные фолбэки → хвост списка ───
 # Иначе на зарубежном VPS весь мёртвый ru_whitelist съедал по таймауту на строку.
