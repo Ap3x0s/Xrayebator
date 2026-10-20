@@ -180,9 +180,14 @@ Next `0.6.5` cut: the server manager plus the GUI traffic-limit card.
   card, written by `profiles:list` as a full set so a deleted profile disappears), rendered on the first
   paint, and replaced by the fresh list as soon as it arrives — a renewed or cleared date can never stay
   stale on screen. A profile present only in the AWG config cache and absent from both sources shows no line
-  at all instead of a fabricated "unlimited". Guarded by `tests/unit/server-keys-render.test.ts` (asserts the
-  date is in the markup of the very first render, where no effect can have run) and
-  `tests/unit/server-store.test.ts`.
+  at all instead of a fabricated "unlimited". Caching alone did not finish the job: the renderer kept receiving
+  the card from a server list read once at startup, so `profiles:list` wrote the cache while the page still
+  opened with a stale copy and filled the dates in only when the SSH answer arrived (reported again after the
+  first fix). Every navigation to a server page now re-reads the card from the local store before rendering,
+  so the page mounts with the full cache and nothing grows in a second stage. Guarded by
+  `tests/unit/server-keys-render.test.ts` (asserts the date is in the markup of the very first render, where no
+  effect can have run), `tests/unit/server-store.test.ts` and `tests/unit/gui-cache-wiring.test.ts` (a server
+  page opens with a card re-read from the store).
 
 - **The SNI probe accepted hosts it could not reach, so brand-new profiles got dead routes.**
   `openssl s_client` prints `Verify return code: 0 (ok)` **even when the handshake never happened** —
