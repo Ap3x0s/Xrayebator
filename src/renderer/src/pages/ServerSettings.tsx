@@ -18,7 +18,6 @@ import {
   CalendarClock,
   CalendarX,
   Gauge,
-  Globe,
   RefreshCw,
   Zap,
   ShieldCheck,
@@ -1672,19 +1671,13 @@ export function ServerSettings({
                             </div>
                           </AlertDialog.Header>
                           <AlertDialog.Body>
-                            {profile.sni && (
-                              <div className={styles.profileSniBar}>
-                                <Globe size={14} className={styles.profileSniBarIcon} />
-                                <span className={styles.profileSniBarLabel}>
-                                  {t('settings.sniLabel')}
-                                </span>
-                                <span className={styles.profileSniBarValue} title={profile.sni}>
-                                  {profile.sni}
-                                </span>
-                              </div>
-                            )}
+
                             <div className={styles.actionGroups}>
                               <div className={styles.settingsGroup}>
+                                {/* SNI — в правом верхнем углу коробки «Маршрут», на одной
+                                    строке с её заголовком: голое значение без подписи, как
+                                    раньше под именем профиля, но там оно спорило с названием
+                                    и выглядело обрубком в узком окне. */}
                                 <div className={styles.settingsGroupHead}>
                                   <span className={styles.settingsGroupIcon}>
                                     <Link2 size={15} />
@@ -1692,6 +1685,11 @@ export function ServerSettings({
                                   <span className={styles.settingsGroupTitle}>
                                     {t('settings.groupRoute')}
                                   </span>
+                                  {profile.sni && (
+                                    <span className={styles.settingsGroupSni} title={profile.sni}>
+                                      {profile.sni}
+                                    </span>
+                                  )}
                                 </div>
                                 <p className={styles.settingsHint}>
                                   {t('settings.groupRouteHint')}

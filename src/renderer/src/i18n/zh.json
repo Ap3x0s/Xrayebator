@@ -222,7 +222,6 @@
     "profileSettingsTitle": "配置档设置",
     "backendProfileHint": "该协议的密钥属于这个配置档。下方的有效期、重新签发与删除均作用于整个配置档。",
     "groupRoute": "线路",
-    "sniLabel": "SNI",
     "groupRouteHint": "SNI 与端口属于入站设置：更改会影响该端口上的所有配置档，客户端需要重连。Fingerprint 只影响所选线路的客户端侧。PQ 会在独立端口上添加一条后量子线路。",
     "groupLimits": "限制",
     "groupLimitsHint": "有效期按日期停用配置档，服务器每 10 分钟检查一次。流量上限是该配置档可传输的流量：每 5 分钟检查一次，用尽后订阅返回 410 并关闭访问。",

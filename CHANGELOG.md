@@ -172,11 +172,12 @@ Next `0.6.5` cut: the server manager plus the GUI traffic-limit card.
 
 ### Changed
 
-- **The profile settings window no longer carries the SNI in its header.** In a narrow window the bare mono line under the profile
-  name read as an orphan (and competed with the title); in a wide one it hung as a third unnamed line. The header is now exactly two
-  lines — badge, kicker, profile name — and the current SNI moved into the body as a labelled row above the action groups: globe icon,
-  an uppercase `SNI` label and the mono value, truncated with `title` when a hostname is long (`raw.githubusercontent.com`), so the
-  window height never depends on the SNI length. Buttons were not touched.
+- **The profile settings window puts the current SNI in the corner of the "Route" box.** It used to hang under the profile name
+  in the header: a bare mono line with no caption, which competed with the title in a narrow window (271 px) and read as an
+  orphan in a wide one. The header is now exactly two lines — badge, kicker, profile name — and the SNI sits in the top-right
+  corner of the "Route" group, on the same row as the group title, as a bare value with no label, the way it used to appear under
+  the name. A long hostname is truncated with the full value in `title`, so the row height never depends on the SNI length.
+  Buttons were not touched.
 
 ### Fixed
 
