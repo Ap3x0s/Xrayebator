@@ -80,9 +80,11 @@ Xrayebator/
 /etc/nginx/sites-available/xrayebator-sub
 ```
 
-`/usr/local/etc/xray/` 是 root 拥有的管理器状态和配置。Xray 以非 root 的 `xray` 服务账户运行，
-读取所需文件；它不拥有也不写入管理器状态。`/var/log/xray/` 是单独的运行时日志目录。root 拥有的
-脚本和标记不会被服务账户替换。
+`/usr/local/etc/xray/` 是管理器状态与配置，受保护而不可被服务账户写入。大部分状态和配置由 root
+拥有，但 `.server_country` 这类生成元数据可能属于 `xray`；rollback 路径可能把运行中的配置临时恢复为
+`root:xray`、权限 `0640`，而正常安装后的配置通常是 `root:root`、权限 `0644`。可执行的管理器脚本、
+标记文件与私钥始终由 root 保护。Xray 以非 root 的 `xray` 服务账户运行并读取所需文件，但不拥有也不
+写入管理器状态。`/var/log/xray/` 是单独的运行时日志目录。
 
 ## 入站与配置档的区别
 
@@ -115,7 +117,7 @@ http://127.0.0.1:8080/sub/<token>         # 仅本地回退
 http-01（服务商过滤 80 端口），quickstart 降级为 `http_tls`：标记切换为该模式，订阅以 HTTP 从
 loopback 处理器发布，JSON 携带 `degraded:true`；解除 80 端口封锁后重新部署即恢复 ip_tls。不提供邮箱时，Certbot 会在没有 ACME 联系地址的情况下注册，因此无法接收续期通知或通过邮箱恢复。令牌以 `sub_token` 形式存储在配置档中；执行 revoke 会轮换令牌并使之前的 URL 失效，而完全吊销（`profile-revoke --full`）还会更换该配置档所有 inbound 中的 uuid，因此已下载的配置无法再连接。配置档有效期保存在 `expire`（epoch 秒）中，由 systemd 定时器 `xrayebator-expire.timer` 每 10 分钟通过 `xrayebator expire-check` 强制执行。只输入日期时，有效期包含服务器本地时区当天，至 `23:59:59` 到期；显式指定的时间也按服务器本地时区解释。`profiles` JSON 还会提供服务器时区中的 `expire_date`，GUI 无需按客户端本地时区从 epoch 时间戳反推出日期。强制执行不会删除入站：被停用的客户端保存在 `.expire_clients` 快照中，续期时原样恢复，因为重建入站会改变 Reality shortId 并使已发出的链接失效。
 
-新创建的标准托管 HAPP 配置档是 schema-v3 七路由配置档，包括 `xhttp-legacy` 和后量子 XHTTP 路由。
+新创建的标准托管 HAPP 配置档是 schema-v3 七路由配置档，包括 `xhttp-legacy` 与 `xhttp-pq`。
 发布的 HAPP 连接列表会下发全部七条 VLESS 路由，包括 PQ 线路；base64/v2ray 体（v2rayNG/v2rayN）
 会丢弃 PQ 线路（没有 ML-KEM 的客户端用不了它），因此那里是六条；Clash/mihomo 与 sing-box 会跳过
 PQ 和 xhttp 并写明原因。助手也可能复用至少有七条存活线路的旧配置档，因此排查时请检查实际 label
