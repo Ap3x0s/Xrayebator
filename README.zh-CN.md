@@ -171,15 +171,15 @@ HAPP 流程会创建或复用包含七条线路的配置档：
 | `xhttp-legacy` | xhttp | HAPP 兼容的 XHTTP 回落，`decryption=none`，无 PQ |
 | `xhttp-pq` | xhttp | 带后量子加密 `mlkem768x25519plus` 的 XHTTP |
 | `tcp-mux` | tcp | 不带 Vision flow 的 TCP Reality，独立的兼容回落 |
-
-托管的 HAPP 配置档使用 schema version 3，包含七条线路。普通 HAPP 列表发布其中六条；PQ 线路仍可通过原始/配置档路径使用。
 | `grpc` | grpc | gRPC Reality，对 HTTP/2 和 SNI 敏感 |
 | `tcp-vision` | tcp | 带 `xtls-rprx-vision` 的 TCP Reality |
 | `tcp-utls-firefox` | tcp | 使用 Firefox 指纹的 TCP Vision |
 | `tcp-xudp` | tcp | TCP Vision + XUDP，面向恶劣移动网络的窄回落 |
 
-七条线路中有六条进入 HAPP 订阅：当配置档中存在 `xhttp-legacy` 时，PQ-XHTTP 不会作为
-XHTTP 候选下发。配置档 JSON 中仍然保留全部七条。
+托管的 HAPP 配置档使用 schema version 3，包含七条线路，并且 HAPP 订阅会下发全部七条——
+包括 PQ 线路（`xhttp-pq`）。base64/v2ray 体（v2rayNG/v2rayN）会丢弃 PQ 线路：没有 ML-KEM
+的客户端用不了它，所以那里是六条。Clash/mihomo 与 sing-box 会跳过 PQ 和 xhttp 并写明原因，
+而不是下发一份无法使用的配置。
 
 新建和更新配置档的默认客户端指纹为 `firefox`。若已显式选择了 `chrome` 以外的指纹，更新时会保留。
 

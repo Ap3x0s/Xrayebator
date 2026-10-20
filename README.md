@@ -158,7 +158,7 @@ nginx  :443  (or :8443 when 443 is taken)
 xrayebator-sub.service   127.0.0.1:8080
     │  reads profiles/*.json and checks routes against the live config.json
     ▼
-vless:// list — HAPP receives 6 of the profile's 7 routes
+vless:// list — HAPP receives all 7 routes (base64 body: 6, PQ routes dropped)
     │
     ▼
 Reality inbound on a port in 30000-60000   (User=xray, CAP_NET_BIND_SERVICE)
@@ -177,16 +177,15 @@ The HAPP flow creates or reuses a profile of seven routes:
 | `xhttp-legacy` | xhttp | HAPP-compatible XHTTP fallback, `decryption=none`, no PQ |
 | `xhttp-pq` | xhttp | XHTTP with post-quantum encryption `mlkem768x25519plus` |
 | `tcp-mux` | tcp | TCP Reality without Vision flow, a separate compatible fallback |
-
-The managed HAPP profile uses schema version 3 and seven routes. The normal HAPP list publishes six of
-those routes; the PQ route remains available through the raw/profile path.
 | `grpc` | grpc | gRPC Reality; sensitive to HTTP/2 and SNI |
 | `tcp-vision` | tcp | TCP Reality with `xtls-rprx-vision` |
 | `tcp-utls-firefox` | tcp | TCP Vision with a Firefox fingerprint |
 | `tcp-xudp` | tcp | TCP Vision + XUDP, a narrow fallback for harsh mobile networks |
 
-Six of the seven routes reach the HAPP subscription: when `xhttp-legacy` is present, PQ-XHTTP is not
-offered as the XHTTP candidate. All seven remain in the profile JSON itself.
+The managed HAPP profile uses schema version 3 and seven routes, and the HAPP body publishes all seven
+of them — PQ included, because HAPP supports ML-KEM. The base64 body served to v2rayNG/v2rayN drops PQ
+routes instead (six of seven), since a client without ML-KEM cannot use them; Clash/mihomo and sing-box
+skip PQ and xhttp routes with a recorded reason. All seven routes always remain in the profile JSON.
 
 The default client fingerprint for new and updated profiles is `firefox`. Explicitly chosen
 fingerprints other than the deprecated `chrome` are preserved across updates.
@@ -302,10 +301,10 @@ What the GUI can do:
 | Dashboard | Server cards with reachability and installation status; an empty screen offers “Deploy a new server” or “Connect an existing server”; language switch |
 | Add server | Deploy a new VPS with an explicit email choice: `quickstart --email` or `quickstart --without-email`; two optional wizard blocks — the **PQ route** toggle (`--pq`) and the **DNS-01 fallback** (domain + provider + credentials, `--dns01-*`), both OFF by default; save the server and public subscription |
 | Connect existing | Import a recognized Xrayebator installation over SSH (password or key) using read-only `xrayebator inspect --json`; partial installs are saved with diagnostics, without automatic repair |
-| Server keys | Refresh the public subscription, copy the URL, show `vless://` links and QR codes |
+| Server keys | Refresh the public subscription, copy the URL, show `vless://` links and QR codes; with backends installed it also shows one Hysteria 2 card per granted profile (link + QR) and one AmneziaWG card per granted profile (client `.conf`, key fields and two QRs — the plain one and the app-native `vpn://` for AmneziaVPN), plus a **Client links** card with the Clash/mihomo YAML and sing-box JSON links |
 | Server settings | SSH access by password or private key, direct root or sudo; list/create/delete profiles, change fingerprint, SNI and port, revoke the subscription, set a profile expiry date, set a traffic limit, add a PQ route, manage the subscription and TLS (DNS-01, including *Fix with DNS-01* for a degraded `http_tls` subscription) and Telegram notifications (state, test message, on/off), plus update or uninstall Xrayebator on the server. Expiry dates are displayed in the server's timezone even when the desktop uses another one |
 
-Root + password is the one-click default; key authentication and sudo are optional. A selected private key and a successfully used SSH login password are stored in the operating-system keychain via `keytar` and reused across later SSH operations and app restarts; the server card keeps only their non-secret credential ids and display name. A distinct sudo password and an encrypted-key passphrase are never persisted and are requested again when needed. If the OS keychain is unavailable, there is no plaintext fallback: the secret remains in main-process memory for the current app session and the UI warns that it must be entered again after restart. The app also persists the `subscription_url`, fetched `vless://` links and pinned SSH host-key fingerprint. The subscription URL and VLESS links are bearer/client credentials: protect local app data and revoke the subscription from Server settings (full revocation rotates the key as well) after a leak.
+Root + password is the one-click default; key authentication and sudo are optional. A selected private key and a successfully used SSH login password are stored in the operating-system keychain via `keytar` and reused across later SSH operations and app restarts; the server card keeps only their non-secret credential ids and display name. A distinct sudo password and an encrypted-key passphrase are never persisted and are requested again when needed. If the OS keychain is unavailable, there is no plaintext fallback: the secret remains in main-process memory for the current app session and the UI warns that it must be entered again after restart. The app also persists, in the local store, the `subscription_url`, the fetched `vless://` links, the Hysteria 2 links, the AWG client configs, the Clash/sing-box links, per-profile expiry dates and the pinned SSH host-key fingerprint — that is what lets the Keys page and the backend cards paint instantly; none of it is written back to the server. The subscription URL and VLESS links are bearer/client credentials: protect local app data and revoke the subscription from Server settings (full revocation rotates the key as well) after a leak.
 
 The GUI exposes only a subset of the terminal menu. Bypass, `probe-test`, `happ-setup`, cascade,
 self-steal and service logs/status remain terminal-only; profile expiry dates and subscription

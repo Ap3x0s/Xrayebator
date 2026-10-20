@@ -158,7 +158,7 @@ nginx  :443  (или :8443, если 443 занят)
 xrayebator-sub.service   127.0.0.1:8080
     │  читает profiles/*.json и сверяет маршруты с живым config.json
     ▼
-список vless://  — из 7 маршрутов профиля HAPP получает 6
+список vless://  — все 7 маршрутов профиля HAPP, включая PQ
     │
     ▼
 Reality-инбаунд на порту 30000-60000   (User=xray, CAP_NET_BIND_SERVICE)
@@ -177,16 +177,17 @@ HAPP-флоу создаёт или переиспользует профиль 
 | `xhttp-legacy` | xhttp | HAPP-совместимый XHTTP-фолбэк, `decryption=none`, без PQ |
 | `xhttp-pq` | xhttp | XHTTP с post-quantum шифрованием `mlkem768x25519plus` |
 | `tcp-mux` | tcp | TCP Reality без Vision-flow, отдельный совместимый фолбэк |
-
-Managed HAPP-профиль использует schema version 3 и семь маршрутов. В обычную HAPP-выдачу попадает
-шесть; PQ-маршрут остаётся доступен через raw/profile path.
 | `grpc` | grpc | gRPC Reality; чувствителен к HTTP/2 и SNI |
 | `tcp-vision` | tcp | TCP Reality с `xtls-rprx-vision` |
 | `tcp-utls-firefox` | tcp | TCP Vision с отпечатком Firefox |
 | `tcp-xudp` | tcp | TCP Vision + XUDP, узкий фолбэк для жёстких мобильных сетей |
 
-В подписку HAPP уходит шесть маршрутов из семи: если в профиле есть `xhttp-legacy`, то PQ-XHTTP не
-отдаётся как XHTTP-кандидат. В самом profile JSON при этом остаются все семь.
+Managed HAPP-профиль использует schema version 3 и семь маршрутов, включая `xhttp-legacy` и `xhttp-pq`.
+
+В тело подписки HAPP попадают все семь живых маршрутов, включая PQ: HAPP умеет ML-KEM. Тело
+base64/v2ray (v2rayNG, v2rayN) PQ-маршруты выбрасывает — клиент без ML-KEM к ним не подключится,
+поэтому там шесть из семи. Clash/mihomo и sing-box PQ-маршруты и xhttp не отдают, но делают это
+осознанно: маршрут пропускается с указанием причины, а не отдаётся сломанным конфигом.
 
 Базовый client fingerprint для новых и обновлённых профилей — `firefox`. Явно выбранные отпечатки,
 отличные от устаревшего `chrome`, при обновлении сохраняются.
@@ -317,7 +318,7 @@ npm run dev          # Electron + Vite dev server
 npm run build        # скомпилировать renderer и main process
 ```
 
-Проверки Electron: `npm test` гоняет 19 unit-файлов из `tests/`; `npm run typecheck` проверяет
+Проверки Electron: `npm test` гоняет 25 unit-файлов из `tests/`; `npm run typecheck` проверяет
 TypeScript, включая строгие onboarding-контракты из `tests/type-contracts/`, а `npm run build`
 собирает приложение. На нативном Windows POSIX-тест
 `tests/unit/shell-command.test.ts` может падать из-за отсутствия `/bin/sh`; источник истины — Linux CI.
@@ -413,7 +414,7 @@ sudo xrayebator-uninstall               # снять сервис и конфи�
 | v2rayNG | Частично | Получает base64-подписку, HAPP-метаданные не использует |
 | v2rayN | Частично | Подписки с VLESS работают, HAPP-специфика не используется |
 | Shadowrocket | Вручную | Годится для raw VLESS, не основной клиент для подписки |
-| sing-box · Hiddify · NekoBox · mihomo | Подписка | Получают YAML (Clash/mihomo) или JSON (sing-box) по тому же URL; PQ-XHTTP и HAPP-роутинга в них нет |
+| sing-box · Hiddify · NekoBox · mihomo | Подписка | Получают YAML (Clash/mihomo) или JSON (sing-box) по тому же URL; PQ-маршруты и xhttp пропускаются с указанием причины, HAPP-роутинга в них нет |
 
 - Android: [HAPP](https://www.happ.su/) · [v2rayNG](https://github.com/2dust/v2rayNG) · [NekoBox](https://github.com/MatsuriDayo/NekoBoxForAndroid)
 - iOS: [HAPP](https://www.happ.su/) · [Shadowrocket](https://apps.apple.com/app/shadowrocket/id932747118) · [V2Box](https://apps.apple.com/app/v2box-v2ray-client/id6446814690)

@@ -86,12 +86,15 @@ sudo systemctl status nginx --no-pager -l
 Fix the certificate or listener, then run `sudo xrayebator happ-setup` again. Do not work around the
 error by hand-writing a plausible public URL.
 
-## HAPP shows six routes although the profile has seven
+## HAPP shows fewer routes than the profile has
 
-That is expected for a newly provisioned standard managed HAPP profile. Its JSON uses
-`schema_version: 3` and should contain seven live `routes[]`, including `xhttp-legacy` and
-`xhttp-pq`; the published VLESS list contains six entries because the PQ-XHTTP route is retained
-for the raw/profile path rather than the normal HAPP list.
+The standard managed HAPP profile uses `schema_version: 3` and should contain seven live
+`routes[]`, including `xhttp-legacy` and `xhttp-pq`. The HAPP body publishes every live route, PQ
+included — all seven. The base64 body served to v2rayNG/v2rayN intentionally carries six, because a
+client without ML-KEM cannot use a PQ route; Clash/mihomo and sing-box skip PQ and xhttp routes with a
+recorded reason instead of emitting them broken. A shorter HAPP list therefore means the server still
+serves an older handler: the fix is migration `subhttp_v2ray_pq_2026` (it regenerates `subhttp.sh`),
+which the menu, `quickstart` and `happ-setup` run automatically on the next launch.
 
 The setup helper can reuse an existing profile meeting the seven-live-route minimum, even if it lacks
 those standard labels or schema. Migrations do not retrofit missing routes into that existing
@@ -106,7 +109,8 @@ jq -r '.routes[] | [.label,.transport,.port,(.pq_enabled // false)] | @tsv' \
 ```
 
 The last column is `pq_enabled`, not a health status. `false` is expected for every non-PQ route;
-`true` should appear only for `xhttp-pq`. If `xhttp-legacy` is missing, re-provision/create the managed multi-route profile through the menu or
+`true` marks a PQ route: on the standard profile that is `xhttp-pq`, plus any route added with
+`profile-pq` or `quickstart --pq` (for example `tcp-pq`). If `xhttp-legacy` is missing, re-provision/create the managed multi-route profile through the menu or
 `quickstart`; pending migrations do not add routes to an existing profile. Then refresh the subscription.
 
 ## XHTTP does not work in HAPP
@@ -418,6 +422,12 @@ curl -s "http://127.0.0.1:8080/sub/<token>?target=singbox" | jq '.outbounds | le
 - **The format does not switch** — the server carries an old revision of the handler: the
   `subhttp_formats_2026` migration regenerates `subhttp.sh` on menu entry; a repeated `happ-setup`
   or reinstalling the subscription (menu `6`) does the same.
+- **`?target=v2ray` returns the plaintext HAPP body, or v2rayNG shows the routes but no traffic** —
+  the handler is older than `subhttp_v2ray_pq_2026`: back then the base64 branch was chosen from the
+  User-Agent only, so an explicit `?target=v2ray`/`?target=base64` fell through to the HAPP body
+  (byte-identical, PQ routes included, no base64). The migration regenerates `subhttp.sh` and is run
+  by `main_menu`, `quickstart` and `happ-setup`; `curl "…/sub/<token>?target=v2ray" | base64 -d`
+  must decode to a `vless://` list with no `encryption=mlkem` lines.
 - **v2rayNG/HAPP started receiving YAML** — an explicit `?target=` in the saved link overrides the
   User-Agent: remove the parameter or set `?target=v2ray`/`?target=happ`.
 

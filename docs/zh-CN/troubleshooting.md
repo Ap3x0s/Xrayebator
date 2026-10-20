@@ -56,9 +56,9 @@ sudo journalctl -u xrayebator-sub -n 80 --no-pager
 
 修复证书或 listener 后再次运行 `sudo xrayebator happ-setup`。不要手写一个看似合理的公共 URL 来绕过错误。
 
-## HAPP 显示六条线路，但配置档有七条
+## HAPP 显示的线路少于配置档中的线路
 
-对于 managed HAPP 配置档，这是预期行为。配置档 JSON 应包含七条存活的 `routes[]`，包括 `xhttp-legacy` 和 `xhttp-pq`；发布的 VLESS 列表包含六条，因为 PQ-XHTTP 线路保留给原始/配置档路径，而不是普通 HAPP 列表。
+受管理的 HAPP 配置档应包含七条存活的 `routes[]`，包括 `xhttp-legacy` 与 `xhttp-pq`，而 HAPP 订阅会下发全部七条——PQ 线路也在内。如果 HAPP 里只有六条，说明订阅处理器还是旧的：在 `subhttp_v2ray_pq_2026` 之前，「配置档里存在 legacy xhttp 就丢弃其它 xhttp」的规则会静默删掉 `xhttp-pq`。迁移 `subhttp_v2ray_pq_2026` 会重新生成 `subhttp.sh`（已注册在 `main_menu`、`quickstart` 与 `happ-setup` 中）：运行 `sudo xrayebator` 并等迁移完成，然后在 HAPP 中强制刷新订阅。其它格式的下发数量本来就不同，这不是故障：base64/v2ray 体（v2rayNG/v2rayN）会丢弃 PQ 线路，因此是六条——没有 ML-KEM 的客户端用不了它；Clash/mihomo 与 sing-box 会跳过 PQ 和 xhttp，并在原位置写明原因，而不是下发一份无法使用的配置。
 
 检查配置档和存活端口：
 
@@ -67,7 +67,7 @@ jq -r '.routes[] | [.label,.transport,.port,(.pq_enabled // false)] | @tsv' \
   /usr/local/etc/xray/profiles/<profile>.json
 ```
 
-最后一列是 `pq_enabled`，不是健康状态。所有非 PQ 线路为 `false` 是正常的；只有 `xhttp-pq` 应为 `true`。注意：`_migrate_happ_legacy_xhttp_route_2026` 不会向已有配置档添加线路。如果已有配置档缺少 `xhttp-legacy`，请重新创建/恢复 managed multi-route 配置档（通过菜单/quickstart 重新部署，或重新创建），而不是只重复运行迁移。
+最后一列是 `pq_enabled`，它不是健康状态，而是「这条线路使用 VLESS Encryption」。PQ 线路为 `true`：标准配置档里是 `xhttp-pq`，再加上任何由 `profile-pq` 或 `quickstart --pq` 添加的线路（例如 `tcp-pq`）；普通线路为 `false` 是正常的。注意：`_migrate_happ_legacy_xhttp_route_2026` 不会向已有配置档添加线路。如果已有配置档缺少 `xhttp-legacy`，请重新创建/恢复 managed multi-route 配置档（通过菜单/quickstart 重新部署，或重新创建），而不是只重复运行迁移。
 
 ## HAPP 中 XHTTP 不可用
 

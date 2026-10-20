@@ -92,7 +92,7 @@ The interactive menu uses these exact meanings:
 | `3` | Display connection details and generated links for a selected profile |
 | `4` | Manage a profile: SNI, client fingerprint, port and advanced settings |
 | `5` | Upgrade a single profile to post-quantum XHTTP + Reality |
-| `6` | HAPP subscription: provision public/local publishing, URL/QR, revoke and HAPP settings; the managed profile has 7 routes and the published list has 6 |
+| `6` | HAPP subscription: provision public/local publishing, URL/QR, revoke and HAPP settings; the managed profile has 7 routes, all of them published to HAPP; the base64 body carries 6 because PQ routes are dropped there |
 | `7` | Bypass routing: send selected domains (banks, marketplaces, Steam…) direct instead of through the tunnel |
 | `8` | Cascade and upstream nodes |
 | `9` | Custom domain and self-steal stub |

@@ -15,7 +15,7 @@ for test_file in validation/*.sh; do bash "$test_file" || exit; done
 
 ## 测试覆盖范围
 
-`validation/` 中有 38 个静态与本地回归测试：
+`validation/` 中有 42 个静态与本地回归测试：
 
 | 测试 | 检查内容 |
 |---|---|
@@ -57,6 +57,10 @@ for test_file in validation/*.sh; do bash "$test_file" || exit; done
 | `test-alerts-monitor.sh` | 监控的 Telegram 告警：`alerts-setup/status/enable/disable/test`、测试未投递时不保存配置、定时器单元与迁移、服务与后端（hysteria2、AWG）检测、订阅及其降级到 `http_tls`、SNI 探测（部分/完全不可达、恢复、间隔、重试时不重跑探测）、重启的边沿触发 |
 | `test-subscription-formats.sh` | 订阅格式：`vless://`（7 种传输方式）与 `hysteria2://` 的归一化、IPv6/percent-decoding、Clash/mihomo YAML（reality-opts、flow、packet-encoding、grpc-opts、hysteria2，有 PyYAML 时做校验）、通过 `jq` 校验 sing-box JSON、带说明地跳过 PQ 与 xhttp、边界情况（无存活线路、只有 PQ）、处理器 heredoc 中的内容协商、迁移注册与 `profiles` 的 CLI 契约 |
 | `test-dns01-certbot.sh` | DNS-01（Cloudflare/Route53）：域名与提供商校验（IP 与单标签名称会被拒绝）、按提供商组装 certbot 参数（插件、凭据、propagation、deploy-hook、`-m` 或免邮箱注册）、按提供商写入 `0600` 凭据内容、nginx vhost **不含** `listen 80` 与 ACME location、CLI 校验失败时不写盘，以及静态接线（分发器、菜单项、插件包、UFW 端口、`domain_tls` 标记、certbot 清单、uninstall 清理） |
+| `test-channel-test-cli.sh` | `channel-test` 的纯函数与 CLI 契约：由链接记录构造客户端配置（Reality/TLS、flow、gRPC serviceName、xhttp path/host/mode、PQ 的 ML-KEM encryption）、stdout 只有 JSON（进度走 `exec 3>&1`）、不依赖 Let's Encrypt 与订阅标记；真实网络运行只在实机进行，CI 不跑 |
+| `test-jq-keyword-compat.sh` | 守护一类在 jq 1.6（Ubuntu 22.04、Debian 12）上会静默编译失败的写法：「关键字作键、同名变量作值」的对象对（如 `label: $label`）与 `{$label}` shorthand——jq 1.7 能通过，而 CI 用的正是 1.7，只有这个测试能拦住 |
+| `test-pq-routes.sh` | 任意传输上的 PQ 线路：`_pq_add_route_for_profile` 创建独立入站并把 `decryption` 切到 `.vless_decryption`、PQ 链接携带 `encryption=mlkem…`、同一配置档的普通线路仍为 `none`、`profile-pq` 的 JSON 契约（缺密钥与重复时拒绝）、base64/v2ray 体丢弃任意传输（不只 xhttp）的 PQ 线路 |
+| `test-sni-reachability.sh` | 默认 SNI 的选择：不可达的默认值（或 `sni_list.txt` 首行）被第一个可达候选替换、全部不可达时回退到原默认值（不让探测破坏隔离主机上的部署）、结果按 SNI 缓存；同时覆盖探针判据（完整 TLS 1.3 + 已验证证书 + HTTP 应答）与候选顺序的上限 |
 
 > 静态测试不能替代一次性 VPS 上的实测：创建与删除配置档、校验配置、重启服务、回滚以及真实客户端连接。
 
@@ -97,7 +101,7 @@ npm test              # Vitest 单元测试
 | `tests/unit/ssh-client.test.ts` | SSH 连接与 host-key verification |
 | `tests/unit/ssh-keychain.test.ts` | 系统钥匙串的私钥保存/读取/删除及大小防护（mock keytar） |
 | `tests/unit/server-manager.test.ts` | 更新分支安全性验证 |
-| `tests/unit/server-store.test.ts` | 按 host+port 的幂等导入 upsert 与 credential 引用计数 |
+| `tests/unit/server-store.test.ts` | 按 host+port 的幂等导入 upsert 与 credential 引用计数；按配置档名缓存的有效期（`profileExpiry`，全量写入——删除的配置档随之从缓存消失） |
 | `tests/unit/server-inspector.test.ts` | 诊断规范化：公网与仅本地/不可达订阅、partial 及拒绝导入状态 |
 | `tests/unit/deployer.test.ts` | quickstart 参数构建：provided/without email 模式，不使用虚假地址 |
 | `tests/unit/ui-contracts.test.ts` | email 模式选择下的部署就绪判断与 payload 构造 |
@@ -106,6 +110,12 @@ npm test              # Vitest 单元测试
 | `tests/unit/calendar.test.ts` | 日历：本地 ISO 日期（无 UTC 偏移）、月网格、导航边界 |
 | `tests/unit/expire.test.ts` | 有效期徽标状态、服务器时区日期与禁用标志优先级 |
 | `tests/unit/traffic.test.ts` | 流量限额辅助函数：输入解析与校验（`500MB`/`1.5GB`/`2TB`/`none`）、用量与限额格式化、标签描述（80% 提醒色与耗尽状态）、限额到输入框的转换 |
+| `tests/unit/clipboard.test.ts` | 复制封装：剪贴板接受文本时返回 `true`，写入被拒绝、剪贴板 API 缺失或没有 `navigator` 时返回 `false` 而不是抛错 |
+| `tests/unit/dns01.test.ts` | DNS-01 的纯函数（与服务器端一致）：域名校验（拒绝 IP、单标签与带路径的域名）、按提供商的凭据形态校验、就绪判断、certbot 参数组装，以及密钥脱敏 `maskSecret` |
+| `tests/unit/i18n-parity.test.ts` | 三种语言（ru/en/zh）的键集合一致、每种语言需要的复数形式齐全、插值占位符与俄语源保持同步 |
+| `tests/unit/gui-cache-wiring.test.ts` | 服务器卡片缓存的接线：进入服务器页面时先从本地 store 重读卡片（而不是用启动时读到的旧对象），且有效期由 `profiles:list` 写入 |
+| `tests/unit/server-keys-render.test.ts` | 「密钥」页的首帧渲染：配置档有效期在 SSR 下（effect 不执行，数据不可能来自网络）就已在标记里，来自卡片缓存；缓存里没有的配置档不画有效期 |
+| `tests/unit/server-settings-render.test.ts` | 「服务器设置」的首帧渲染与分区契约：连接门槛不崩、`SETTINGS_SECTIONS` 与面板接线一致 |
 
 `npm run typecheck` 还会检查 `tsconfig.contracts.json`，其中编译 `tests/type-contracts/` 中严格的 onboarding 契约（必需的 `emailMode`、keychain 引用密钥选择器、已暴露的 import API）；仅靠 Vitest 转译无法捕获这类类型回归。
 
@@ -117,7 +127,7 @@ npm test              # Vitest 单元测试
 
 三个独立 workflow：
 
-- **ci-linux.yml** — Bash validation：在 ubuntu-24.04 上对所有脚本执行 `bash -n`，并运行全部 38 个
+- **ci-linux.yml** — Bash validation：在 ubuntu-24.04 上对所有脚本执行 `bash -n`，并运行全部 42 个
   `validation/test-*.sh`；在 push 到 `main`、`dev`、`experimental` 以及 pull request 时运行。
 - **release.yml** — Electron 构建（Windows/macOS/Linux）。只在 `v*` tag 和手动触发时运行；先由
   `preflight` 检查发布说明 `docs/releases/<tag>.en.md` 是否存在，以及仓库密钥 `AP3X0`（若已设置）

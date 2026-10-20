@@ -137,8 +137,9 @@ Enforcement keeps the inbounds alive: a disabled client is snapshotted into `.ex
 renewal, because recreating an inbound would change the Reality shortId and break every issued URL.
 
 A newly provisioned standard HAPP managed profile has `schema_version: 3` and seven routes,
-including `xhttp-legacy` and `xhttp-pq`. The published HAPP connection list contains six VLESS
-routes because the PQ route remains available through the raw/profile path. The HAPP setup helper
+including `xhttp-legacy` and `xhttp-pq`. The published HAPP list carries every live route, PQ
+included (seven VLESS entries for the standard profile); the base64 body served to v2rayNG/v2rayN
+drops PQ routes, because a client without ML-KEM cannot use them, so it carries six. The HAPP setup helper
 may reuse an existing profile meeting the seven-live-route minimum, so inspect
 the actual profile before assuming it has the standard labels or schema; migrations do not retrofit
 missing routes into an existing profile. Re-provision or create a managed profile through the menu

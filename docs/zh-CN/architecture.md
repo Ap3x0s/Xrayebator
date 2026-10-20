@@ -116,9 +116,10 @@ http-01（服务商过滤 80 端口），quickstart 降级为 `http_tls`：标�
 loopback 处理器发布，JSON 携带 `degraded:true`；解除 80 端口封锁后重新部署即恢复 ip_tls。不提供邮箱时，Certbot 会在没有 ACME 联系地址的情况下注册，因此无法接收续期通知或通过邮箱恢复。令牌以 `sub_token` 形式存储在配置档中；执行 revoke 会轮换令牌并使之前的 URL 失效，而完全吊销（`profile-revoke --full`）还会更换该配置档所有 inbound 中的 uuid，因此已下载的配置无法再连接。配置档有效期保存在 `expire`（epoch 秒）中，由 systemd 定时器 `xrayebator-expire.timer` 每 10 分钟通过 `xrayebator expire-check` 强制执行。只输入日期时，有效期包含服务器本地时区当天，至 `23:59:59` 到期；显式指定的时间也按服务器本地时区解释。`profiles` JSON 还会提供服务器时区中的 `expire_date`，GUI 无需按客户端本地时区从 epoch 时间戳反推出日期。强制执行不会删除入站：被停用的客户端保存在 `.expire_clients` 快照中，续期时原样恢复，因为重建入站会改变 Reality shortId 并使已发出的链接失效。
 
 新创建的标准托管 HAPP 配置档是 schema-v3 七路由配置档，包括 `xhttp-legacy` 和后量子 XHTTP 路由。
-发布的 HAPP 连接列表包含六个 VLESS 路由，因为 PQ 路由仍可通过原始/配置档路径访问。助手也可能
-复用至少有七条存活线路的旧配置档，因此排查时请检查实际 label 和 schema；迁移不会向已有配置档
-补齐缺失线路。没有存活线路的配置档返回 `410 Gone`，部分过期的多线路配置档则可能以 `200` 返回剩余线路。
+发布的 HAPP 连接列表会下发全部七条 VLESS 路由，包括 PQ 线路；base64/v2ray 体（v2rayNG/v2rayN）
+会丢弃 PQ 线路（没有 ML-KEM 的客户端用不了它），因此那里是六条；Clash/mihomo 与 sing-box 会跳过
+PQ 和 xhttp 并写明原因。助手也可能复用至少有七条存活线路的旧配置档，因此排查时请检查实际 label
+和 schema；迁移不会向已有配置档补齐缺失线路。没有存活线路的配置档返回 `410 Gone`，部分过期的多线路配置档则可能以 `200` 返回剩余线路。
 
 处理器还提供由令牌保护的 `geoip.dat` 和 `geosite.dat` 资源，这些资源是托管的 HAPP 路由配置
 所必需的。HAPP 接收其路由元数据，而 v2rayNG 和 v2rayN 接收兼容的 VLESS 主体，不包含 HAPP 专属

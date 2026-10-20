@@ -79,7 +79,7 @@ Xrayebator 不会更改主机的 TCP 拥塞控制算法，也不会写入或应�
 | `2` | 删除配置档及其入站 |
 | `3` | 显示配置档的连接信息 |
 | `4` | 管理配置档：SNI、指纹、端口、advanced |
-| `5` | 将单个配置档升级到 PQ XHTTP |
+| `5` | 将单个配置档升级为 post-quantum（PQ XHTTP+Reality） |
 | `6` | HAPP 订阅：7 条线路的配置档、public TLS、链接、二维码、吊销 |
 | `7` | 分流路由（Bypass）：选中域名（银行、电商、Steam 等）直连，不走隧道 |
 | `8` | 级联与上游节点 |
@@ -168,8 +168,9 @@ Xrayebator 不会更改主机的 TCP 拥塞控制算法，也不会写入或应�
 
 `quickstart --email <邮箱>` 是宽泛的迁移路径：执行新部署所需的设置，在 `8443` 配置 IP-TLS 订阅
 endpoint 及其证书，然后创建或复用受管理的 HAPP 配置档。新建的标准配置档使用 `schema_version: 3`
-和 7 条线路，包括 `xhttp-legacy` 与 `xhttp-pq`。该非交互路径中的迁移调用是 best-effort，部署后
-请检查标记、配置档 JSON 与服务状态。
+和 7 条线路，包括 `xhttp-legacy` 与 `xhttp-pq`。HAPP 订阅会下发全部七条线路——包括 PQ 线路；
+base64/v2ray 体（v2rayNG/v2rayN）会丢弃 PQ：没有 ML-KEM 的客户端用不了它，所以那里是六条。该非交互
+路径中的迁移调用是 best-effort，部署后请检查标记、配置档 JSON 与服务状态。
 
 `quickstart --without-email` 执行与带邮箱形式相同的宽泛设置和 endpoint 配置，但以
 `--register-unsafely-without-email` 注册 ACME 账户；无法收到 Certbot 续期通知，也没有邮箱恢复。
