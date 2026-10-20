@@ -25,6 +25,7 @@ echo -e "${NC}\n"
 echo -e "${YELLOW}Это действие удалит:${NC}"
 echo -e "  ${BLUE}•${NC} Xray-core и все его компоненты"
 echo -e "  ${BLUE}•${NC} Все профили и конфигурации"
+echo -e "  ${BLUE}•${NC} Дополнительные протоколы (Hysteria 2 / AmneziaWG), если установлены"
 echo -e "  ${BLUE}•${NC} Приложение xrayebator"
 echo -e "  ${BLUE}•${NC} Сгенерированные ключи Reality"
 echo ""
@@ -39,7 +40,7 @@ if [[ "$confirmation" != "yes" ]]; then
 fi
 
 echo ""
-echo -e "${BLUE}[1/7]${NC} ${YELLOW}Остановка сервисов (Xray + HAPP subscription)...${NC}"
+echo -e "${BLUE}[1/7]${NC} ${YELLOW}Остановка сервисов (Xray + HAPP subscription + бэкенды)...${NC}"
 systemctl stop xray > /dev/null 2>&1
 systemctl disable xray > /dev/null 2>&1
 systemctl stop xrayebator-sub.service > /dev/null 2>&1
@@ -119,6 +120,27 @@ APT_CERTBOT_TIMER_WAS_DISABLED=false
 if [[ -f /usr/local/etc/xray/.apt_certbot_timer_disabled ]]; then
     APT_CERTBOT_TIMER_WAS_DISABLED=true
 fi
+# Бэкенды мультипротокола живут вне /usr/local/etc/xray, поэтому их нужно погасить
+# ДО удаления каталога состояния: иначе uninstall оставляет включёнными
+# hysteria-server.service и awg-quick@awg0 с конфигами, которых уже нет, и первая
+# же перезагрузка даёт два failed-юнита. Пакеты/модуль не трогаем — так же, как
+# awg-uninstall/hysteria2-uninstall.
+if systemctl list-unit-files 'hysteria-server.service' > /dev/null 2>&1; then
+    systemctl disable --now hysteria-server.service > /dev/null 2>&1 || true
+fi
+rm -f /etc/systemd/system/hysteria-server.service
+rm -f /etc/sysctl.d/99-xrayebator-hysteria.conf
+rm -f /etc/letsencrypt/renewal-hooks/deploy/xrayebator-hysteria.sh
+rm -f /usr/local/bin/hysteria 2>/dev/null || true
+rm -f /usr/local/bin/hysteria.bak.* 2>/dev/null || true
+
+if systemctl list-unit-files 'awg-quick@awg0.service' > /dev/null 2>&1; then
+    systemctl disable --now awg-quick@awg0.service > /dev/null 2>&1 || true
+fi
+ip link del awg0 > /dev/null 2>&1 || true
+rm -f /etc/amnezia/amneziawg/awg0.conf 2>/dev/null || true
+rm -f /etc/sysctl.d/99-xrayebator-awg.conf 2>/dev/null || true
+rm -f /etc/modules-load.d/xrayebator-awg.conf 2>/dev/null || true
 rm -rf /usr/local/etc/xray
 if [[ "$APT_CERTBOT_TIMER_WAS_DISABLED" == "true" ]]; then
     systemctl enable --now certbot.timer > /dev/null 2>&1 || true

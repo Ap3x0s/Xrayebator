@@ -359,7 +359,12 @@ TypeScript, включая строгие onboarding-контракты из `te
   geo-базы из `/usr/local/share/xray`, вычищает `/usr/local/etc/xray` и `/var/log/xray`, бинари
   `xrayebator`, `xrayebator-update`, `xrayebator-uninstall` и `subhttp.sh`, юниты `xray.service`,
   `xray@.service`, `xray.service.d` и `xrayebator-sub.service`, nginx-vhost'ы с его именами, свои
-  сертификаты certbot и правила UFW, а также системного пользователя `xray`. Очистка nginx основана
+  сертификаты certbot и правила UFW, а также системного пользователя `xray`. Перед удалением
+  состояния он гасит и опциональные бэкенды: отключает `hysteria-server.service` и
+  `awg-quick@awg0`, убирает бинарь Hysteria, его sysctl, его certbot deploy-hook, интерфейс `awg0`,
+  sysctl и `modules-load.d` AWG, а затем весь нейтральный корень `/usr/local/etc/xrayebator`
+  (registry и секреты бэкендов, `alerts.json` с токеном бота). Пакет AmneziaWG и модуль ядра при
+  этом остаются в системе. Очистка nginx основана
   на путях/именах, а не на отдельном ownership manifest. Глобальное состояние Certbot, пакет nginx,
   чужие сертификаты certbot и правила UFW не трогаются. Domain ACME webroot
   `/var/www/xrayebator-domain-acme` может остаться и потребовать ручной очистки.

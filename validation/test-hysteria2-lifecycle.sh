@@ -200,5 +200,16 @@ grep -Fq '"$(basename "$profile_file" .json)" expired' xrayebator || fail "expir
 grep -Fq '"$(basename "$profile_file" .json)" restored' xrayebator || fail "restore wiring missing"
 pass "CLI dispatch, menu, migration parity, subscription and lifecycle wiring present"
 
+# uninstall.sh сносит нейтральный корень; до этого он обязан погасить юнит и
+# снять deploy-hook, иначе после удаления остаётся включённый сервис с
+# конфигом, которого уже нет.
+grep -Fq 'systemctl disable --now hysteria-server.service' uninstall.sh \
+  || fail "uninstall.sh must stop hysteria-server before removing state"
+grep -Fq '/etc/letsencrypt/renewal-hooks/deploy/xrayebator-hysteria.sh' uninstall.sh \
+  || fail "uninstall.sh must drop the hysteria certbot deploy-hook"
+grep -Fq '/usr/local/bin/hysteria' uninstall.sh \
+  || fail "uninstall.sh must remove the hysteria binary"
+pass "uninstall.sh tears the backend down before deleting the neutral root"
+
 echo ""
 pass "hysteria2 backend (slices 2+3): all checks green"

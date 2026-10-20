@@ -350,5 +350,14 @@ grep -Fq 'run_migration "awg_module_2026"' xrayebator || fail "awg module migrat
 grep -Fq 'rm -f "$AWG_MODULES_LOAD_FILE"' xrayebator || fail "uninstall must drop modules-load.d entry"
 pass "CLI dispatch, menu, lifecycle wiring present (12/13) + awg module boot/migration"
 
+# uninstall.sh обязан снять интерфейс, юнит и свою запись modules-load.d до
+# удаления каталога состояния — иначе первая перезагрузка даёт failed-юнит.
+grep -Fq 'systemctl disable --now awg-quick@awg0.service' uninstall.sh \
+  || fail "uninstall.sh must disable awg-quick@awg0"
+grep -Fq 'ip link del awg0' uninstall.sh || fail "uninstall.sh must tear the AWG interface down"
+grep -Fq '/etc/modules-load.d/xrayebator-awg.conf' uninstall.sh \
+  || fail "uninstall.sh must drop the AWG modules-load.d entry"
+pass "uninstall.sh tears the AWG runtime down before deleting the neutral root"
+
 echo ""
 pass "amneziawg backend (slice 4): all checks green"

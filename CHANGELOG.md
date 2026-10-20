@@ -188,6 +188,14 @@ Next `0.6.5` cut: the server manager plus the GUI traffic-limit card.
 
 ### Fixed
 
+- **`xrayebator-uninstall` left the optional backends running.** It deleted the neutral
+  `/usr/local/etc/xrayebator` root but never stopped `hysteria-server.service` or `awg-quick@awg0`,
+  so both units stayed enabled with their configs gone and the first reboot produced two failed
+  units; the Hysteria binary, sysctl file and certbot deploy-hook, the `awg0` interface, the AWG
+  sysctl and `modules-load.d` entries also survived. The script now tears the backends down before
+  deleting state — the AmneziaWG package and kernel module still stay in the system, exactly as
+  `awg-uninstall` documents — and the confirmation banner names the backends. Guarded by the two
+  backend lifecycle validation tests.
 - **The "valid until" line on the Keys page appeared late and pushed the card down.** Expiry came only from
   the `profiles` list, which is fetched over SSH, while every other piece of that page (VLESS links,
   hysteria2 links, AWG configs, Clash/sing-box URLs) is drawn instantly from the server card cached in the

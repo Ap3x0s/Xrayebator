@@ -342,7 +342,11 @@ Electron 检查：`npm test` 运行 `tests/` 中的 19 个单元测试文件；`
   `/usr/local/share/xray` 中的 geo 数据库，清除 `/usr/local/etc/xray` 与 `/var/log/xray`、
   `xrayebator`、`xrayebator-update`、`xrayebator-uninstall`、`subhttp.sh` 二进制，以及
   `xray.service`、`xray@.service`、`xray.service.d`、`xrayebator-sub.service` 单元、由它创建的
-  使用其名称的 nginx vhost、它自己的 certbot 证书和 UFW 规则，还有系统用户 `xray`。nginx 清理按路径/名称执行，
+  使用其名称的 nginx vhost、它自己的 certbot 证书和 UFW 规则，还有系统用户 `xray`。在删除状态
+  之前，它还会关闭可选后端：禁用 `hysteria-server.service` 与 `awg-quick@awg0`，移除 Hysteria
+  二进制、其 sysctl 配置、其 certbot deploy-hook，以及 `awg0` 接口、AWG 的 sysctl 与
+  `modules-load.d` 条目，随后删除整个中性根目录 `/usr/local/etc/xrayebator`（后端注册表与密钥、
+  含 bot token 的 `alerts.json`）。AmneziaWG 软件包与内核模块本身仍留在系统中。nginx 清理按路径/名称执行，
   不是通过独立的 ownership manifest。全局 Certbot 状态、nginx 软件包、他人的 certbot 证书和 UFW 规则不会被动到。
   域名模式的 ACME webroot
   `/var/www/xrayebator-domain-acme` 可能保留，需要手工清理。

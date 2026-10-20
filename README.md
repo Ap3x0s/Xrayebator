@@ -362,7 +362,12 @@ Russian and Chinese versions live in [`docs/ru/`](docs/ru/) and [`docs/zh-CN/`](
   `xrayebator`, `xrayebator-update`, `xrayebator-uninstall` and `subhttp.sh` binaries, the
   `xray.service`, `xray@.service`, `xray.service.d` and `xrayebator-sub.service` units, the nginx
   vhosts matching the product's names, its own certbot certificates and UFW rules, and the `xray`
-  system user. Cleanup is path/name based for nginx vhosts, not a general ownership manifest. It leaves
+  system user. Before deleting the state it also tears the optional backends down: it disables
+  `hysteria-server.service` and `awg-quick@awg0`, removes the Hysteria binary, its sysctl file, its
+  certbot deploy-hook, the `awg0` interface, the AWG sysctl and `modules-load.d` entries, and then
+  the whole neutral `/usr/local/etc/xrayebator` root (backend registry and secrets, `alerts.json`
+  with the bot token). The AmneziaWG package and kernel module themselves stay in the system.
+  Cleanup is path/name based for nginx vhosts, not a general ownership manifest. It leaves
   global Certbot state, the nginx package, foreign certbot certificates and UFW rules untouched. Domain-mode ACME webroot `/var/www/xrayebator-domain-acme` may remain for manual cleanup.
 - The `tcp-mux` route is kept for compatibility; it is not a mux preset.
 - H2, WebSocket and SplitHTTP are not supported.
