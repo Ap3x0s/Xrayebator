@@ -66,7 +66,7 @@ Xrayebator/
 ├── alerts.json                    # 监控的 Telegram 告警：机器人令牌与 chat_id（0600）
 ├── monitor-state.json             # 监控状态：事件、boot_id、最近一次 SNI 探测（0600）
 └── backends/
-    ├── hysteria2/                 # server.yaml（按配置档重新生成）、证书
+    ├── hysteria/                  # server.yaml（按配置档重新生成）、证书
     └── awg/                       # awg0.conf（0600）、server-params.json（0600）
 
 /usr/local/share/xray/             # geoip.dat 和 geosite.dat
@@ -146,7 +146,7 @@ certbot；续期使用标准的 `certbot.timer` 加 reload nginx 的 deploy-hook
 除 Xray 外，管理器可以在同一台 VPS 上安装其他传输。所有后端状态位于中性根目录
 `/usr/local/etc/xrayebator/`（注册表 `backends.json` 与各后端目录）；Xray 状态路径不受影响。
 每个配置档的后端凭据保存在其附加的 `.backends` 对象中，配置档 JSON 因此成为唯一事实来源：
-服务端配置（`backends/hysteria2/server.yaml`、`backends/awg/awg0.conf`）始终由配置档重新生成，
+服务端配置（`backends/hysteria/server.yaml`、`backends/awg/awg0.conf`）始终由配置档重新生成，
 配置档生命周期事件（创建、删除、吊销、过期、恢复）通过 `_backend_apply_profile_lifecycle`
 传播到每个已安装的后端。
 

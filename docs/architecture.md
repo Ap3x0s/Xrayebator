@@ -67,7 +67,7 @@ configuration and systemd unit form the HAPP subscription path. The active deskt
 ├── alerts.json                    # monitoring Telegram alerts: bot token and chat_id (0600)
 ├── monitor-state.json             # monitoring state: events, boot_id, last SNI probe (0600)
 └── backends/
-    ├── hysteria2/                 # server.yaml (regenerated from profiles), certs, placeholder credential
+    ├── hysteria/                  # server.yaml (regenerated from profiles), certs, placeholder credential
     └── awg/                       # awg0.conf (0600), server-params.json (0600)
 
 /usr/local/share/xray/             # geoip.dat and geosite.dat
@@ -178,7 +178,7 @@ Beyond Xray, the manager can install additional transports on the same VPS. All 
 in the neutral root `/usr/local/etc/xrayebator/` (registry `backends.json` plus per-backend
 directories); the Xray state paths are untouched. Per-profile backend credentials live in the
 profile's additive `.backends` object, which makes the profile JSON the single source of truth:
-server-side configs (`backends/hysteria2/server.yaml`, `backends/awg/awg0.conf`) are always
+server-side configs (`backends/hysteria/server.yaml`, `backends/awg/awg0.conf`) are always
 regenerated from profiles, and profile lifecycle events (create, delete, revoke, expire, restore)
 propagate through `_backend_apply_profile_lifecycle` to every installed backend.
 

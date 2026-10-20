@@ -285,7 +285,7 @@ npm run typecheck    # TypeScript 检查
 /usr/local/etc/xrayebator/
 ├── backends.json                 # 注册表：各后端的 installed/version/port/开关（644，无机密）
 └── backends/
-    ├── hysteria2/                # server.yaml、证书、占位凭据
+    ├── hysteria/                 # server.yaml、证书、占位凭据
     └── awg/                      # awg0.conf、server-params.json（0600）
 ```
 

@@ -314,7 +314,7 @@ backend state lives in a neutral root that does not touch `/usr/local/etc/xray/`
 /usr/local/etc/xrayebator/
 ├── backends.json                 # registry: per-backend installed/version/port/flags (644, no secrets)
 └── backends/
-    ├── hysteria2/                # server.yaml, certs, placeholder credential
+    ├── hysteria/                 # server.yaml, certs, placeholder credential
     └── awg/                      # awg0.conf, server-params.json (0600)
 ```
 

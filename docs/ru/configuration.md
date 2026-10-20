@@ -317,7 +317,7 @@ CLI/меню. Всё состояние бэкендов живёт в нейт�
 /usr/local/etc/xrayebator/
 ├── backends.json                 # реестр: installed/version/port/флаги по бэкендам (644, без секретов)
 └── backends/
-    ├── hysteria2/                # server.yaml, сертификаты, placeholder-credential
+    ├── hysteria/                 # server.yaml, сертификаты, placeholder-credential
     └── awg/                      # awg0.conf, server-params.json (0600)
 ```
 

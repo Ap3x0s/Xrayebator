@@ -67,7 +67,7 @@ Bash-управлению, а не вторая реализация серве�
 ├── alerts.json                    # Telegram-алерты мониторинга: токен бота и chat_id (0600)
 ├── monitor-state.json             # состояние мониторинга: события, boot_id, последняя SNI-проба (0600)
 └── backends/
-    ├── hysteria2/                 # server.yaml (регенерируется из профилей), сертификаты
+    ├── hysteria/                  # server.yaml (регенерируется из профилей), сертификаты
     └── awg/                       # awg0.conf (0600), server-params.json (0600)
 
 /usr/local/share/xray/             # geoip.dat и geosite.dat
@@ -170,7 +170,7 @@ URL и способ проверки домена для Let's Encrypt: `dns01-s
 бэкендов живёт в нейтральном корне `/usr/local/etc/xrayebator/` (реестр `backends.json` + каталоги
 по бэкендам); пути Xray не затрагиваются. Клиентские креденшелы бэкендов хранятся в самом профиле
 (аддитивный объект `.backends`) — профиль является единственным источником правды: серверные
-конфиги (`backends/hysteria2/server.yaml`, `backends/awg/awg0.conf`) всегда регенерируются из
+конфиги (`backends/hysteria/server.yaml`, `backends/awg/awg0.conf`) всегда регенерируются из
 профилей, а события жизненного цикла профиля (создание, удаление, revoke, истечение, продление)
 проходят через `_backend_apply_profile_lifecycle` в каждый установленный бэкенд.
 
