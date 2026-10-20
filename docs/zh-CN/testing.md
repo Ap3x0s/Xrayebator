@@ -64,6 +64,15 @@ for test_file in validation/*.sh; do bash "$test_file" || exit; done
 
 > 静态测试不能替代一次性 VPS 上的实测：创建与删除配置档、校验配置、重启服务、回滚以及真实客户端连接。
 
+## 生命周期与 HAPP endpoint 检查
+
+新部署时请走完整的 `quickstart --email <address>` 路径，确认它在 `8443` 上配置了产品 IP-TLS
+endpoint、创建了配置档，并使服务保持健康。这条非交互路径里的迁移调用是 best-effort 的，因此还要
+检查迁移标记与最终的配置档/配置。对已有安装，则单独走精简的 `happ-setup` 路径：在一次性环境里删掉
+一个或两个订阅标记，确认除非 `8443` 上的产品 IP-TLS endpoint/证书通过验证，否则它会拒绝凭空补写
+标记。两个标记都存在时，确认它复用了标记，而不是把「标记存在」当成 endpoint 仍然健康的证据 —— 仍需要
+运营者自行核验，或重跑相应的安装路径。
+
 ## 线上服务器的手工检查
 
 ```bash
@@ -81,7 +90,18 @@ sudo xrayebator channel-test --name <profile>                 # 每条线路跑�
 HTTP 请求，按线路返回 `ok`、`http` 与延迟，PQ 线路也包含在内。请运行两次：Xray 重启后的首次运行要付
 连接预热的代价（实机配置档为 ~5.1 秒，第二次 ~150 毫秒），因此单次偏慢不足以判断通道已坏。
 
-如果 UFW 已经启用，请对比操作前后的 numbered rules：安装不应重新启用防火墙，也不应更改其默认策略。
+本地订阅自检必须在无令牌时返回 `404`，在令牌有效且包含 VLESS 线路时返回 `200`。确认新建的标准
+HAPP 配置档是 `schema_version: 3` 且拥有七条存活线路，并且 HAPP 订阅体下发了全部七条：PQ 线路不再
+被它过滤掉（面向 v2rayNG/v2rayN 的 base64 体则会丢弃 PQ 线路，因此那里是六条）。被 HAPP 设置复用的
+已有配置档可能只满足「七条存活线路」这一下限，所以要检查实际的 label 与 schema —— 迁移不会补齐缺失的
+线路。如果 UFW 已经启用，请对比操作前后的 numbered rules：安装会加入固定的产品服务 TCP 列表，且不得
+更改默认策略；卸载则只应删除记录为「自己的」规则。
+
+对于可选后端，一次性 VPS 上还应覆盖：`hysteria2-install --grant-all`（服务已启动、UDP 端口在监听、
+`server.yaml` 中有对应授权）、`awg-install --grant-all`（模块出现在 `lsmod`、`awg show awg0` 能看到该
+peer）、一次 `profile-revoke` 轮换（两个后端的授权同时轮换）、一次过期/恢复循环，以及两个订阅体各含
+恰好一行 `hysteria2://`（每个已授权配置档一行）。CI 用 mock 二进制覆盖渲染器、注册表集成与 dispatch
+接线；软件包安装本身（网络、DKMS 构建、真实 systemctl）与真实客户端连接按设计属于实机检查。
 
 ## 桌面图形界面
 
