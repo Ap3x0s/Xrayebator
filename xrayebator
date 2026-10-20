@@ -10749,8 +10749,8 @@ happ_subscription_menu() {
       echo ""
     fi
 
-    echo -e "${CYAN} 1)${NC} Создать HAPP-подписку по IP VPS ${GREEN}(профиль 7 / HAPP 6 routes + URL/QR)${NC}"
-    echo -e "${CYAN} 2)${NC} Создать HAPP-подписку по домену ${GREEN}(профиль 7 / HAPP 6 routes + URL/QR)${NC}"
+    echo -e "${CYAN} 1)${NC} Создать HAPP-подписку по IP VPS ${GREEN}(профиль 7 маршрутов / в HAPP все 7, PQ включён + URL/QR)${NC}"
+    echo -e "${CYAN} 2)${NC} Создать HAPP-подписку по домену ${GREEN}(профиль 7 маршрутов / в HAPP все 7, PQ включён + URL/QR)${NC}"
     echo -e "${CYAN} 3)${NC} Local-only debug (127.0.0.1:8080)"
     echo -e "${CYAN} 4)${NC} Управление существующими подписками (URL / QR / revoke)"
     echo -e "${CYAN} 5)${NC} Настройки HAPP (.happ_defaults.env)"
@@ -11252,7 +11252,7 @@ main_menu() {
     echo -e "${CYAN} 5)${NC} Обновить профиль до post-quantum (PQ XHTTP+Reality)"
     echo ""
     echo -e "${MAGENTA} HAPP SUBSCRIPTION:${NC}"
-    echo -e "${CYAN} 6)${NC} Подписка HAPP (профиль 7 / HAPP 6 routes + URL/QR)"
+    echo -e "${CYAN} 6)${NC} Подписка HAPP (профиль 7 маршрутов / в HAPP все 7, PQ включён + URL/QR)"
     echo ""
     echo ""
     echo -e "${MAGENTA} BYPASS ROUTING:${NC}"

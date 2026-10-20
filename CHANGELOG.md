@@ -247,7 +247,8 @@ Next `0.6.5` cut: the server manager plus the GUI traffic-limit card.
   with no PQ, and Xray clients built from the URLs *taken out of the body* connect with HTTP 200
   (`xhttp-pq`, `xhttp-legacy`, `tcp-pq`). Because the handler is generated from a heredoc, existing servers
   get the fix through migration `subhttp_v2ray_pq_2026` (registered in `main_menu`, `quickstart` and
-  `happ-setup`, verified live by running it exactly as the menu does).
+  `happ-setup`, verified live by running it exactly as the menu does). The interactive menu labels that still
+  advertised «профиль 7 / HAPP 6 routes» were corrected as well: the HAPP list carries all seven, PQ included.
 - **`profile-pq` threw away the base route of a profile it was asked to extend.** A profile created by
   `profile-create` lives in the single-route shape (transport/port/SNI only at top level, no `routes`
   array); `profile-pq` appended `routes` containing just the PQ entry, so the original route silently
