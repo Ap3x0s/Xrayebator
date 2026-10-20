@@ -91,7 +91,7 @@ The interactive menu uses these exact meanings:
 | `2` | Delete an existing profile and clean up its unused inbounds/firewall ports |
 | `3` | Display connection details and generated links for a selected profile |
 | `4` | Manage a profile: SNI, client fingerprint, port and advanced settings |
-| `5` | Upgrade a single profile to post-quantum XHTTP + Reality |
+| `5` | Upgrade a single-route legacy profile to post-quantum VLESS Encryption in place, on its own transport; a multi-route profile is refused (it already carries separate legacy/PQ routes — use `profile-pq` or the GUI "PQ" dialog) |
 | `6` | HAPP subscription: provision public/local publishing, URL/QR, revoke and HAPP settings; the managed profile has 7 routes, all of them published to HAPP; the base64 body carries 6 because PQ routes are dropped there |
 | `7` | Bypass routing: send selected domains (banks, marketplaces, Steam…) direct instead of through the tunnel |
 | `8` | Cascade and upstream nodes |

@@ -79,7 +79,7 @@ Xrayebator 不会更改主机的 TCP 拥塞控制算法，也不会写入或应�
 | `2` | 删除配置档及其入站 |
 | `3` | 显示配置档的连接信息 |
 | `4` | 管理配置档：SNI、指纹、端口、advanced |
-| `5` | 将单个配置档升级为 post-quantum（PQ XHTTP+Reality） |
+| `5` | 就地把单路由（legacy）配置档升级为后量子 VLESS Encryption，沿用其原有传输方式；多路由配置档会被拒绝（它本就含独立的 legacy/PQ 路由——请改用 `profile-pq` 或 GUI 的「PQ」对话框） |
 | `6` | HAPP 订阅：7 条线路的配置档、public TLS、链接、二维码、吊销 |
 | `7` | 分流路由（Bypass）：选中域名（银行、电商、Steam 等）直连，不走隧道 |
 | `8` | 级联与上游节点 |
