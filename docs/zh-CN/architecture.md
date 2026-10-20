@@ -19,7 +19,7 @@ Xrayebator/
 ├── src/                        # 活跃的 Electron + React + TypeScript 桌面 GUI
 │   ├── main/                   # SSH、部署、配置档、订阅和服务器管理器
 │   ├── preload/                # 暴露给渲染进程的 contextBridge
-│   ├── renderer/               # Dashboard、AddServer、ServerKeys、ServerSettings
+│   ├── renderer/               # Dashboard、AddServer、ImportServer、ServerKeys、ServerSettings
 │   └── shared/                 # 共享的 TypeScript 类型和 VLESS 辅助函数
 ├── tests/                      # Electron/Vitest 单元测试
 ├── resources/                  # Electron 构建资源
@@ -160,8 +160,8 @@ certbot；续期使用标准的 `certbot.timer` 加 reload nginx 的 deploy-hook
   编译），接口 `awg0` 走 `awg-quick@awg0`，网段 `10.8.1.0/24`，按配置档的 peer（密钥对 +
   预共享密钥 + 地址），`ip_forward` 与默认路由接口上的 MASQUERADE。发行版单元读取
   `/etc/amnezia/amneziawg/awg0.conf`——它是指向受管文件的 symlink。
-- 两个后端均为可选，通过菜单项 `11`–`13` 或 `hysteria2-*` / `awg-*` CLI 命令安装与卸载，
-  默认绝不安装。
+- 两个后端均为可选：在菜单项 `11`（Hysteria 2）与 `12`（AmneziaWG）内部安装与卸载——菜单项 `13`
+  只显示两者状态——也可用 `hysteria2-*` / `awg-*` CLI 命令；默认绝不安装。
 
 ## 流量统计与监控
 
@@ -173,7 +173,8 @@ certbot；续期使用标准的 `certbot.timer` 加 reload nginx 的 deploy-hook
   `xrayebator-traffic.timer`（5 分钟）调用 `traffic-check`：它扣除上一次快照（`.traffic.last`）并把
   增量累加到 `.traffic.used`，然后应用限额——耗尽的限额会把客户端从入站移除，快照进入
   `.traffic_clients`，配置档获得 `.traffic_disabled`，订阅返回 `410`。迁移：`traffic_stats_2026`、
-  `traffic_timer_2026`、`subhttp_traffic_2026`。
+  `traffic_timer_2026`、`subhttp_traffic_2026`，以及修复用的 `traffic_user_stats_2026`（为早已存在
+  旧标记、因而挡住 backfill 的服务器补回 0 级用户计数）。
 - **监控。** `xrayebator-monitor.timer`（15 分钟）调用 `monitor-check`：服务与已安装的后端、配置档
   有效期与限额、订阅存活及其 TLS 模式、服务器重启（`boot_id`），以及每天一次针对配置档实际使用的
   SNI 的探测。去重状态保存在 `monitor-state.json`：同一事件的重复提醒不高于 `ALERTS_REMIND_SEC`，
@@ -181,7 +182,7 @@ certbot；续期使用标准的 `certbot.timer` 加 reload nginx 的 deploy-hook
   `alerts.json` 中：它不是 Xray 状态，`/usr/local/etc/xray` 路径保持 Xray-only。迁移：
   `alerts_monitor_2026`。
 
-两个迁移都注册在全部三条入口路径中——`main_menu`、`quickstart` 与 `happ-setup`。
+本节提到的每一个迁移都注册在全部三条入口路径中——`main_menu`、`quickstart` 与 `happ-setup`。
 
 ## 更新路径
 

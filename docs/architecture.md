@@ -19,7 +19,7 @@ Xrayebator/
 ├── src/                        # active Electron + React + TypeScript desktop GUI
 │   ├── main/                   # SSH, deploy, profile, subscription and server managers
 │   ├── preload/                # contextBridge exposed to the renderer
-│   ├── renderer/               # Dashboard, AddServer, ServerKeys, ServerSettings
+│   ├── renderer/               # Dashboard, AddServer, ImportServer, ServerKeys, ServerSettings
 │   └── shared/                 # shared TypeScript types and VLESS helpers
 ├── tests/                      # Electron/Vitest unit tests
 ├── resources/                  # Electron build assets
@@ -191,8 +191,9 @@ propagate through `_backend_apply_profile_lifecycle` to every installed backend.
   fallback), interface `awg0` through `awg-quick@awg0`, subnet `10.8.1.0/24`, per-profile peers
   (keypair + preshared key + address), `ip_forward` and MASQUERADE on the default-route interface.
   The distro unit reads `/etc/amnezia/amneziawg/awg0.conf`, which is a symlink to the managed file.
-- Both backends are optional, installed and removed from menu items `11`–`13` or the `hysteria2-*`
-  / `awg-*` CLI commands, and are never installed by default.
+- Both backends are optional, installed and removed inside menu items `11` (Hysteria 2) and `12`
+  (AmneziaWG) — item `13` only displays their status — or through the `hysteria2-*` / `awg-*` CLI
+  commands, and are never installed by default.
 
 ## Traffic accounting and monitoring
 
@@ -207,7 +208,8 @@ profile JSON, and the timer only applies it.
   accumulates `.traffic.used`, then applies the limit — an exhausted one removes the clients from
   the inbounds, the snapshot goes to `.traffic_clients`, the profile gets `.traffic_disabled`, and
   the subscription answers `410`. Migrations: `traffic_stats_2026`, `traffic_timer_2026`,
-  `subhttp_traffic_2026`.
+  `subhttp_traffic_2026` and the repair migration `traffic_user_stats_2026`, which re-adds the level-0
+  user counters on servers where the earlier marker already existed and would block the backfill.
 - **Monitoring.** `xrayebator-monitor.timer` (15 minutes) calls `monitor-check`: services and
   installed backends, profile expiries and limits, subscription liveness and its TLS mode, reboot
   (`boot_id`), and once a day an SNI probe over the SNIs profiles actually use. Deduplication lives
@@ -216,7 +218,8 @@ profile JSON, and the timer only applies it.
   in a `0600` `alerts.json` in the neutral root: this is not Xray state, and the
   `/usr/local/etc/xray` path stays Xray-only. Migration: `alerts_monitor_2026`.
 
-Both migrations are registered in all three entry paths — `main_menu`, `quickstart` and `happ-setup`.
+Every migration named in this section is registered in all three entry paths — `main_menu`,
+`quickstart` and `happ-setup`.
 
 ## Update paths
 

@@ -19,7 +19,7 @@ Xrayebator/
 ├── src/                        # активный Electron + React + TypeScript десктоп-GUI
 │   ├── main/                   # SSH, деплой, профили, подписка и менеджеры сервера
 │   ├── preload/                # contextBridge, доступный renderer
-│   ├── renderer/               # Dashboard, AddServer, ServerKeys, ServerSettings
+│   ├── renderer/               # Dashboard, AddServer, ImportServer, ServerKeys, ServerSettings
 │   └── shared/                 # общие TypeScript-типы и VLESS-помощники
 ├── tests/                      # Electron/Vitest unit-тесты
 ├── resources/                  # ресурсы сборки Electron
@@ -187,8 +187,9 @@ URL и способ проверки домена для Let's Encrypt: `dns01-s
   peer-ы на профиль (ключевая пара + preshared key + адрес), `ip_forward` и MASQUERADE на
   интерфейс default-route. Дистрибутивный юнит читает `/etc/amnezia/amneziawg/awg0.conf` — это
   symlink на управляемый файл.
-- Оба бэкенда опциональны: ставятся и снимаются из меню (пункты `11`–`13`) или CLI-командами
-  `hysteria2-*` / `awg-*` и никогда не устанавливаются по умолчанию.
+- Оба бэкенда опциональны: ставятся и снимаются внутри пунктов меню `11` (Hysteria 2) и `12`
+  (AmneziaWG) — пункт `13` только показывает их статус — или CLI-командами `hysteria2-*` / `awg-*`;
+  по умолчанию не устанавливаются.
 
 ## Учёт трафика и мониторинг
 
@@ -202,7 +203,8 @@ URL и способ проверки домена для Let's Encrypt: `dns01-s
   вычитает предыдущий снапшот (`.traffic.last`) и накапливает `.traffic.used`, а затем применяет
   лимит — исчерпанный снимает клиентов с инбаундов, снимок уходит в `.traffic_clients`, профиль
   получает `.traffic_disabled`, подписка отвечает `410`. Миграции: `traffic_stats_2026`,
-  `traffic_timer_2026`, `subhttp_traffic_2026`.
+  `traffic_timer_2026`, `subhttp_traffic_2026` и ремонтная `traffic_user_stats_2026` — она возвращает
+  user-счётчики уровня 0 там, где старый маркер уже стоял и блокировал backfill.
 - **Мониторинг.** `xrayebator-monitor.timer` (15 минут) вызывает `monitor-check`: сервисы и
   установленные бэкенды, сроки и лимиты профилей, живость подписки и её TLS-режим, перезагрузка
   (`boot_id`), а раз в сутки — SNI-проба по SNI, реально используемым профилями. Дедупликация живёт
@@ -211,7 +213,8 @@ URL и способ проверки домена для Let's Encrypt: `dns01-s
   `alerts.json` в нейтральном корне: это не состояние Xray, и путь `/usr/local/etc/xray` остаётся
   Xray-only. Миграция: `alerts_monitor_2026`.
 
-Обе миграции зарегистрированы во всех трёх входных путях — `main_menu`, `quickstart` и `happ-setup`.
+Все упомянутые в этом разделе миграции зарегистрированы во всех трёх входных путях — `main_menu`,
+`quickstart` и `happ-setup`.
 
 ## Пути обновления
 
