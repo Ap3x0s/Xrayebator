@@ -69,7 +69,7 @@ Server settings first authenticates over SSH. When the card already has a keycha
 - the profile **Settings** window (now the only action button in a profile row, next to Copy): the groups "Route" (SNI, fingerprint, port, PQ), "Limits" (expiry, traffic), "Access" (re-issue the subscription) and "Deletion" — what used to be a wall of eleven buttons in the row. The window closes itself when a nested dialog is opened from it (SNI, port, PQ, expiry, limit, revoke, delete), so two modals never overlap. Action buttons inside those dialogs pulse with the accent glow while the call runs and switch to a green «Done» state on success — green text, a `rgba(63,185,80,.35)` outline drawn inside the button and a 14% green fill, the same green as the deploy screen's finished step, with no blur; The window header is deliberately two lines (badge, kicker, profile name); the profile's current SNI is shown in the top-right corner of the "Route" group, on the same row as the group title, as a bare mono value without a caption — as a bare line under the name it looked orphaned in a narrow window and competed with the title.
 - add a PQ route to a profile: the "PQ" button next to a profile opens a dialog with a transport choice and calls `profile-pq`; the response carries a ready VLESS link with a copy action. The "PQ"/"PQ ×N" chip in the profile row shows how many post-quantum routes it already has (`pq_routes`);
 - the **"Subscription and TLS"** card: subscription mode, domain, provider and certificate days left from `dns01-status`. If the subscription degraded to `http_tls`, the card explains why (Let's Encrypt could not validate http-01, usually because port 80 is filtered) and offers **"Fix with DNS-01"** — that is `repair-dns01`. In the other modes the button is called "Set up DNS-01" and calls `dns01-setup`. The provider is chosen explicitly (Cloudflare — a token with the DNS:Edit right, Route53 — AWS keys); the credentials travel to the server and are not kept locally;
-- the **"Notifications"** card: the state of the Telegram alerts (`alerts-status`) — whether sending is on, the chat_id, the bot name and whether the monitoring timer is active; the actions are enable/disable (`alerts-enable`/`alerts-disable`) and a test message (`alerts-test`). The bot token is deliberately not entered through the GUI: it lives in `alerts.json` (0600 root) and is configured with `alerts-setup` in the terminal, so the secret is not duplicated in the renderer.
+- Telegram alerts are deliberately **not** part of the desktop app: `alerts-setup`, `alerts-status`, `alerts-test` and `alerts-enable`/`alerts-disable` are terminal-only. The bot token is a root-owned secret in `alerts.json`, alerting is an explicitly configured extra rather than a per-visit task, and the GUI therefore never calls those commands nor asks for the token — one less place where a credential could be duplicated.
 
 SNI and port are inbound-level settings: changing them can affect every profile sharing that inbound. Fingerprint is different: it is a client-side value stored per profile/route and does not change the other routes. The server command reports the result and whether reconnecting is required.
 
@@ -128,14 +128,13 @@ xrayebator quickstart --email EMAIL [--pq] [--dns01-domain D --dns01-provider P 
 xrayebator quickstart --without-email [--pq] [--dns01-*]
 ```
 
-Subscription and monitoring are served by:
+Subscription and TLS are served by:
 
 ```text
 xrayebator dns01-status
 xrayebator dns01-setup --domain D --provider cloudflare|route53 [--token T | --aws-access-key-id K --aws-secret-access-key S] [--email E|--without-email] [--port P] [--staging]
 xrayebator dns01-test --domain D --provider cloudflare|route53 [--token T | --aws-*] [--email E|--without-email]
 xrayebator repair-dns01 --domain D --provider cloudflare|route53 [--token T | --aws-*] [--email E] [--port P] [--staging]
-xrayebator alerts-status / alerts-test / alerts-enable / alerts-disable
 ```
 
 Import invokes exactly one read-only command:
@@ -153,6 +152,7 @@ probe-test
 happ-setup
 cascade
 self-steal
+telegram alerts (alerts-setup / alerts-status / alerts-test / alerts-enable|alerts-disable)
 interactive terminal menu
 service logs/status
 ```

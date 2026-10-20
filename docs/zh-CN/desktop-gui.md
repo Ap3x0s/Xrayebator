@@ -68,7 +68,7 @@ Server settings 先通过 SSH 认证。如果卡片中已有系统钥匙串保�
 - 配置档的**「设置」**窗口（现在配置档行里唯一的操作按钮，紧挨「复制」）：分组为「线路」（SNI、Fingerprint、端口、PQ）、「限制」（有效期、流量）、「访问」（重签订阅）和「删除」——取代了原先挤在一行里的十一个按钮。从窗口中打开嵌套对话框时（SNI、端口、PQ、有效期、流量、重签、删除）窗口会自动关闭，两个模态框不会叠加。这些对话框里的操作按钮在请求期间以强调色脉冲发光，成功后变成绿色的「完成」：绿色文字、在按钮内部描边的 `rgba(63,185,80,.35)` 边框以及 14% 的绿色填充——与部署页已完成步骤同一个绿色，不再带模糊； 窗口标题刻意只保留两行（徽标、小标题、配置档名称）；当前 SNI 显示在「线路」分组的右上角，与分组标题同一行，仅用等宽文本、不加标签——此前它贴在名称下方，在窄窗口中像是残留，并与标题争夺注意力。
 - 为配置档添加 PQ 线路：配置档旁的「PQ」按钮打开传输选择对话框并调用 `profile-pq`；返回结果里带有现成的 VLESS 链接，可一键复制。配置档行中的「PQ」/「PQ ×N」芯片显示它已拥有多少条后量子线路（`pq_routes`）；
 - **「订阅与 TLS」**卡片：来自 `dns01-status` 的订阅模式、域名、提供商和证书剩余天数。如果订阅已降级为 `http_tls`，卡片会说明原因（Let's Encrypt 未能验证 http-01，通常是 80 端口被过滤）并提供**「用 DNS-01 修复」**——即 `repair-dns01`。其他模式下按钮名为「配置 DNS-01」，调用 `dns01-setup`。提供商需显式选择（Cloudflare——具有 DNS:Edit 权限的令牌，Route53——AWS 密钥）；凭据发送到服务器，不在本地保存；
-- **「通知」**卡片：Telegram 告警状态（`alerts-status`）——是否启用投递、chat_id、机器人名称以及监控定时器是否运行；操作有启用/停用（`alerts-enable`/`alerts-disable`）和测试消息（`alerts-test`）。机器人令牌有意不通过 GUI 输入：它保存在 `alerts.json`（0600 root）中，并在终端用 `alerts-setup` 配置，以免在 renderer 中重复保存该机密。
+- Telegram 告警有意**不**纳入桌面应用：`alerts-setup`、`alerts-status`、`alerts-test`、`alerts-enable`/`alerts-disable` 只在终端提供。机器人令牌是 `alerts.json` 中 root 拥有的机密，告警属于一次性配置而非日常操作，因此 GUI 既不会调用这些命令，也不会索要令牌——少一处可能重复保存凭据的地方。
 
 SNI 和端口属于 inbound 级别的设置：修改它们可能影响共享该 inbound 的所有配置档。Fingerprint 则不同：它是按配置档/线路保存的客户端参数，不会修改其他线路。服务端命令会报告结果以及是否需要重新连接。
 
@@ -126,14 +126,13 @@ xrayebator quickstart --email EMAIL [--pq] [--dns01-domain D --dns01-provider P 
 xrayebator quickstart --without-email [--pq] [--dns01-*]
 ```
 
-订阅与监控由以下命令维护：
+订阅与 TLS 由以下命令维护：
 
 ```text
 xrayebator dns01-status
 xrayebator dns01-setup --domain D --provider cloudflare|route53 [--token T | --aws-access-key-id K --aws-secret-access-key S] [--email E|--without-email] [--port P] [--staging]
 xrayebator dns01-test --domain D --provider cloudflare|route53 [--token T | --aws-*] [--email E|--without-email]
 xrayebator repair-dns01 --domain D --provider cloudflare|route53 [--token T | --aws-*] [--email E] [--port P] [--staging]
-xrayebator alerts-status / alerts-test / alerts-enable / alerts-disable
 ```
 
 导入流程只调用只读诊断命令：
@@ -151,6 +150,7 @@ probe-test
 happ-setup
 cascade
 self-steal
+Telegram 告警（alerts-setup / alerts-status / alerts-test / alerts-enable|alerts-disable）
 交互式 terminal menu
 服务日志/状态
 ```

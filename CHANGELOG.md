@@ -133,14 +133,19 @@ Next `0.6.5` cut: the server manager plus the GUI traffic-limit card.
   disabled while the DNS-01 set is incomplete), server settings gained a per-profile **PQ** button
   (`profile-pq`, transport picker, ready link with copy), a **Subscription and TLS** card
   (`dns01-status`; in `http_tls` it explains the degradation and offers *Fix with DNS-01* ->
-  `repair-dns01`, otherwise *Set up DNS-01* -> `dns01-setup`) and a **Notifications** card
-  (`alerts-status`, enable/disable, test message). The bot token is deliberately still configured only
-  through `alerts-setup` in the terminal, so the secret is not duplicated in the renderer.
-- **Server settings became four sections instead of one long scroll** (GUI). A UX audit of the desktop
+  `repair-dns01`, otherwise *Set up DNS-01* -> `dns01-setup`).
+- **Telegram alerts left the desktop app** (GUI). Server settings carried a **Notifications** card
+  (`alerts-status`, enable/disable, test message) although the bot token could only be set in the
+  terminal. That split had no upside: the card mixed a one-time server secret into a screen used for
+  per-profile work, and it existed only to show state the terminal reports better. Alerts are now
+  terminal-only from end to end — `alerts-setup`, `alerts-status`, `alerts-test`,
+  `alerts-enable|alerts-disable` — and the GUI no longer ships the IPC channels, the renderer card or
+  the localised strings for them, so the root-owned token has exactly one entry point.
+- **Server settings became three sections instead of one long scroll** (GUI). A UX audit of the desktop
   app found the settings screen to be a wall of five sections — connection, profile creation, profile
-  list, extra protocols, subscription/TLS and notifications — where reaching the profile list (the
+  list, extra protocols and subscription/TLS — where reaching the profile list (the
   reason for most visits) meant scrolling past two forms. The screen is now split into **Profiles |
-  Extra protocols | Subscription and TLS | Notifications** (`role=tablist`/`tabpanel`), the sections are
+  Extra protocols | Subscription and TLS** (`role=tablist`/`tabpanel`), the sections are
   hidden rather than unmounted so a half-typed profile name survives a tab switch, and the connection
   block stays a common gate. The same pass fixed a batch of smaller findings: the update-branch menu is
   now a HeroUI `Dropdown` (keyboard, Escape, click-outside, chevron) instead of a hand-rolled popover
