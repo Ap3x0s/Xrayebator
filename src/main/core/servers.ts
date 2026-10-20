@@ -1,6 +1,7 @@
 import Store from 'electron-store'
 import { randomUUID } from 'node:crypto'
 import type {
+  ProfileExpiryCache,
   Server,
   SshAuthMethod,
   SshPrivilegeMode,
@@ -57,6 +58,15 @@ export interface ServerStore {
     id: string,
     formats: Record<string, SubscriptionFormats>
   ) => StoredServer | undefined
+  /**
+   * Персистит сроки профилей (имя → expire/expire_date). Как и форматы,
+   * пишется ПОЛНЫМ набором: сроки выводятся из списка профилей, поэтому
+   * удалённый профиль обязан исчезнуть и из кэша.
+   */
+  updateProfileExpiry: (
+    id: string,
+    expiry: Record<string, ProfileExpiryCache>
+  ) => StoredServer | undefined
   countCredentialReferences: (credentialId: string, exceptId?: string) => number
   clearCredentialReference: (id: string) => StoredServer | undefined
   countPasswordCredentialReferences: (credentialId: string, exceptId?: string) => number
@@ -92,7 +102,8 @@ function normalizeServer(server: StoredServer, hostKeys: Record<string, string>)
     keys: server.keys ?? [],
     hysteria2Keys: server.hysteria2Keys ?? [],
     awgConfs: server.awgConfs ?? {},
-    subscriptionFormats: server.subscriptionFormats ?? {}
+    subscriptionFormats: server.subscriptionFormats ?? {},
+    profileExpiry: server.profileExpiry ?? {}
   }
 }
 
@@ -244,6 +255,20 @@ export function createServerStore(): ServerStore {
       const idx = servers.findIndex((s) => s.id === id)
       if (idx === -1) return undefined
       const updated: StoredServer = { ...servers[idx], subscriptionFormats: formats }
+      const next = [...servers]
+      next[idx] = updated
+      store.set('servers', next)
+      return normalizeServer(updated, store.get('hostKeys'))
+    },
+
+    updateProfileExpiry(
+      id: string,
+      expiry: Record<string, ProfileExpiryCache>
+    ): StoredServer | undefined {
+      const servers = store.get('servers')
+      const idx = servers.findIndex((s) => s.id === id)
+      if (idx === -1) return undefined
+      const updated: StoredServer = { ...servers[idx], profileExpiry: expiry }
       const next = [...servers]
       next[idx] = updated
       store.set('servers', next)

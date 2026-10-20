@@ -4,6 +4,7 @@ import { Button, Chip, Spinner } from '@heroui/react'
 import { Settings2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type {
+  ProfileExpiryCache,
   Server,
   ServerProfile,
   SshAccessInput,
@@ -46,6 +47,12 @@ export function ServerKeys({ server, onBack, onSettings }: ServerKeysProps): Rea
 
   // Мультипротокольные бэкенды: hysteria2 приходит из подписки, AWG — по SSH.
   const [profiles, setProfiles] = useState<ServerProfile[]>([])
+  // Сроки профилей: кэш из карточки сервера — подпись рисуется мгновенно, как и
+  // остальные ключи. Без него абзац «Действует до …» появлялся только после ответа
+  // SSH и карточка дёргалась, дорастая на строку (жалоба 2026-10-20).
+  const [expiryCache, setExpiryCache] = useState<Record<string, ProfileExpiryCache>>(
+    server.profileExpiry ?? {}
+  )
   const [beBusy, setBeBusy] = useState(false)
 
   // Доступ из сохранённой карточки сервера (секрет — в keychain).
@@ -106,6 +113,21 @@ export function ServerKeys({ server, onBack, onSettings }: ServerKeysProps): Rea
         if (cancelled) return
         const list = pl.profiles ?? []
         setProfiles(list)
+        // Сроки обновились — переносим в кэш полным набором (удалённый профиль
+        // исчезает, продлённый получает новую дату). main-процесс пишет то же
+        // самое в карточку сервера, так что следующее открытие страницы покажет
+        // уже новые сроки, а не старые.
+        setExpiryCache(() => {
+          const next: Record<string, ProfileExpiryCache> = {}
+          for (const p of list) {
+            next[p.name] = {
+              expire: p.expire,
+              expire_date: p.expire_date,
+              expire_disabled: p.expire_disabled
+            }
+          }
+          return next
+        })
         // Конфы granted-профилей — параллельно; кэш в сторе делает повторные
         // открытия мгновенными. backends.status здесь не нужен — он тормозит.
         const targets = list.filter((p) => p.backends?.awg)
@@ -132,6 +154,8 @@ export function ServerKeys({ server, onBack, onSettings }: ServerKeysProps): Rea
         const fresh = await window.api.servers.get(server.id)
         if (!cancelled && fresh?.awgConfs) setAwgConfs(fresh.awgConfs)
         if (!cancelled && fresh?.subscriptionFormats) setFormats(fresh.subscriptionFormats)
+        // Сроки — из стора: там же, где их только что записал main-процесс.
+        if (!cancelled && fresh?.profileExpiry) setExpiryCache(fresh.profileExpiry)
       } catch {
         if (!cancelled) setProfiles([])
       }
@@ -193,14 +217,27 @@ export function ServerKeys({ server, onBack, onSettings }: ServerKeysProps): Rea
     }
   }
 
-  const expiryLine = (profile: ServerProfile | undefined): React.JSX.Element | null =>
-    profile ? (
+  // Срок профиля по имени: свежий список профилей главнее кэша (срок могли
+  // продлить или снять с другой вкладки), кэш закрывает окно до ответа SSH.
+  // Если ни там, ни там записи нет — строку не рисуем вовсе: пустая подпись
+  // «Бессрочно» на чужой профиль была бы враньём.
+  const expiryFor = (name: string): { expire_date?: string } | undefined => {
+    const fresh = profiles.find((p) => p.name === name)
+    if (fresh) return fresh
+    const cached = expiryCache[name]
+    return cached ? { expire_date: cached.expire_date } : undefined
+  }
+
+  const expiryLine = (name: string): React.JSX.Element | null => {
+    const profile = expiryFor(name)
+    return profile ? (
       <p className={styles.keyNote}>
         {profile.expire_date
           ? t('keys.backendsExpiryDate', { date: profile.expire_date })
           : t('keys.backendsExpiryNone')}
       </p>
     ) : null
+  }
 
   const hysteria2Port = (link: string): string => {
     const m = link.match(/@[^/:]+:(\d+)/)
@@ -273,7 +310,6 @@ export function ServerKeys({ server, onBack, onSettings }: ServerKeysProps): Rea
 
         {hysteria2Links.map((link) => {
           const user = hystUserFromLink(link)
-          const profile = profiles.find((p) => p.name === user)
           return (
             <div key={link} className={styles.keyCard}>
               <div className={styles.keyHeader}>
@@ -282,7 +318,7 @@ export function ServerKeys({ server, onBack, onSettings }: ServerKeysProps): Rea
                 </Chip>
               </div>
               <p className={styles.keyNote}>{t('keys.backendsHystNote')}</p>
-              {expiryLine(profile)}
+              {expiryLine(user)}
               <div className={styles.keyUrl} title={link}>
                 {link}
               </div>
@@ -311,7 +347,7 @@ export function ServerKeys({ server, onBack, onSettings }: ServerKeysProps): Rea
                 </Chip>
               </div>
               <p className={styles.keyNote}>{t('keys.backendsAwgNote')}</p>
-              {expiryLine(profile)}
+              {expiryLine(name)}
               {fields ? (
                 <>
                   <div className={styles.keysFields}>

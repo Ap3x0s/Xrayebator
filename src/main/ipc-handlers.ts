@@ -8,6 +8,7 @@ import type {
   ImportStep,
   ProfileCreateInput,
   ProfileExpireInput,
+  ProfileExpiryCache,
   ProfileFingerprintInput,
   ProfileLimitInput,
   ProfilePortInput,
@@ -63,6 +64,29 @@ function subscriptionFormatsFromProfiles(
     if (clash || singbox) formats[profile.name] = { clash, singbox }
   }
   return formats
+}
+
+/**
+ * Сроки профилей для кэша в карточке сервера — ровно те поля, что нужны подписи
+ * «Действует до …» на странице «Ключи».
+ *
+ * Зачем кэш: срок приходит только вместе со списком профилей по SSH, а страница
+ * «Ключи» остальные данные рисует мгновенно из карточки. Подпись срока появлялась
+ * позже и добавляла карточке строку — бокс «дёргался» расширением. Пишется полным
+ * набором, поэтому удалённый профиль исчезает и здесь.
+ */
+function profileExpiryFromProfiles(
+  profiles: ServerProfile[]
+): Record<string, ProfileExpiryCache> {
+  const expiry: Record<string, ProfileExpiryCache> = {}
+  for (const profile of profiles) {
+    expiry[profile.name] = {
+      expire: typeof profile.expire === 'number' ? profile.expire : 0,
+      expire_date: profile.expire_date,
+      expire_disabled: Boolean(profile.expire_disabled)
+    }
+  }
+  return expiry
 }
 
 export function registerIpcHandlers({ store }: IpcContext): void {
@@ -468,6 +492,9 @@ export function registerIpcHandlers({ store }: IpcContext): void {
     // профилей: кэшируем их в карточке сервера — страница «Ключи» рисует
     // категорию мгновенно и не теряет её, когда SSH недоступен.
     store.updateSubscriptionFormats(serverId, subscriptionFormatsFromProfiles(result.profiles ?? []))
+    // Сроки — тем же путём и в тот же момент: подпись «Действует до …» больше не
+    // появляется с задержкой и не сдвигает карточку.
+    store.updateProfileExpiry(serverId, profileExpiryFromProfiles(result.profiles ?? []))
     return result
   })
 

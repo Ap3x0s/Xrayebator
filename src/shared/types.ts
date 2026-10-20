@@ -119,6 +119,14 @@ export interface Server {
    * сервера и пропадала при недоступном SSH.
    */
   subscriptionFormats?: Record<string, SubscriptionFormats>
+  /**
+   * Сроки профилей (имя профиля → expire/expire_date) — тоже кэш, как ключи.
+   * Подписи «Действует до …» на странице «Ключи» считаются из `profiles`, а тот
+   * приходит только по SSH: до ответа сервера абзац отсутствовал и карточка
+   * позже «дёргалась», добавляя строку. Кэш рисует подпись сразу, а свежий список
+   * профилей его перезаписывает (полным набором — удалённый профиль исчезает).
+   */
+  profileExpiry?: Record<string, ProfileExpiryCache>
   authMethod?: SshAuthMethod
   privilegeMode?: SshPrivilegeMode
   privateKeyPath?: string | null
@@ -151,6 +159,19 @@ export interface VlessLink {
 export interface SubscriptionFormats {
   clash?: string
   singbox?: string
+}
+
+/**
+ * Срок профиля в кэше карточки сервера. Храним ровно те поля, которые нужны
+ * подписи на странице «Ключи»: `expire_date` — готовая серверная дата
+ * (`YYYY-MM-DD`), `expire` — epoch секунд (0 = бессрочно), `expire_disabled` —
+ * профиль отключён по сроку. Полей `traffic_*` здесь нет намеренно: их рисует
+ * страница «Настройки», у неё свой источник и своя логика.
+ */
+export interface ProfileExpiryCache {
+  expire: number
+  expire_date?: string
+  expire_disabled: boolean
 }
 
 export interface SubscriptionResult {

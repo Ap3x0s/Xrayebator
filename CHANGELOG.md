@@ -172,6 +172,18 @@ Next `0.6.5` cut: the server manager plus the GUI traffic-limit card.
 
 ### Fixed
 
+- **The "valid until" line on the Keys page appeared late and pushed the card down.** Expiry came only from
+  the `profiles` list, which is fetched over SSH, while every other piece of that page (VLESS links,
+  hysteria2 links, AWG configs, Clash/sing-box URLs) is drawn instantly from the server card cached in the
+  local store. So a backend card first rendered without the date and then grew a paragraph when the SSH answer
+  arrived — the boxes visibly jumped. Expiry is now cached next to the keys (`profileExpiry` on the server
+  card, written by `profiles:list` as a full set so a deleted profile disappears), rendered on the first
+  paint, and replaced by the fresh list as soon as it arrives — a renewed or cleared date can never stay
+  stale on screen. A profile present only in the AWG config cache and absent from both sources shows no line
+  at all instead of a fabricated "unlimited". Guarded by `tests/unit/server-keys-render.test.ts` (asserts the
+  date is in the markup of the very first render, where no effect can have run) and
+  `tests/unit/server-store.test.ts`.
+
 - **The SNI probe accepted hosts it could not reach, so brand-new profiles got dead routes.**
   `openssl s_client` prints `Verify return code: 0 (ok)` **even when the handshake never happened** —
   with no peer certificate there is nothing to verify, and `0` means "nothing failed to verify", not
