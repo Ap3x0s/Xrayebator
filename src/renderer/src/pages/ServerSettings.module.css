@@ -931,11 +931,48 @@
   color: var(--text-0);
 }
 
-.actionsMeta {
+/* SNI — строка-ориентир в ТЕЛЕ окна, а не в шапке. В шапке он висел отдельной
+   mono-строкой под именем профиля: в узком окне (271 px) это читалось обрубком и
+   спорило с названием, а в широком — болталось третьей строкой без подписи.
+   Здесь у него своя выемка в стиле остальных поверхностей приложения (bg-1 +
+   border + radius), иконка и подпись, а шапка остаётся ровно двумя строками:
+   надзаголовок и имя профиля. */
+.profileSniBar {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-1);
+  min-width: 0;
+}
+
+.profileSniBarIcon {
+  flex: none;
+  color: var(--text-2);
+}
+
+.profileSniBarLabel {
+  flex: none;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+
+/* Длинный SNI (raw.githubusercontent.com) обрезаем, а не переносим: иначе строка
+   ломала бы высоту ориентира. Полное значение — в title. */
+.profileSniBarValue {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-1);
+  user-select: text;
 }
 
 .actionGroups {

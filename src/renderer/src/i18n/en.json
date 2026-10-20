@@ -222,6 +222,7 @@
     "profileSettingsTitle": "Profile settings",
     "backendProfileHint": "This profile holds the key of this protocol. Expiry, re-issue and deletion below apply to the whole profile.",
     "groupRoute": "Route",
+    "sniLabel": "SNI",
     "groupRouteHint": "SNI and port belong to the inbound: changing them affects every profile on that port and clients must reconnect. Fingerprint is client-side only, for the chosen route. PQ adds a separate post-quantum route on its own port.",
     "groupLimits": "Limits",
     "groupLimitsHint": "Expiry disables the profile by date; the server checks every 10 minutes. The limit is how much traffic the profile may pass; it is checked every 5 minutes, and once exhausted the subscription answers 410 and access closes.",

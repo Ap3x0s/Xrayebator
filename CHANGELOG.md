@@ -170,6 +170,14 @@ Next `0.6.5` cut: the server manager plus the GUI traffic-limit card.
   `already:true` when the unit was already running. Re-running `awg-install` on an existing installation
   now performs the same repair instead of answering "already installed" without checking anything.
 
+### Changed
+
+- **The profile settings window no longer carries the SNI in its header.** In a narrow window the bare mono line under the profile
+  name read as an orphan (and competed with the title); in a wide one it hung as a third unnamed line. The header is now exactly two
+  lines — badge, kicker, profile name — and the current SNI moved into the body as a labelled row above the action groups: globe icon,
+  an uppercase `SNI` label and the mono value, truncated with `title` when a hostname is long (`raw.githubusercontent.com`), so the
+  window height never depends on the SNI length. Buttons were not touched.
+
 ### Fixed
 
 - **The "valid until" line on the Keys page appeared late and pushed the card down.** Expiry came only from

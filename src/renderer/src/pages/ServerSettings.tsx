@@ -18,6 +18,7 @@ import {
   CalendarClock,
   CalendarX,
   Gauge,
+  Globe,
   RefreshCw,
   Zap,
   ShieldCheck,
@@ -1664,16 +1665,24 @@ export function ServerSettings({
                                 </AlertDialog.Heading>
                                 {/* Транспорт и число маршрутов в окне не дублируем: их
                                     видно в строке профиля, а в окне бэкенда эта плашка
-                                    вообще не про то, что здесь делают. */}
-                                {profile.sni && (
-                                  <div className={styles.actionsMeta}>
-                                    <span className={styles.profileSni}>{profile.sni}</span>
-                                  </div>
-                                )}
+                                    вообще не про то, что здесь делают. SNI из шапки убран
+                                    в тело окна (см. .profileSniBar): отдельной mono-строкой
+                                    под именем он в узком окне выглядел обрубком. */}
                               </div>
                             </div>
                           </AlertDialog.Header>
                           <AlertDialog.Body>
+                            {profile.sni && (
+                              <div className={styles.profileSniBar}>
+                                <Globe size={14} className={styles.profileSniBarIcon} />
+                                <span className={styles.profileSniBarLabel}>
+                                  {t('settings.sniLabel')}
+                                </span>
+                                <span className={styles.profileSniBarValue} title={profile.sni}>
+                                  {profile.sni}
+                                </span>
+                              </div>
+                            )}
                             <div className={styles.actionGroups}>
                               <div className={styles.settingsGroup}>
                                 <div className={styles.settingsGroupHead}>
