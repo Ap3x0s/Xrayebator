@@ -7559,7 +7559,11 @@ EOG
 
 probe_sni() {
   local sni="$1"
-  local timeout=8
+  # Бюджет — как у выбора SNI (SNI_REACH_TIMEOUT, 3 с). С прежними 8 с диагностика
+  # расходилась с реальностью: хост, отвечавший рукопожатием за 6 с, показывался как
+  # «TLS OK», хотя выбор SNI такой dest отвергает, а Reality на медленном dest рвёт
+  # рукопожатие у клиента. Один критерий — один бюджет.
+  local timeout="${SNI_REACH_TIMEOUT:-3}"
   local tls_out tls_status="FAIL"
   tls_out=$(timeout "$timeout" openssl s_client \
     -connect "${sni}:443" \

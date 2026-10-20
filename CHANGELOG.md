@@ -187,7 +187,9 @@ Next `0.6.5` cut: the server manager plus the GUI traffic-limit card.
   `Verify return code: 0`), and a success is confirmed by a second attempt because some hosts answer only
   intermittently (`splitter.wb.ru` failed with alert 40 in one measurement and passed in another),
   and both `_monitor_sni_reachable` and `probe-test` use it — `probe-test` had been printing `TLS OK`
-  for the same dead hosts. Candidate order is also bounded now: the per-transport default, then at most
+  for the same dead hosts, and its budget now matches the selection one (3 s) — with the old 8 s a host that
+  completed a handshake in 6 s was displayed as `TLS OK` while selection rejected it, so the diagnostic
+  contradicted the behaviour. Candidate order is also bounded now: the per-transport default, then at most
   `SNI_REACH_HEAD_MAX` (4) entries of `sni_list.txt`, then the global fallbacks
   (`www.cloudflare.com`, `api-maps.yandex.ru`, `www.google.com`), then the rest of the list. The list
   is *not* cloudflare-first as an old comment claimed — it starts with `ru_whitelist` (`www.ozon.ru`,
