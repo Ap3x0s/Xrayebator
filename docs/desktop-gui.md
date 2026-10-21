@@ -25,7 +25,7 @@ Dashboard displays the saved server cards. Each card shows the title with its lo
 
 Add server accepts the VPS host and SSH port, SSH access details, and an explicit email choice for `quickstart`: either **Provide an email** (default, shown as a field) or **Continue without email** (a warning explains that Let's Encrypt renewal notices and ACME account recovery are unavailable).
 
-Fields stay one per row as before, with a single exception: the host shares its row with the SSH port (which keeps a narrow column of its own). The note that the host key gets pinned on first login moved out of the form into the page header, to the right of the title.
+Fields stay one per row as before, with a single exception: the host shares its row with the SSH port (which keeps a narrow column of its own). The note that the host key gets pinned on first login moved out of the form into the footer of the "Deployment progress" card, pinned to its bottom under the console.
 
 Below them is one **Additional options** block with two cards, both off by default:
 

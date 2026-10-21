@@ -150,12 +150,6 @@ export function AddServer({ onDone, onBack }: AddServerProps): React.JSX.Element
           {t('dashboard.back')}
         </Button>
         <h1 className={styles.title}>{t('deploy.title')}</h1>
-        {/* Подсказка о host key — в шапке справа: в форме она занимала строку
-            ровно там, где и без неё всё длинно, а здесь у шапки есть запас. */}
-        <div className={styles.headerNote}>
-          <ShieldQuestion size={14} />
-          <span>{t('sshAccess.hostKeyFirstUse')}</span>
-        </div>
       </header>
 
       <div className={styles.body}>
@@ -412,6 +406,15 @@ export function AddServer({ onDone, onBack }: AddServerProps): React.JSX.Element
               </div>
             ))}
             {error && <div className={styles.logError}>&gt; {error}</div>}
+          </div>
+
+          {/* Подсказка о host key — футер карточки: в форме она удлиняла и без
+              того длинную колонку, в шапке висела отдельной строкой в пустоте.
+              margin-top: auto прижимает её к низу растянутой карточки, поэтому
+              она занимает мёртвую зону под консолью. */}
+          <div className={styles.statusNote}>
+            <ShieldQuestion size={14} />
+            <span>{t('sshAccess.hostKeyFirstUse')}</span>
           </div>
         </div>
       </div>

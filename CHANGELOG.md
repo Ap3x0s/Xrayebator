@@ -194,10 +194,12 @@ Next `0.6.5` cut: the server manager plus the GUI traffic-limit card.
   four stacked card groups. Three things changed: the VPS address now shares a row with the SSH port
   (which keeps a 104 px column of its own), the two opt-in cards (PQ route, DNS-01) sit in one
   "Additional options" row instead of two groups with their own headings — both still off by default —
-  and the host-key note moved out of the form into the page header, to the right of the title.
+  and the host-key note moved out of the form into the footer of the progress card, pinned to its bottom
+  under the console (that card stretches to the form's height, so the bottom was dead space; the note
+  used to hang as a lone line in the page header).
   Measured on the built bundle at 1024×720: the form went from 1182 px to 853 px and the page from
-  1302 px to 973 px. The right-hand progress card, the step rows and the console are untouched, no box
-  was shrunk and no field was removed; the import page got the same host/port row.
+  1302 px to 973 px. The step rows and the console are untouched, no box was shrunk and no field was
+  removed; the import page got the same host/port row.
 
 - **The "Subscription and TLS" card became compact and collapsible.** It used to be one long card
   whose status was a run-on line (`mode · domain · provider · cert days`) with the whole DNS-01 form

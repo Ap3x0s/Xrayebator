@@ -25,7 +25,7 @@ Dashboard 显示已保存的服务器卡片。每张卡片包含：标题及其�
 
 Add server 接收 VPS host 和 SSH 端口、SSH 访问参数，并要求明确选择 `quickstart` 的 email 模式：**填写邮箱**（默认，显示输入框）或 **不使用邮箱继续**。选择不使用邮箱时，界面会提醒用户：Let's Encrypt 不会发送续期通知，也无法通过邮箱恢复 ACME 账户。该模式运行 `xrayebator quickstart --without-email`，向 Certbot 传递 `--register-unsafely-without-email`，不会使用虚构邮箱地址。
 
-字段仍按原来的逐行排列，只有一处例外：host 与 SSH 端口同一行（端口占一个窄列）。host key 在首次登录时被固定的提示已从表单移到页面标题栏、标题右侧。
+字段仍按原来的逐行排列，只有一处例外：host 与 SSH 端口同一行（端口占一个窄列）。host key 在首次登录时被固定的提示已从表单移到“安装进度”卡片的页脚，固定在卡片底部、控制台下方。
 
 下面是一个统一的 **“附加选项”** 区块，含两张卡片，默认都关闭：
 
