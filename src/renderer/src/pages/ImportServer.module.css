@@ -35,7 +35,15 @@
 .form {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 14px;
+}
+
+/* Хост и SSH-порт — в одну строку, как на странице развёртки: порт короткий,
+   отдельная строка под него только удлиняла форму. */
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 104px;
+  gap: 12px;
 }
 
 .form :global(input:focus),
@@ -52,7 +60,6 @@
 }
 
 .importBtn {
-  margin-top: 8px;
   font-weight: 600;
 }
 

@@ -25,7 +25,9 @@ Dashboard displays the saved server cards. Each card shows the title with its lo
 
 Add server accepts the VPS host and SSH port, SSH access details, and an explicit email choice for `quickstart`: either **Provide an email** (default, shown as a field) or **Continue without email** (a warning explains that Let's Encrypt renewal notices and ACME account recovery are unavailable).
 
-Below them are two optional blocks, both off by default:
+Fields stay one per row as before, with a single exception: the host shares its row with the SSH port (which keeps a narrow column of its own). The note that the host key gets pinned on first login moved out of the form into the page header, to the right of the title.
+
+Below them is one **Additional options** block with two cards, both off by default:
 
 - **PQ route** — adds `--pq`: the profile receives a post-quantum VLESS Encryption route on a dedicated port. The GUI honestly warns that the route does not make it into the regular v2ray subscription and requires a client with ML-KEM (HAPP, Xray 25.6+). If the server does not have ML-KEM keys yet, the deploy does not fail — the profile simply stays without PQ.
 - **DNS-01** — adds `--dns01-domain/--dns01-provider/--dns01-token` (Cloudflare) or `--dns01-aws-*` (Route53). This is a fallback: if the hoster filters port 80 and http-01 does not pass, the certificate is issued through a TXT record and the subscription stays on HTTPS (`domain_tls`) instead of degrading to `http_tls`. The deploy button stays disabled while the set is incomplete: the server would reject such a request after Xray has already been installed. The entered credentials are never stored locally.

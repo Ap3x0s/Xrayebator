@@ -25,7 +25,9 @@ Dashboard 显示已保存的服务器卡片。每张卡片包含：标题及其�
 
 Add server 接收 VPS host 和 SSH 端口、SSH 访问参数，并要求明确选择 `quickstart` 的 email 模式：**填写邮箱**（默认，显示输入框）或 **不使用邮箱继续**。选择不使用邮箱时，界面会提醒用户：Let's Encrypt 不会发送续期通知，也无法通过邮箱恢复 ACME 账户。该模式运行 `xrayebator quickstart --without-email`，向 Certbot 传递 `--register-unsafely-without-email`，不会使用虚构邮箱地址。
 
-下面是两个可选区块，默认都关闭：
+字段仍按原来的逐行排列，只有一处例外：host 与 SSH 端口同一行（端口占一个窄列）。host key 在首次登录时被固定的提示已从表单移到页面标题栏、标题右侧。
+
+下面是一个统一的 **“附加选项”** 区块，含两张卡片，默认都关闭：
 
 - **PQ 线路** —— 添加 `--pq`：配置档会在独立端口上获得一条后量子 VLESS Encryption 线路。界面会如实提醒：该线路不会进入普通的 v2ray 订阅，并且需要支持 ML-KEM 的客户端（HAPP、Xray 25.6+）。如果服务器上还没有 ML-KEM 密钥，部署不会失败——配置档只是没有 PQ。
 - **DNS-01** —— 添加 `--dns01-domain/--dns01-provider/--dns01-token`（Cloudflare）或 `--dns01-aws-*`（Route53）。这是回退路径：如果服务商过滤 80 端口、http-01 不通过，证书改由 TXT 记录签发，订阅保持在 HTTPS（`domain_tls`）而不会降级为 `http_tls`。参数集合不完整时部署按钮保持禁用：服务器会在装完 Xray 之后才拒绝这样的请求。输入的凭据不会在本地任何地方保存。

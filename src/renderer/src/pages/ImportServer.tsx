@@ -93,24 +93,26 @@ export function ImportServer({ onDone, onBack }: ImportServerProps): React.JSX.E
       <div className={styles.body}>
         <div className={styles.form}>
           <p className={styles.hint}>{t('import.hint')}</p>
-          <TextField variant="secondary">
-            <Label>{t('deploy.host')}</Label>
-            <Input
-              value={form.host}
-              placeholder="185.23.xx.xx"
-              disabled={running}
-              onChange={(e) => setForm((f) => ({ ...f, host: e.target.value }))}
-            />
-          </TextField>
-          <TextField variant="secondary">
-            <Label>{t('deploy.port')}</Label>
-            <Input
-              value={form.port}
-              placeholder="22"
-              disabled={running}
-              onChange={(e) => setForm((f) => ({ ...f, port: e.target.value }))}
-            />
-          </TextField>
+          <div className={styles.row}>
+            <TextField variant="secondary">
+              <Label>{t('deploy.host')}</Label>
+              <Input
+                value={form.host}
+                placeholder="185.23.xx.xx"
+                disabled={running}
+                onChange={(e) => setForm((f) => ({ ...f, host: e.target.value }))}
+              />
+            </TextField>
+            <TextField variant="secondary">
+              <Label>{t('deploy.port')}</Label>
+              <Input
+                value={form.port}
+                placeholder="22"
+                disabled={running}
+                onChange={(e) => setForm((f) => ({ ...f, port: e.target.value }))}
+              />
+            </TextField>
+          </div>
           <SshAccessForm value={access} onChange={setAccess} disabled={running} />
 
           <Button

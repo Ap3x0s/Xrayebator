@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Button, TextField, Label, Input, Spinner } from '@heroui/react'
-import { CheckCircle2, Circle, Copy, Mail, MailX, ShieldCheck, Zap } from 'lucide-react'
+import { CheckCircle2, Circle, Copy, Mail, MailX, ShieldCheck, ShieldQuestion, Zap } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type {
   DeployEvent,
@@ -150,13 +150,28 @@ export function AddServer({ onDone, onBack }: AddServerProps): React.JSX.Element
           {t('dashboard.back')}
         </Button>
         <h1 className={styles.title}>{t('deploy.title')}</h1>
+        {/* Подсказка о host key — в шапке справа: в форме она занимала строку
+            ровно там, где и без неё всё длинно, а здесь у шапки есть запас. */}
+        <div className={styles.headerNote}>
+          <ShieldQuestion size={14} />
+          <span>{t('sshAccess.hostKeyFirstUse')}</span>
+        </div>
       </header>
 
       <div className={styles.body}>
         <div className={styles.form}>
-          {input(t('deploy.host'), 'host', '185.23.xx.xx')}
-          {input(t('deploy.port'), 'port', '22')}
-          <SshAccessForm value={access} onChange={setAccess} disabled={deploying} />
+          {/* IP и порт — одна строка: порт короткий, отдельная строка под него
+              отнимала у формы 78px по вертикали. */}
+          <div className={styles.row}>
+            {input(t('deploy.host'), 'host', '185.23.xx.xx')}
+            {input(t('deploy.port'), 'port', '22')}
+          </div>
+          <SshAccessForm
+            value={access}
+            onChange={setAccess}
+            disabled={deploying}
+            showHostKeyNote={false}
+          />
 
           <div className={styles.fieldGroup}>
             <span className={styles.groupLabel}>{t('deploy.emailMode')}</span>
@@ -200,8 +215,11 @@ export function AddServer({ onDone, onBack }: AddServerProps): React.JSX.Element
             <div className={styles.warning}>{t('deploy.withoutEmailWarning')}</div>
           )}
 
+          {/* PQ и DNS-01 — обе опции необязательные, поэтому один общий блок и
+              два бокса в ряд. Две отдельные группы с заголовками стоили 154px
+              по вертикали при том же содержимом. */}
           <div className={styles.fieldGroup}>
-            <span className={styles.groupLabel}>{t('deploy.pq')}</span>
+            <span className={styles.groupLabel}>{t('deploy.extras')}</span>
             <div className={styles.choiceGrid}>
               <button
                 type="button"
@@ -212,17 +230,10 @@ export function AddServer({ onDone, onBack }: AddServerProps): React.JSX.Element
               >
                 <Zap size={17} />
                 <span>
-                  <strong>{form.pq ? t('deploy.pq') : t('deploy.pqOff')}</strong>
+                  <strong>{form.pq ? t('deploy.pqOn') : t('deploy.pqOff')}</strong>
                   <small>{t('deploy.pqHint')}</small>
                 </span>
               </button>
-            </div>
-            {form.pq && <div className={styles.warning}>{t('deploy.pqWarning')}</div>}
-          </div>
-
-          <div className={styles.fieldGroup}>
-            <span className={styles.groupLabel}>{t('deploy.dns01')}</span>
-            <div className={styles.choiceGrid}>
               <button
                 type="button"
                 className={`${styles.choice} ${form.dns01Enabled ? styles.choiceActive : ''}`}
@@ -239,6 +250,8 @@ export function AddServer({ onDone, onBack }: AddServerProps): React.JSX.Element
                 </span>
               </button>
             </div>
+
+            {form.pq && <div className={styles.warning}>{t('deploy.pqWarning')}</div>}
 
             {form.dns01Enabled && (
               <>
