@@ -18,8 +18,7 @@ vi.mock('react-i18next', () => ({
 
 // eslint-disable-next-line import/first
 import {
-  ServerProfiles,
-  ServerSettings,
+  ServerPage,
   SETTINGS_SECTIONS,
   sectionPaneProps
 } from '../../src/renderer/src/pages/ServerSettings'
@@ -36,8 +35,8 @@ const server = {
   setupStatus: 'ready'
 } as unknown as Server
 
-function render(): string {
-  return renderToStaticMarkup(createElement(ServerSettings, { server, onBack: () => {} }))
+function render(mode: 'settings' | 'profiles' = 'settings'): string {
+  return renderToStaticMarkup(createElement(ServerPage, { server, mode, onBack: () => {} }))
 }
 
 describe('ServerSettings render', () => {
@@ -52,9 +51,7 @@ describe('ServerSettings render', () => {
   it('renders the profiles page as its own screen with its own title', () => {
     // Список профилей переехал на отдельную страницу: у неё свой заголовок и
     // тот же гейт подключения, а вкладок-панелей до подключения нет.
-    const html = renderToStaticMarkup(
-      createElement(ServerProfiles, { server, onBack: () => {} })
-    )
+    const html = render('profiles')
     expect(html).toContain('settings.listTitle')
     expect(html).not.toContain('settings.title')
     expect(html).toContain('settings.connect')

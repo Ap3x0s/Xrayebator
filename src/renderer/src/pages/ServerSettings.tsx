@@ -8,6 +8,8 @@ import {
   Cable,
   Boxes,
   Search,
+  Filter,
+  Database,
   Play,
   Trash2,
   Lock,
@@ -58,28 +60,24 @@ import styles from './ServerSettings.module.css'
 import hystLogo from '../assets/hysteria-logo.svg'
 import amneziaLogo from '../assets/amnezia-logo.jpg'
 
-interface ServerSettingsProps {
+/**
+ * Пропсы страницы сервера. Одна страница рисует два экрана (`mode`): настройки
+ * (создание профиля, доп. протоколы, подписка и TLS) и список существующих
+ * профилей. Это один компонент намеренно: оба экрана делят SSH-сессию, загрузку
+ * данных и диалоги профиля, поэтому переключение между ними не повторяет
+ * SSH-запрос и не сбрасывает введённое имя будущего профиля.
+ */
+export interface ServerPageProps {
   server: Server
+  mode: 'settings' | 'profiles'
   /** Открыт по «Изменить доступ» с карточки сервера: показать форму, не автоподключаясь. */
   editingAccess?: boolean
   onBack: () => void
   /** Вкладка, на которую надо вернуться со страницы профилей. */
   initialSection?: SettingsSection
-  /** Переход на отдельную страницу «Существующие профили». */
+  /** Переход на страницу «Существующие профили». */
   onOpenProfiles?: () => void
-}
-
-/** Пропсы самой страницы: режим выбирает, какую из двух страниц рисовать. */
-interface ServerPageProps extends ServerSettingsProps {
-  mode: 'settings' | 'profiles'
-  /** Со страницы профилей: вернуться в настройки на конкретную вкладку. */
-  onOpenSettings?: (section: SettingsSection) => void
-}
-
-/** Пропсы страницы «Существующие профили». */
-export interface ServerProfilesProps {
-  server: Server
-  onBack: () => void
+  /** Со страницы профилей: вернуться в настройки на конкретный раздел. */
   onOpenSettings?: (section: SettingsSection) => void
 }
 
@@ -203,7 +201,7 @@ export const PORT_PRESETS = [443, 8443, 2053, 2083, 2087, 2096, 9443, 8080] as c
 /** Пресеты лимита трафика для диалога профиля. */
 export const TRAFFIC_PRESETS = ['10GB', '50GB', '100GB', '500GB', '1TB'] as const
 
-function ServerPage({
+export function ServerPage({
   server,
   editingAccess = false,
   onBack,
@@ -261,6 +259,17 @@ function ServerPage({
   const [section, setSection] = useState<SettingsSection>(initialSection ?? 'create')
   /** Поиск по странице профилей: имя, SNI или ссылка подписки. */
   const [profileQuery, setProfileQuery] = useState('')
+  /** Фильтр списка профилей: все, только активные, только отключённые. */
+  const [profileFilter, setProfileFilter] = useState<'all' | 'active' | 'disabled'>('all')
+
+  /**
+   * Экран не размонтируется при переключении (иначе повторялся SSH-запрос),
+   * поэтому раздел, выбранный вкладкой со страницы профилей, приходит пропсом:
+   * применяем его, не пересоздавая страницу.
+   */
+  useEffect(() => {
+    if (initialSection) setSection(initialSection)
+  }, [initialSection])
   const [hostKeyFingerprint, setHostKeyFingerprint] = useState<string | null>(
     server.hostKeyFingerprint ?? null
   )
@@ -843,9 +852,12 @@ function ServerPage({
               : 'settings.expireHint'
         )}
       >
-        {expired
-          ? t('settings.expireExpired')
-          : t('settings.expireUntil', { date: info.date })}
+        <span className={styles.chipWithIcon}>
+          <CalendarClock size={12} />
+          {expired
+            ? t('settings.expireExpired')
+            : t('settings.expireUntil', { date: info.date })}
+        </span>
       </Chip>
     )
   }
@@ -929,7 +941,10 @@ function ServerPage({
         }`}
         title={title}
       >
-        {label}
+        <span className={styles.chipWithIcon}>
+          <Database size={12} />
+          {label}
+        </span>
       </Chip>
     )
   }
@@ -1264,8 +1279,10 @@ function ServerPage({
   const profileOff = (profile: ServerProfile): boolean =>
     profile.expire_disabled === true || profile.traffic_disabled === true
 
-  /** Поиск по странице профилей: имя, SNI или ссылка подписки. */
+  /** Поиск (имя, SNI, ссылка подписки) и фильтр по состоянию — одна выборка. */
   const visibleProfiles = (profiles ?? []).filter((p) => {
+    if (profileFilter === 'active' && profileOff(p)) return false
+    if (profileFilter === 'disabled' && !profileOff(p)) return false
     const q = profileQuery.trim().toLowerCase()
     if (!q) return true
     return (
@@ -1432,14 +1449,13 @@ function ServerPage({
                         return
                       }
                       // Со страницы профилей вкладки уводят обратно в настройки.
-                      if (mode === 'profiles') onOpenSettings?.(tab.id)
-                      else setSection(tab.id)
+                      if (mode === 'profiles') {
+                        setSection(tab.id)
+                        onOpenSettings?.(tab.id)
+                      } else setSection(tab.id)
                     }}
                   >
                     {t(tab.labelKey)}
-                    {isProfiles && profiles && profiles.length > 0 && (
-                      <span className={styles.sectionTabCount}>{profiles.length}</span>
-                    )}
                   </button>
                 )
               })}
@@ -1615,23 +1631,60 @@ function ServerPage({
             {mode === 'profiles' && (
             <section className={styles.listCard}>
               <div className={styles.profilesHead}>
-                <h2 className={styles.sectionTitle}>{t('settings.profilesHeading')}</h2>
-                <span className={styles.profilesCount}>
-                  {t('settings.profilesCount', { count: visibleProfiles.length })}
-                </span>
-              </div>
-              <div className={styles.profilesToolbar}>
-                <span className={styles.profilesSearchIcon}>
-                  <Search size={15} />
-                </span>
-                <input
-                  className={styles.profilesSearchInput}
-                  value={profileQuery}
-                  onChange={(e) => setProfileQuery(e.target.value)}
-                  placeholder={t('settings.profilesSearch')}
-                  aria-label={t('settings.profilesSearch')}
-                  type="search"
-                />
+                <div className={styles.profilesHeadText}>
+                  <h2 className={styles.sectionTitle}>{t('settings.profilesHeading')}</h2>
+                  <p className={styles.sectionHint}>{t('settings.profilesSubtitle')}</p>
+                </div>
+                <div className={styles.profilesTools}>
+                  <div className={styles.profilesSearch}>
+                    <Search size={15} className={styles.profilesSearchIcon} />
+                    <input
+                      className={styles.profilesSearchInput}
+                      value={profileQuery}
+                      onChange={(e) => setProfileQuery(e.target.value)}
+                      placeholder={t('settings.profilesSearch')}
+                      aria-label={t('settings.profilesSearch')}
+                      type="search"
+                    />
+                  </div>
+                  <Dropdown>
+                    <Dropdown.Trigger
+                      className={styles.profilesFilter}
+                      aria-label={t('settings.profileFilterLabel')}
+                    >
+                      <Filter size={14} />
+                      <span className={styles.profilesFilterLabel}>
+                        {t(
+                          profileFilter === 'active'
+                            ? 'settings.profileFilterActive'
+                            : profileFilter === 'disabled'
+                              ? 'settings.profileFilterDisabled'
+                              : 'settings.profileFilterAll'
+                        )}
+                      </span>
+                      <ChevronDown size={14} />
+                    </Dropdown.Trigger>
+                    <Dropdown.Popover placement="bottom end" className={styles.updatePopover}>
+                      <Dropdown.Menu>
+                        {(['all', 'active', 'disabled'] as const).map((f) => (
+                          <DropdownItem
+                            key={f}
+                            className={styles.updateItem}
+                            onAction={() => setProfileFilter(f)}
+                          >
+                            {t(
+                              f === 'active'
+                                ? 'settings.profileFilterActive'
+                                : f === 'disabled'
+                                  ? 'settings.profileFilterDisabled'
+                                  : 'settings.profileFilterAll'
+                            )}
+                          </DropdownItem>
+                        ))}
+                      </Dropdown.Menu>
+                    </Dropdown.Popover>
+                  </Dropdown>
+                </div>
               </div>
               {profiles!.length > 0 && !expireSupported && (
                 <p className={styles.serverTooOld}>{t('settings.serverTooOld')}</p>
@@ -1669,7 +1722,10 @@ function ServerPage({
                     <div className={styles.profileMeta}>
                       <Chip size="sm" color="default">{transportLabel(profile)}</Chip>
                       <Chip size="sm" color="default">:{profile.port}</Chip>
-                      <span className={styles.profileSni}>{profile.sni}</span>
+                      <span className={styles.profileSni} title={t('settings.sniSelect')}>
+                        <Globe2 size={12} />
+                        {profile.sni}
+                      </span>
                       {expireChip(profile)}
                       {trafficChip(profile)}
                     </div>
@@ -2065,6 +2121,11 @@ function ServerPage({
                   )}
                 </Fragment>
               ))}
+              {visibleProfiles.length > 0 && (
+                <p className={styles.profilesFooter}>
+                  {t('settings.profilesShown', { count: visibleProfiles.length })}
+                </p>
+              )}
             </section>
             )}
 
@@ -3594,29 +3655,5 @@ function ServerPage({
         </AlertDialog.Backdrop>
       </AlertDialog.Root>
     </div>
-  )
-}
-
-/**
- * Две страницы одного сервера. Список профилей и форма создания разведены по
- * разным экранам, но делят доступ по SSH, загрузку данных и диалоги профиля —
- * поэтому это один компонент с режимом, а не две копии.
- */
-export function ServerSettings(props: ServerSettingsProps): React.JSX.Element {
-  return <ServerPage {...props} mode="settings" />
-}
-
-export function ServerProfiles({
-  server,
-  onBack,
-  onOpenSettings
-}: ServerProfilesProps): React.JSX.Element {
-  return (
-    <ServerPage
-      server={server}
-      onBack={onBack}
-      onOpenSettings={onOpenSettings}
-      mode="profiles"
-    />
   )
 }

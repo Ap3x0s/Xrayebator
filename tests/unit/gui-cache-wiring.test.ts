@@ -34,7 +34,8 @@ describe('GUI wiring: server card cache', () => {
     expect(app).toContain("onEditAccess={(server) => void openServer(server, 'settings', true)}")
     expect(app).toContain("onSettings={() => void openServer(view.server, 'settings')}")
     // Ветка «Ключей» получает уже перечитанную копию, а не объект из списка.
-    expect(app).toContain('setView(\n      target === \'keys\'')
+    expect(app).toContain("if (target === 'keys') {")
+    expect(app).toContain("setView({ name: 'keys', server: fresh })")
     // Исключение по делу: AddServer/ImportServer отдают объект, который main только
     // что вернул из создания/импорта — он свежий по определению (кэш пуст, потому
     // что сервер новый), перечитывать стор там нечего.

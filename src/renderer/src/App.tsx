@@ -3,7 +3,7 @@ import { Dashboard } from './pages/Dashboard'
 import { AddServer } from './pages/AddServer'
 import { ImportServer } from './pages/ImportServer'
 import { ServerKeys } from './pages/ServerKeys'
-import { ServerProfiles, ServerSettings, type SettingsSection } from './pages/ServerSettings'
+import { ServerPage, type ServerPageProps, type SettingsSection } from './pages/ServerSettings'
 import type { Server } from '@shared/types'
 
 type View =
@@ -11,8 +11,20 @@ type View =
   | { name: 'add' }
   | { name: 'import' }
   | { name: 'keys'; server: Server }
-  | { name: 'settings'; server: Server; editingAccess?: boolean; section?: SettingsSection }
-  | { name: 'profiles'; server: Server }
+  /**
+   * Один view на оба экрана сервера. Раньше «настройки» и «профили» были
+   * разными view, и переключение между ними размонтировало страницу: она
+   * заново поднимала SSH-сессию и перезагружала профили. Теперь экран
+   * переключается пропсом `mode`, компонент остаётся смонтированным — один
+   * SSH-запрос поднимает всё, что нужно обоим экранам.
+   */
+  | {
+      name: 'server'
+      server: Server
+      mode: ServerPageProps['mode']
+      editingAccess?: boolean
+      section?: SettingsSection
+    }
 
 export default function App(): React.JSX.Element {
   const [view, setView] = useState<View>({ name: 'dashboard' })
@@ -52,13 +64,16 @@ export default function App(): React.JSX.Element {
   ): Promise<void> => {
     const fresh = (await window.api.servers.get(server.id).catch(() => undefined)) ?? server
     replaceServer(fresh)
-    setView(
-      target === 'keys'
-        ? { name: 'keys', server: fresh }
-        : target === 'profiles'
-          ? { name: 'profiles', server: fresh }
-          : { name: 'settings', server: fresh, editingAccess }
-    )
+    if (target === 'keys') {
+      setView({ name: 'keys', server: fresh })
+      return
+    }
+    setView({
+      name: 'server',
+      server: fresh,
+      mode: target === 'profiles' ? 'profiles' : 'settings',
+      editingAccess
+    })
   }
 
   if (view.name === 'add') {
@@ -78,7 +93,7 @@ export default function App(): React.JSX.Element {
       <ImportServer
         onDone={(server) => {
           upsertServer(server)
-          setView({ name: 'settings', server })
+          setView({ name: 'server', server, mode: 'settings' })
         }}
         onBack={() => setView({ name: 'dashboard' })}
       />
@@ -95,24 +110,31 @@ export default function App(): React.JSX.Element {
     )
   }
 
-  if (view.name === 'settings') {
+  if (view.name === 'server') {
     return (
-      <ServerSettings
+      <ServerPage
         server={view.server}
+        mode={view.mode}
         editingAccess={view.editingAccess ?? false}
         initialSection={view.section}
         onBack={() => setView({ name: 'dashboard' })}
-        onOpenProfiles={() => setView({ name: 'profiles', server: view.server })}
-      />
-    )
-  }
-
-  if (view.name === 'profiles') {
-    return (
-      <ServerProfiles
-        server={view.server}
-        onBack={() => setView({ name: 'dashboard' })}
-        onOpenSettings={(section) => setView({ name: 'settings', server: view.server, section })}
+        onOpenProfiles={() =>
+          setView({
+            name: 'server',
+            server: view.server,
+            mode: 'profiles',
+            editingAccess: view.editingAccess
+          })
+        }
+        onOpenSettings={(section) =>
+          setView({
+            name: 'server',
+            server: view.server,
+            mode: 'settings',
+            editingAccess: view.editingAccess,
+            section
+          })
+        }
       />
     )
   }
