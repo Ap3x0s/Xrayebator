@@ -55,21 +55,27 @@ Server keys refreshes the subscription from the saved `subscription_url` and dis
 ### Server profiles
 
 The profile list is its own screen, separate from the create form. It is opened from the tab strip of
-Server settings («Существующие профили», with a live count) or directly from the app, and its back
-button returns to the dashboard. The tab strip is shared: from this page the other tabs go back to
-Server settings on that section.
+Server settings («Существующие профили») or directly from the app, and its back button returns to the
+dashboard. The tab strip is shared: from this page the other tabs go back to Server settings on that
+section.
+
+Switching between the two screens does **not** repeat the SSH work: both are one component with a
+`mode` prop, so the connection, the profile list, the backend state and the subscription status are
+loaded once when the server is opened and then shared. Only a fresh visit from the dashboard connects
+again.
 
 What the page shows:
 
-- a search field that filters by profile name, SNI or subscription URL (a server with many profiles no
-  longer needs manual scrolling), and a "Profiles: N" counter above the list;
+- a header with the title and subtitle on the left and, on the right, a search field (profile name, SNI
+  or subscription URL) plus a filter — all profiles, active only, disabled only;
 - one card per profile: a transport icon (xhttp / gRPC / TCP), the name, a status dot (`Active` or
   `Disabled` — the latter when the expiry passed or the traffic limit is exhausted), the `HAPP` and
-  `PQ ×N` badges, chips with the transport and route count, the port, the SNI, the expiry date and the
-  traffic usage, plus the subscription URL itself;
+  `PQ ×N` badges, chips with the transport and route count, the port, the SNI (globe icon), the expiry
+  date (calendar icon) and the traffic usage (database icon), plus the subscription URL itself;
 - the actions «Копировать» (the same URL) and «Настройки» (the profile window described below);
 - per-backend cards for profiles that hold a Hysteria 2 or AmneziaWG grant, with the QR codes and the
-  same settings window.
+  same settings window;
+- a "Shown: N" line under the list so the effect of the search and filter is visible.
 
 The page deliberately does not show a progress bar or pagination: neither measures anything useful for
 a handful of profiles, and the reference layout's duplicated footer (domain/expiry/size again) is

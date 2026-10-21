@@ -171,12 +171,16 @@ Next `0.6.5` cut: the server manager plus the GUI traffic-limit card.
   label stays exactly as legible as it was before.
 - **The profile list is its own page** (GUI). It shared a screen with the create form, so a routine
   trip to one profile scrolled past a form first. The list now lives on a **Server profiles** screen:
-  the tab strip keeps the entry («Существующие профили», right after Create profile, with a live
-  count) but it opens that screen instead of swapping a panel, and its back button returns to the
-  dashboard. Cards gained a transport icon and an `Active`/`Disabled` status (expired or over the
-  traffic limit), the page gained a search over name/SNI/subscription URL and a profile counter.
-  From the reference layout the progress bar, pagination and the duplicated footer were deliberately
-  dropped: none of them measures or shows anything a handful of profiles does not already show.
+  the tab strip keeps the entry («Существующие профили», right after Create profile) but it opens
+  that screen instead of swapping a panel, and its back button returns to the dashboard. The two
+  screens are one component with a `mode` prop, so switching between them no longer re-runs the SSH
+  work — connection, profiles, backends and subscription status are fetched once per opened server.
+  Cards gained a transport icon and an `Active`/`Disabled` status (expired or over the traffic limit),
+  and the header gained a search over name/SNI/subscription URL plus an all/active/disabled filter,
+  with a "Shown: N" line under the list. Expiry, traffic and SNI now carry calendar/database/globe
+  icons — "until 2026-11-16" and "182 KB" were readable only by format. From the reference layout
+  the progress bar, pagination and the duplicated footer were deliberately dropped: none of them
+  measures or shows anything a handful of profiles does not already show.
 - **`xrayebator backend-start --type hysteria2|awg`** brings an *installed* backend whose unit is not
   active back up; the desktop GUI shows it as the **Start** button next to the honest "Not running"
   state. The only mutation is `systemctl start` (plus the kernel module for AWG) and it answers JSON —
