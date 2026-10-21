@@ -988,7 +988,16 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
+  /* Строка метаданных держится в одну линию: чипы не сжимаются, а домен
+     уступает первым и обрезается многоточием — иначе на средней ширине окна
+     вся строка уезжала на второй ряд. */
+  flex-wrap: nowrap;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.profileMeta > * {
+  flex: 0 0 auto;
 }
 
 /* Иконка перед значением в чипе: без подписи «до …» и «182 KB» не читались
@@ -999,10 +1008,14 @@
   gap: 5px;
 }
 
+/* Домен уступает место остальным чипам и обрезается многоточием: он
+   единственный, чью длину нельзя предсказать. */
 .profileSni {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   font-family: var(--font-mono);
   font-size: 12px;
   color: var(--text-2);

@@ -1723,7 +1723,7 @@ export function ServerPage({
                       <Chip size="sm" color="default">{transportLabel(profile)}</Chip>
                       <Chip size="sm" color="default">:{profile.port}</Chip>
                       <span className={styles.profileSni} title={t('settings.sniSelect')}>
-                        {t('settings.sniBtn')}: {profile.sni}
+                        {profile.sni}
                       </span>
                       {expireChip(profile)}
                       {trafficChip(profile)}
