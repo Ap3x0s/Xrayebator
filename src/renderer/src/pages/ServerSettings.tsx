@@ -1302,6 +1302,13 @@ export function ServerPage({
     (n, p) => n + 1 + (p.backends?.hysteria2 ? 1 : 0) + (p.backends?.awg ? 1 : 0),
     0
   )
+  /** Тон режима подписки: HTTPS — норма, http_tls — предупреждение. */
+  const dns01Tone: 'ok' | 'warn' | '' =
+    dns01Status?.tls_mode === 'domain_tls' || dns01Status?.tls_mode === 'ip_tls'
+      ? 'ok'
+      : dns01Status?.tls_mode === 'http_tls'
+        ? 'warn'
+        : ''
 
   return (
     <div className={styles.root}>
@@ -2356,38 +2363,83 @@ export function ServerPage({
             </div>
 
             <div {...sectionPaneProps('subscription', section)}>
-            <section className={styles.listCard}>
-              <h2 className={styles.sectionTitle}>
-                <Lock size={16} /> {t('settings.dns01Title')}
-              </h2>
-              <p className={styles.sectionHint}>{t('settings.dns01Hint')}</p>
+            <section className={styles.subCard}>
+              <button
+                type="button"
+                className={styles.subHead}
+                aria-expanded={dns01Open}
+                onClick={() => setDns01Open((v) => !v)}
+              >
+                <span className={styles.subIcon}>
+                  <ShieldCheck size={20} />
+                </span>
+                <span className={styles.subHeadText}>
+                  <span className={styles.subTitle}>{t('settings.dns01Title')}</span>
+                  <span className={styles.subSubtitle}>
+                    {dns01Status?.domain || t('settings.dns01NoDomain')}
+                  </span>
+                </span>
+                <span
+                  className={`${styles.subChip} ${
+                    dns01Tone === 'ok'
+                      ? styles.subChipOk
+                      : dns01Tone === 'warn'
+                        ? styles.subChipWarn
+                        : ''
+                  }`}
+                >
+                  {dns01Status?.tls_mode || t('settings.dns01ModeUnknown')}
+                </span>
+                <span
+                  className={`${styles.subChevron} ${dns01Open ? styles.subChevronOpen : ''}`}
+                  aria-hidden="true"
+                >
+                  <ChevronDown size={16} />
+                </span>
+              </button>
+
+              {/* Раньше статус шёл одной строкой через «·» и читался как предложение.
+                  Теперь это четыре подписанных значения сеткой. */}
+              <dl className={styles.subGrid}>
+                <div className={styles.subRow}>
+                  <dt className={styles.subLabel}>{t('settings.dns01Mode')}</dt>
+                  <dd className={styles.subValue}>
+                    {dns01Status?.tls_mode || t('settings.dns01ModeUnknown')}
+                  </dd>
+                </div>
+                <div className={styles.subRow}>
+                  <dt className={styles.subLabel}>{t('settings.dns01Domain')}</dt>
+                  <dd className={styles.subValue}>{dns01Status?.domain || '—'}</dd>
+                </div>
+                <div className={styles.subRow}>
+                  <dt className={styles.subLabel}>{t('settings.dns01Provider')}</dt>
+                  <dd className={styles.subValue}>{dns01Status?.provider || '—'}</dd>
+                </div>
+                <div className={styles.subRow}>
+                  <dt className={styles.subLabel}>{t('settings.dns01Cert')}</dt>
+                  <dd className={styles.subValue}>
+                    {(dns01Status?.cert_expiry ?? 0) > 0
+                      ? `${dns01Status?.days_left} ${t('settings.dns01Days')}`
+                      : '—'}
+                  </dd>
+                </div>
+              </dl>
+
               {dns01Error && <p className={styles.error}>{dns01Error}</p>}
-              {dns01Status && (
-                <p className={styles.hint}>
-                  {t('settings.dns01Mode')}:{' '}
-                  {dns01Status.tls_mode || t('settings.dns01ModeUnknown')}
-                  {dns01Status.domain ? ` · ${dns01Status.domain}` : ''}
-                  {dns01Status.provider ? ` · ${dns01Status.provider}` : ''}
-                  {dns01Status.cert_expiry > 0
-                    ? ` · ${t('settings.dns01Cert')}: ${dns01Status.days_left} ${t('settings.dns01Days')}`
-                    : ''}
-                </p>
-              )}
               {dns01Status?.tls_mode === 'http_tls' && (
-                <p className={styles.serverTooOld}>{t('settings.dns01Degraded')}</p>
+                <p className={styles.subNotice}>{t('settings.dns01Degraded')}</p>
               )}
               {dns01Status?.staging === true && (
-                <p className={styles.serverTooOld}>{t('settings.dns01Staging')}</p>
+                <p className={styles.subNotice}>{t('settings.dns01Staging')}</p>
               )}
 
-              <div className={styles.profileActions}>
+              <div className={styles.subActions}>
                 <Button
                   size="sm"
                   variant={dns01Open ? 'secondary' : 'primary'}
                   isDisabled={dns01Busy}
-                  onPress={() => setDns01Open((v) => !v)}
+                  onPress={() => setDns01Open(true)}
                 >
-                  <ShieldCheck size={14} />
                   {dns01Status?.tls_mode === 'http_tls'
                     ? t('settings.dns01RepairBtn')
                     : t('settings.dns01Btn')}
@@ -2400,7 +2452,8 @@ export function ServerPage({
               </div>
 
               {dns01Open && (
-                <>
+                <div className={styles.subForm}>
+                  <p className={styles.sectionHint}>{t('settings.dns01Hint')}</p>
                   {/* Провайдер: креденшелы Cloudflare и Route53 не взаимозаменяемы,
                       поэтому лишние поля не показываем и не отправляем. */}
                   <span className={styles.fieldLabel}>{t('settings.dns01Provider')}</span>
@@ -2479,7 +2532,7 @@ export function ServerPage({
                       {t('dashboard.cancel')}
                     </Button>
                   </div>
-                </>
+                </div>
               )}
             </section>
             </div>
