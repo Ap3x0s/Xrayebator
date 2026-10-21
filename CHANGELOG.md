@@ -144,8 +144,8 @@ Next `0.6.5` cut: the server manager plus the GUI traffic-limit card.
 - **Server settings became three sections instead of one long scroll** (GUI). A UX audit of the desktop
   app found the settings screen to be a wall of five sections — connection, profile creation, profile
   list, extra protocols and subscription/TLS — where reaching the profile list (the
-  reason for most visits) meant scrolling past two forms. The screen is now split into **Profiles |
-  Extra protocols | Subscription and TLS** (`role=tablist`/`tabpanel`), the sections are
+  reason for most visits) meant scrolling past two forms. The screen is now split into **Create profile |
+  Existing profiles | Extra protocols | Subscription and TLS** (`role=tablist`/`tabpanel`), the sections are
   hidden rather than unmounted so a half-typed profile name survives a tab switch, and the connection
   block stays a common gate. The same pass fixed a batch of smaller findings: the update-branch menu is
   now a HeroUI `Dropdown` (keyboard, Escape, click-outside, chevron) instead of a hand-rolled popover
@@ -169,6 +169,14 @@ Next `0.6.5` cut: the server manager plus the GUI traffic-limit card.
   muted red tint (24% of `--danger` over the card, 32% on hover) with HeroUI's standard danger text, which is
   AA-compliant and reads as an action rather than a highlight — only the background is overridden, so the
   label stays exactly as legible as it was before.
+- **The profile list is its own page** (GUI). It shared a screen with the create form, so a routine
+  trip to one profile scrolled past a form first. The list now lives on a **Server profiles** screen:
+  the tab strip keeps the entry («Существующие профили», right after Create profile, with a live
+  count) but it opens that screen instead of swapping a panel, and its back button returns to the
+  dashboard. Cards gained a transport icon and an `Active`/`Disabled` status (expired or over the
+  traffic limit), the page gained a search over name/SNI/subscription URL and a profile counter.
+  From the reference layout the progress bar, pagination and the duplicated footer were deliberately
+  dropped: none of them measures or shows anything a handful of profiles does not already show.
 - **`xrayebator backend-start --type hysteria2|awg`** brings an *installed* backend whose unit is not
   active back up; the desktop GUI shows it as the **Start** button next to the honest "Not running"
   state. The only mutation is `systemctl start` (plus the kernel module for AWG) and it answers JSON —

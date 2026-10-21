@@ -140,7 +140,7 @@ npm test              # Vitest 单元测试
 | `tests/unit/i18n-parity.test.ts` | 三种语言（ru/en/zh）的键集合一致、每种语言需要的复数形式齐全、插值占位符与俄语源保持同步 |
 | `tests/unit/gui-cache-wiring.test.ts` | 服务器卡片缓存的接线：进入服务器页面时先从本地 store 重读卡片（而不是用启动时读到的旧对象），且有效期由 `profiles:list` 写入 |
 | `tests/unit/server-keys-render.test.ts` | 「密钥」页的首帧渲染：配置档有效期在 SSR 下（effect 不执行，数据不可能来自网络）就已在标记里，来自卡片缓存；缓存里没有的配置档不画有效期 |
-| `tests/unit/server-settings-render.test.ts` | 「服务器设置」的首帧渲染与分区契约：连接门槛不崩、`SETTINGS_SECTIONS` 与面板接线一致 |
+| `tests/unit/server-settings-render.test.ts` | 「服务器设置」的首帧渲染、分区契约，以及独立「现有配置档」页面的冒烟渲染 |
 
 `npm run typecheck` 还会检查 `tsconfig.contracts.json`，其中编译 `tests/type-contracts/` 中严格的 onboarding 契约（必需的 `emailMode`、keychain 引用密钥选择器、已暴露的 import API）；仅靠 Vitest 转译无法捕获这类类型回归。
 

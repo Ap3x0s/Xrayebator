@@ -19,7 +19,7 @@ Xrayebator/
 ├── src/                        # 活跃的 Electron + React + TypeScript 桌面 GUI
 │   ├── main/                   # SSH、部署、配置档、订阅和服务器管理器
 │   ├── preload/                # 暴露给渲染进程的 contextBridge
-│   ├── renderer/               # Dashboard、AddServer、ImportServer、ServerKeys、ServerSettings
+│   ├── renderer/               # Dashboard、AddServer、ImportServer、ServerKeys、ServerSettings + ServerProfiles
 │   └── shared/                 # 共享的 TypeScript 类型和 VLESS 辅助函数
 ├── tests/                      # Electron/Vitest 单元测试
 ├── resources/                  # Electron 构建资源

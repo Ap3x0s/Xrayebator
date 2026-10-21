@@ -288,12 +288,13 @@ GUI 的功能：
 | 添加服务器 | 显式选择是否提供 email：`quickstart --email` 或 `quickstart --without-email`；向导中有两个可选区块——**PQ 路由**开关（`--pq`）与 **DNS-01 回退**（域名 + 服务商 + 凭据，`--dns01-*`），默认均关闭；保存服务器与公网订阅 |
 | 连接现有服务器 | 通过 SSH（密码或密钥）和只读 `xrayebator inspect --json` 导入已识别的 Xrayebator；部分安装会连同诊断状态保存，不自动修复 |
 | 服务器密钥 | 刷新公网订阅、复制链接、显示 `vless://` 链接与二维码；安装后端后还会显示每位已授权配置档的 Hysteria 2 卡片（链接 + 二维码）和 AmneziaWG 卡片（客户端 `.conf`、关键字段以及两个二维码：普通二维码和面向 AmneziaVPN 的原生 `vpn://`），另有 **客户端链接** 卡片，给出 Clash/mihomo（YAML）与 sing-box（JSON）订阅链接 |
-| 服务器设置 | 使用 SSH 密码或私钥、直接 root 或 sudo：列出/创建/删除配置档，修改指纹、SNI 和端口，吊销订阅，设置配置档有效期与流量限额，添加 PQ 路由，管理订阅与 TLS（DNS-01，包括对已退化 `http_tls` 订阅的“用 DNS-01 修复”），还可更新或卸载服务器上的 Xrayebator；即使桌面与 VPS 时区不同，有效期日期也按服务器本地日期显示。Telegram 告警只在终端提供（`alerts-setup`、`alerts-enable`/`alerts-disable`、`alerts-test`），机器人令牌不会进入 renderer |
+| 现有配置档 | 独立的配置档列表页，从设置页的选项卡行打开：按名称、SNI 或订阅链接搜索，带配置档计数；每个配置档一张卡片——传输方式图标、「活跃/已停用」状态、`HAPP`/`PQ ×N` 徽标、传输方式/线路/端口/SNI/有效期/流量的标签、订阅链接以及「复制」「设置」操作；已授权配置档的 Hysteria 2 与 AmneziaWG 卡片仍留在同一列表 |
+| 服务器设置 | 使用 SSH 密码或私钥、直接 root 或 sudo：创建/删除配置档（列表本身在「现有配置档」页面），修改指纹、SNI 和端口，吊销订阅，设置配置档有效期与流量限额，添加 PQ 路由，管理订阅与 TLS（DNS-01，包括对已退化 `http_tls` 订阅的“用 DNS-01 修复”），还可更新或卸载服务器上的 Xrayebator；即使桌面与 VPS 时区不同，有效期日期也按服务器本地日期显示。Telegram 告警只在终端提供（`alerts-setup`、`alerts-enable`/`alerts-disable`、`alerts-test`），机器人令牌不会进入 renderer |
 
-选中的私钥与成功登录时使用过的 SSH 密码都会通过 `keytar` 保存在操作系统钥匙串中，之后的 SSH 操作和应用重启均可复用；服务器卡片只保存非敏感的 credential id 和显示文件名。单独的 sudo 密码与加密私钥口令不会持久化，需要时重新输入。系统钥匙串不可用时不会写入明文回退文件：密钥仅保留在 main process 内存中直到当前会话结束，界面会提示重启后需重新输入。应用还会在本地存储中保存 `subscription_url`、获取到的 `vless://` 链接、Hysteria 2 链接、AWG 客户端配置、Clash/sing-box 链接、各配置档的有效期以及固定的 SSH host-key fingerprint——正因为如此，「密钥」页面与后端卡片才能瞬时渲染；这些内容都不会写回服务器。其中 `vless://` 链接、Hysteria 2 链接与 AWG 配置属于 bearer/client credentials：请保护本地应用数据，泄露后在服务器设置中吊销订阅（完全吊销会同时更换密钥）。
+选中的私钥与成功登录时使用过的 SSH 密码都会通过 `keytar` 保存在操作系统钥匙串中，之后的 SSH 操作和应用重启均可复用；服务器卡片只保存非敏感的 credential id 和显示文件名。单独的 sudo 密码与加密私钥口令不会持久化，需要时重新输入。系统钥匙串不可用时不会写入明文回退文件：密钥仅保留在 main process 内存中直到当前会话结束，界面会提示重启后需重新输入。应用还会在本地存储中保存 `subscription_url`、获取到的 `vless://` 链接、Hysteria 2 链接、AWG 客户端配置、Clash/sing-box 链接、各配置档的有效期以及固定的 SSH host-key fingerprint——正因为如此，「密钥」页面与后端卡片才能瞬时渲染；这些内容都不会写回服务器。其中 `vless://` 链接、Hysteria 2 链接与 AWG 配置属于 bearer/client credentials：请保护本地应用数据，泄露后在「现有配置档」页面的配置档设置中吊销订阅（完全吊销会同时更换密钥）。
 
-GUI 只暴露终端菜单的一个子集。`probe-test`、`happ-setup`、级联、self-steal
-以及服务日志/状态仍需从终端执行；配置档有效期和订阅吊销可在服务器设置中使用。完整的 Electron GUI 边界、安全模型与打包说明见
+GUI 只暴露终端菜单的一个子集。`probe-test`、`happ-setup`、级联、self-steal、
+Telegram 告警以及服务日志/状态仍需从终端执行；配置档有效期和订阅吊销可在「现有配置档」页面的配置档设置中使用。完整的 Electron GUI 边界、安全模型与打包说明见
 [Electron 桌面 GUI](docs/zh-CN/desktop-gui.md)。
 
 开发模式下的构建与运行：

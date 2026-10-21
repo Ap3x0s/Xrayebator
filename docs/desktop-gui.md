@@ -52,12 +52,34 @@ The wizard shows a step index and a live console of the work actually performed:
 
 Server keys refreshes the subscription from the saved `subscription_url` and displays the returned VLESS routes. Each VLESS link can be copied or rendered as a QR code; the subscription URL can also be copied, and the page offers a copy-all action. This page does not create a separate server-side subscription or rotate a subscription token (rotation lives on the profile cards in Server settings). When the server has multi-protocol backends, the page also shows their keys from the persistent local store: one Hysteria 2 card per granted profile with the `hysteria2://` link (copy + QR) — the card chip names the owning profile (`HYSTERIA2 · <profile> · UDP :<port>`), and one AmneziaWG card per granted profile with the client `.conf` — the `Endpoint`/`Address` values are surfaced as key fields, and the full `.conf` (service comment header stripped) is available as text and QR for import into AmneziaVPN/AmneziaWG. Backend cards paint immediately from the persisted store and refresh in parallel with the VLESS routes; a per-card spinner shows only while that card's data is being fetched. The AWG card carries two QR codes: the plain one for the standalone AmneziaWG client and «QR · AmneziaVPN» — the app-native compressed `vpn://` shape (`amnezia-awg2` container, server-side junk fields, `protocol_version` 3.1), which is the recommended import path for the full AmneziaVPN app. A **Client links** card lists the same subscription in client formats — Clash/mihomo (YAML) and sing-box (JSON) from the server's `subscription_url_clash`/`subscription_url_singbox`: one block per profile with the full mono link plus copy and QR, so the operator never has to guess the `?target=` suffix. That card is cached in the same local store (`subscriptionFormats` in the server card) and filled by the main process on every successful profile listing — like the VLESS/Hysteria/AWG keys, so it renders instantly on the next visit and does not disappear when the server is unreachable. Profile expiry dates are cached the same way (`profileExpiry` in the server card, also written by the profile listing as a full set): the «valid until» line of a backend card is in the first paint instead of appearing later and pushing the card down, and the fresh listing always overwrites the cached dates, so a renewed or cleared expiry can never stay stale on screen. Nothing here is written back to the server: the server only ever hands the links over. This is why the page must be opened with a card that is already current: the renderer used to navigate with the server object from a list read once at startup, so the cache existed in the store but never reached the page and the dates still arrived late (found on the second pass). Every navigation to a server page now re-reads the card from the local store first — a local IPC read, single-digit milliseconds — and only then renders.
 
+### Server profiles
+
+The profile list is its own screen, separate from the create form. It is opened from the tab strip of
+Server settings («Существующие профили», with a live count) or directly from the app, and its back
+button returns to the dashboard. The tab strip is shared: from this page the other tabs go back to
+Server settings on that section.
+
+What the page shows:
+
+- a search field that filters by profile name, SNI or subscription URL (a server with many profiles no
+  longer needs manual scrolling), and a "Profiles: N" counter above the list;
+- one card per profile: a transport icon (xhttp / gRPC / TCP), the name, a status dot (`Active` or
+  `Disabled` — the latter when the expiry passed or the traffic limit is exhausted), the `HAPP` and
+  `PQ ×N` badges, chips with the transport and route count, the port, the SNI, the expiry date and the
+  traffic usage, plus the subscription URL itself;
+- the actions «Копировать» (the same URL) and «Настройки» (the profile window described below);
+- per-backend cards for profiles that hold a Hysteria 2 or AmneziaWG grant, with the QR codes and the
+  same settings window.
+
+The page deliberately does not show a progress bar or pagination: neither measures anything useful for
+a handful of profiles, and the reference layout's duplicated footer (domain/expiry/size again) is
+already covered by the chips.
+
 ### Server settings
 
-Server settings first authenticates over SSH. When the card already has a keychain-backed SSH password or a persisted private key, the page attempts to connect automatically and then shows only the profile panel — the access form appears only when there is no saved secret or after a failed connection. The access summary and the "Change access" action live on the server card in the dashboard, not inside the profile page. Once connected, the page can:
+Server settings first authenticates over SSH. When the card already has a keychain-backed SSH password or a persisted private key, the page attempts to connect automatically and then shows only the settings panel — the access form appears only when there is no saved secret or after a failed connection. The access summary and the "Change access" action live on the server card in the dashboard, not inside the profile page. Once connected, the page can:
 
-- list existing profiles;
-- create one or more profiles and delete profiles (profile names are unique: the GUI pre-checks a name collision before creating — deletion is per-profile, so unique names keep it precise);
+- create one or more profiles and delete profiles (profile names are unique: the GUI pre-checks a name collision before creating — deletion is per-profile, so unique names keep it precise); the list of already existing profiles lives on the separate **Server profiles** page, not here;
 - choose `xhttp`, `tcp`, `tcp-utls`, `tcp-xudp`, `tcp-mux`, or `grpc` transports — or select one of the two multi-protocol backends (Hysteria 2 / AmneziaWG 3.1 cards below the transport grid). Clicking a backend card only selects the protocol (selected VLESS transports deselect it and vice versa); the profile is created by the «Create profile» button, and only the selected backend issues its key — the underlying VLESS profile uses the recommended `xhttp` transport;
 - change a profile fingerprint, choose an SNI from `sni-list`, or enter an SNI;
 - change a profile route's port or choose a random port;

@@ -157,7 +157,7 @@ The active Electron GUI has exactly twenty-five Vitest unit files:
 | `tests/unit/gui-cache-wiring.test.ts` | Wiring of the GUI caches: a server page is opened with the card re-read from the store, and the Keys page resolves expiry through the cache |
 | `tests/unit/i18n-parity.test.ts` | Key parity of the three locales (ru/en/zh) |
 | `tests/unit/server-keys-render.test.ts` | Server keys page SSR: the cached expiry date is present in the very first render, and a profile absent from both sources shows no line |
-| `tests/unit/server-settings-render.test.ts` | Server settings page SSR: connection gate markup and the settings section contract |
+| `tests/unit/server-settings-render.test.ts` | Server settings SSR: connection gate markup, the settings section contract, and a smoke render of the separate Server profiles page |
 | `tests/unit/server-manager.test.ts` | Safe update-branch validation |
 | `tests/unit/server-store.test.ts` | Idempotent import upsert by host+port, credential-reference counting, the per-profile expiry cache (full-set writes, deleted profile disappears) |
 | `tests/unit/shell-command.test.ts` | POSIX shell quoting and sudo command construction |

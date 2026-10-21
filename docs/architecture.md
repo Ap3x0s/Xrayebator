@@ -19,7 +19,7 @@ Xrayebator/
 ├── src/                        # active Electron + React + TypeScript desktop GUI
 │   ├── main/                   # SSH, deploy, profile, subscription and server managers
 │   ├── preload/                # contextBridge exposed to the renderer
-│   ├── renderer/               # Dashboard, AddServer, ImportServer, ServerKeys, ServerSettings
+│   ├── renderer/               # Dashboard, AddServer, ImportServer, ServerKeys, ServerSettings + ServerProfiles
 │   └── shared/                 # shared TypeScript types and VLESS helpers
 ├── tests/                      # Electron/Vitest unit tests
 ├── resources/                  # Electron build assets
