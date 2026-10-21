@@ -70,7 +70,8 @@ What the page shows:
   or subscription URL) plus a filter — all profiles, active only, disabled only;
 - one card per profile: a transport icon (xhttp / gRPC / TCP), the name, a status dot (`Active` or
   `Disabled` — the latter when the expiry passed or the traffic limit is exhausted), the `HAPP` and
-  `PQ ×N` badges, chips with the transport and route count, the port, the SNI (globe icon), the expiry
+  `PQ ×N` badges, 
+
   date (calendar icon) and the traffic usage (database icon), plus the subscription URL itself;
 - the actions «Копировать» (the same URL) and «Настройки» (the profile window described below);
 - per-backend cards for profiles that hold a Hysteria 2 or AmneziaWG grant, with the QR codes and the
