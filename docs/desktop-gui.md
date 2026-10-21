@@ -70,9 +70,10 @@ What the page shows:
   or subscription URL) plus a filter — all profiles, active only, disabled only;
 - one card per profile: a transport icon (xhttp / gRPC / TCP), the name, a status dot (`Active` or
   `Disabled` — the latter when the expiry passed or the traffic limit is exhausted), the `HAPP` and
-  `PQ ×N` badges, chips with the transport and route count, the port, `SNI: <domain>` (plain text),
-  the expiry (`valid until <date>`) with a calendar icon and `Traffic: <used>` with a database icon,
-  plus the subscription URL itself;
+  `PQ ×N` badges, and one line of chips — the transport and route count, the port, the bare SNI
+  domain, the expiry (`valid until <date>`) with a calendar icon and `Traffic: <used>` with a
+  database icon. That row never wraps: when space runs out only the domain shrinks and is truncated
+  with an ellipsis.
 - the actions «Копировать» (the same URL) and «Настройки» (the profile window described below);
 - per-backend cards for profiles that hold a Hysteria 2 or AmneziaWG grant, with the QR codes and the
   same settings window;
