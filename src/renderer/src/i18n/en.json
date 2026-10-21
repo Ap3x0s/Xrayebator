@@ -184,7 +184,6 @@
     "profileFilterAll": "All profiles",
     "profileFilterActive": "Active",
     "profileFilterDisabled": "Disabled",
-    "profilesShown": "Profiles: {{count}}",
     "profileStatusOn": "Active",
     "profileStatusOff": "Disabled",
     "profilesNotFound": "Nothing found",

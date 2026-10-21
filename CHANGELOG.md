@@ -177,7 +177,7 @@ Next `0.6.5` cut: the server manager plus the GUI traffic-limit card.
   work — connection, profiles, backends and subscription status are fetched once per opened server.
   Cards gained a transport icon and an `Active`/`Disabled` status (expired or over the traffic limit),
   and the header gained a search over name/SNI/subscription URL plus an all/active/disabled filter,
-  with a "Shown: N" line under the list. Expiry, traffic and SNI now carry calendar/database/globe
+  Expiry, traffic and SNI now carry calendar/database/globe
   icons — "until 2026-11-16" and "182 KB" were readable only by format. From the reference layout
   the progress bar, pagination and the duplicated footer were deliberately dropped: none of them
   measures or shows anything a handful of profiles does not already show.

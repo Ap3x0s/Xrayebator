@@ -2120,11 +2120,6 @@ export function ServerPage({
                   )}
                 </Fragment>
               ))}
-              {visibleProfiles.length > 0 && (
-                <p className={styles.profilesFooter}>
-                  {t('settings.profilesShown', { count: visibleProfiles.length })}
-                </p>
-              )}
             </section>
             )}
 
