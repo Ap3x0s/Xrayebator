@@ -3,7 +3,7 @@ import { Dashboard } from './pages/Dashboard'
 import { AddServer } from './pages/AddServer'
 import { ImportServer } from './pages/ImportServer'
 import { ServerKeys } from './pages/ServerKeys'
-import { ServerSettings } from './pages/ServerSettings'
+import { ServerProfiles, ServerSettings, type SettingsSection } from './pages/ServerSettings'
 import type { Server } from '@shared/types'
 
 type View =
@@ -11,7 +11,8 @@ type View =
   | { name: 'add' }
   | { name: 'import' }
   | { name: 'keys'; server: Server }
-  | { name: 'settings'; server: Server; editingAccess?: boolean }
+  | { name: 'settings'; server: Server; editingAccess?: boolean; section?: SettingsSection }
+  | { name: 'profiles'; server: Server }
 
 export default function App(): React.JSX.Element {
   const [view, setView] = useState<View>({ name: 'dashboard' })
@@ -46,7 +47,7 @@ export default function App(): React.JSX.Element {
    */
   const openServer = async (
     server: Server,
-    target: 'keys' | 'settings',
+    target: 'keys' | 'settings' | 'profiles',
     editingAccess = false
   ): Promise<void> => {
     const fresh = (await window.api.servers.get(server.id).catch(() => undefined)) ?? server
@@ -54,7 +55,9 @@ export default function App(): React.JSX.Element {
     setView(
       target === 'keys'
         ? { name: 'keys', server: fresh }
-        : { name: 'settings', server: fresh, editingAccess }
+        : target === 'profiles'
+          ? { name: 'profiles', server: fresh }
+          : { name: 'settings', server: fresh, editingAccess }
     )
   }
 
@@ -97,7 +100,19 @@ export default function App(): React.JSX.Element {
       <ServerSettings
         server={view.server}
         editingAccess={view.editingAccess ?? false}
+        initialSection={view.section}
         onBack={() => setView({ name: 'dashboard' })}
+        onOpenProfiles={() => setView({ name: 'profiles', server: view.server })}
+      />
+    )
+  }
+
+  if (view.name === 'profiles') {
+    return (
+      <ServerProfiles
+        server={view.server}
+        onBack={() => setView({ name: 'dashboard' })}
+        onOpenSettings={(section) => setView({ name: 'settings', server: view.server, section })}
       />
     )
   }

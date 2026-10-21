@@ -3,6 +3,7 @@ import QRCode from 'qrcode'
 import { Button, TextField, Label, Input, Chip, Spinner, AlertDialog, Dropdown, DropdownItem } from '@heroui/react'
 import {
   Settings2,
+  Layers,
   Play,
   Trash2,
   Lock,
@@ -58,6 +59,24 @@ interface ServerSettingsProps {
   /** Открыт по «Изменить доступ» с карточки сервера: показать форму, не автоподключаясь. */
   editingAccess?: boolean
   onBack: () => void
+  /** Вкладка, на которую надо вернуться со страницы профилей. */
+  initialSection?: SettingsSection
+  /** Переход на отдельную страницу «Существующие профили». */
+  onOpenProfiles?: () => void
+}
+
+/** Пропсы самой страницы: режим выбирает, какую из двух страниц рисовать. */
+interface ServerPageProps extends ServerSettingsProps {
+  mode: 'settings' | 'profiles'
+  /** Со страницы профилей: вернуться в настройки на конкретную вкладку. */
+  onOpenSettings?: (section: SettingsSection) => void
+}
+
+/** Пропсы страницы «Существующие профили». */
+export interface ServerProfilesProps {
+  server: Server
+  onBack: () => void
+  onOpenSettings?: (section: SettingsSection) => void
 }
 
 const PROTOCOLS = [
@@ -83,8 +102,25 @@ export const FINGERPRINTS = [
  * оператору, которому нужен только список профилей (большинство визитов), приходилось
  * прокручивать блок подключения и форму создания.
  */
-type SettingsSection = 'profiles' | 'backends' | 'subscription'
+/**
+ * Панели страницы настроек. «Существующие профили» здесь нет: список профилей
+ * переехал на отдельную страницу (решение 2026-10-21), а на его месте осталась
+ * форма создания — так вкладка и называется.
+ */
+export type SettingsSection = 'create' | 'backends' | 'subscription'
 export const SETTINGS_SECTIONS: { id: SettingsSection; labelKey: string }[] = [
+  { id: 'create', labelKey: 'settings.sectionCreate' },
+  { id: 'backends', labelKey: 'settings.sectionBackends' },
+  { id: 'subscription', labelKey: 'settings.sectionSubscription' }
+]
+
+/**
+ * Порядок вкладок в верхней строке. Пункт «Существующие профили» стоит сразу
+ * после создания, но это не панель, а переход на отдельную страницу: он не
+ * скрывает разметку, а меняет экран.
+ */
+const SETTINGS_TABS: { id: SettingsSection | 'profiles'; labelKey: string }[] = [
+  { id: 'create', labelKey: 'settings.sectionCreate' },
   { id: 'profiles', labelKey: 'settings.sectionProfiles' },
   { id: 'backends', labelKey: 'settings.sectionBackends' },
   { id: 'subscription', labelKey: 'settings.sectionSubscription' }
@@ -163,11 +199,15 @@ export const PORT_PRESETS = [443, 8443, 2053, 2083, 2087, 2096, 9443, 8080] as c
 /** Пресеты лимита трафика для диалога профиля. */
 export const TRAFFIC_PRESETS = ['10GB', '50GB', '100GB', '500GB', '1TB'] as const
 
-export function ServerSettings({
+function ServerPage({
   server,
   editingAccess = false,
-  onBack
-}: ServerSettingsProps): React.JSX.Element {
+  onBack,
+  mode,
+  initialSection,
+  onOpenProfiles,
+  onOpenSettings
+}: ServerPageProps): React.JSX.Element {
   const { t } = useTranslation()
   const [access, setAccess] = useState<SshAccessInput>({
     username: server.username || 'root',
@@ -214,7 +254,7 @@ export function ServerSettings({
   const [toast, setToast] = useState<string | null>(null)
   // Раздел настроек. Панели скрываются атрибутом hidden (см. styles.sectionPane),
   // поэтому введённое в форме имя и счётчик не теряются при переключении.
-  const [section, setSection] = useState<SettingsSection>('profiles')
+  const [section, setSection] = useState<SettingsSection>(initialSection ?? 'create')
   const [hostKeyFingerprint, setHostKeyFingerprint] = useState<string | null>(
     server.hostKeyFingerprint ?? null
   )
@@ -1219,8 +1259,12 @@ export function ServerSettings({
           {t('dashboard.back')}
         </Button>
         <h1 className={styles.title}>
-          <Settings2 size={20} className={styles.titleIcon} />
-          {t('settings.title')}
+          {mode === 'profiles' ? (
+            <Layers size={20} className={styles.titleIcon} />
+          ) : (
+            <Settings2 size={20} className={styles.titleIcon} />
+          )}
+          {mode === 'profiles' ? t('settings.listTitle') : t('settings.title')}
         </h1>
         <span className={styles.serverName}>{server.name}</span>
         {connected && (
@@ -1338,25 +1382,43 @@ export function ServerSettings({
         {connected && (
           <>
             <nav className={styles.sectionTabs} role="tablist" aria-label={t('settings.sectionsAria')}>
-              {SETTINGS_SECTIONS.map((s) => (
-                <button
-                  key={s.id}
-                  type="button"
-                  role="tab"
-                  id={`tab-${s.id}`}
-                  aria-selected={section === s.id}
-                  aria-controls={`pane-${s.id}`}
-                  className={`${styles.sectionTab} ${
-                    section === s.id ? styles.sectionTabActive : ''
-                  }`}
-                  onClick={() => setSection(s.id)}
-                >
-                  {t(s.labelKey)}
-                </button>
-              ))}
+              {SETTINGS_TABS.map((tab) => {
+                const isProfiles = tab.id === 'profiles'
+                const active = isProfiles
+                  ? mode === 'profiles'
+                  : mode === 'settings' && section === tab.id
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    role="tab"
+                    id={`tab-${tab.id}`}
+                    aria-selected={active}
+                    aria-controls={
+                      !isProfiles && mode === 'settings' ? `pane-${tab.id}` : undefined
+                    }
+                    className={`${styles.sectionTab} ${active ? styles.sectionTabActive : ''}`}
+                    onClick={() => {
+                      if (tab.id === 'profiles') {
+                        if (mode !== 'profiles') onOpenProfiles?.()
+                        return
+                      }
+                      // Со страницы профилей вкладки уводят обратно в настройки.
+                      if (mode === 'profiles') onOpenSettings?.(tab.id)
+                      else setSection(tab.id)
+                    }}
+                  >
+                    {t(tab.labelKey)}
+                    {isProfiles && profiles && profiles.length > 0 && (
+                      <span className={styles.sectionTabCount}>{profiles.length}</span>
+                    )}
+                  </button>
+                )
+              })}
             </nav>
 
-            <div {...sectionPaneProps('profiles', section)}>
+            {mode === 'settings' && (
+            <div {...sectionPaneProps('create', section)}>
             <section
               className={`${styles.createCard} ${creating ? styles.createCardBusy : ''}`}
             >
@@ -1519,7 +1581,10 @@ export function ServerSettings({
                 </Button>
               </div>
             </section>
+            </div>
+            )}
 
+            {mode === 'profiles' && (
             <section className={styles.listCard}>
               <h2 className={styles.sectionTitle}>{t('settings.listTitle')}</h2>
               {profiles!.length > 0 && !expireSupported && (
@@ -1935,8 +2000,10 @@ export function ServerSettings({
                 </Fragment>
               ))}
             </section>
-            </div>
+            )}
 
+            {mode === 'settings' && (
+            <>
             <div {...sectionPaneProps('backends', section)}>
             <section>
               <div className={styles.listCard}>
@@ -2279,6 +2346,8 @@ export function ServerSettings({
               )}
             </section>
             </div>
+            </>
+            )}
 
             <AlertDialog.Root
               isOpen={actionTarget !== null && actionTarget.kind !== 'profile'}
@@ -3459,5 +3528,29 @@ export function ServerSettings({
         </AlertDialog.Backdrop>
       </AlertDialog.Root>
     </div>
+  )
+}
+
+/**
+ * Две страницы одного сервера. Список профилей и форма создания разведены по
+ * разным экранам, но делят доступ по SSH, загрузку данных и диалоги профиля —
+ * поэтому это один компонент с режимом, а не две копии.
+ */
+export function ServerSettings(props: ServerSettingsProps): React.JSX.Element {
+  return <ServerPage {...props} mode="settings" />
+}
+
+export function ServerProfiles({
+  server,
+  onBack,
+  onOpenSettings
+}: ServerProfilesProps): React.JSX.Element {
+  return (
+    <ServerPage
+      server={server}
+      onBack={onBack}
+      onOpenSettings={onOpenSettings}
+      mode="profiles"
+    />
   )
 }

@@ -175,7 +175,11 @@
   },
   "settings": {
     "title": "Server profiles",
-    "sectionProfiles": "Profiles",
+    "sectionProfiles": "Existing profiles",
+    "sectionCreate": "Create profile",
+    "profilesHeading": "Server profiles",
+    "profilesSearch": "Search by name or domain…",
+    "profilesCount": "Profiles: {{count}}",
     "sectionBackends": "Extra protocols",
     "sectionSubscription": "Subscription and TLS",
     "sectionsAria": "Server settings sections",

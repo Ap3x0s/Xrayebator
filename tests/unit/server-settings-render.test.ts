@@ -17,7 +17,12 @@ vi.mock('react-i18next', () => ({
 }))
 
 // eslint-disable-next-line import/first
-import { ServerSettings, SETTINGS_SECTIONS, sectionPaneProps } from '../../src/renderer/src/pages/ServerSettings'
+import {
+  ServerProfiles,
+  ServerSettings,
+  SETTINGS_SECTIONS,
+  sectionPaneProps
+} from '../../src/renderer/src/pages/ServerSettings'
 // eslint-disable-next-line import/first
 import type { Server } from '../../src/shared/types'
 
@@ -43,19 +48,31 @@ describe('ServerSettings render', () => {
     // До подключения навигация по разделам не нужна: она появляется в рабочем режиме.
     expect(html).not.toContain('role="tablist"')
   })
+
+  it('renders the profiles page as its own screen with its own title', () => {
+    // Список профилей переехал на отдельную страницу: у неё свой заголовок и
+    // тот же гейт подключения, а вкладок-панелей до подключения нет.
+    const html = renderToStaticMarkup(
+      createElement(ServerProfiles, { server, onBack: () => {} })
+    )
+    expect(html).toContain('settings.listTitle')
+    expect(html).not.toContain('settings.title')
+    expect(html).toContain('settings.connect')
+    expect(html).not.toContain('role="tablist"')
+  })
 })
 
 describe('settings sections', () => {
   it('lists all three sections with distinct ids', () => {
     const ids = SETTINGS_SECTIONS.map((s) => s.id)
-    expect(ids).toEqual(['profiles', 'backends', 'subscription'])
+    expect(ids).toEqual(['create', 'backends', 'subscription'])
     expect(new Set(SETTINGS_SECTIONS.map((s) => s.labelKey)).size).toBe(3)
   })
 
   it('hides the inactive panes instead of unmounting them', () => {
     // Контракт: панель всегда в DOM (иначе терялись бы введённые значения), неактивная
     // — скрыта атрибутом hidden и связана с вкладкой через aria.
-    for (const id of ['profiles', 'backends', 'subscription'] as const) {
+    for (const id of ['create', 'backends', 'subscription'] as const) {
       const active = sectionPaneProps(id, id)
       expect(active.hidden).toBe(false)
       expect(active.id).toBe(`pane-${id}`)

@@ -175,7 +175,11 @@
   },
   "settings": {
     "title": "服务器配置文件",
-    "sectionProfiles": "配置档",
+    "sectionProfiles": "现有配置档",
+    "sectionCreate": "创建配置档",
+    "profilesHeading": "服务器配置档",
+    "profilesSearch": "按名称或域名搜索…",
+    "profilesCount": "配置档：{{count}}",
     "sectionBackends": "附加协议",
     "sectionSubscription": "订阅与 TLS",
     "sectionsAria": "服务器设置分区",

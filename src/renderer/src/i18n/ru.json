@@ -175,7 +175,11 @@
   },
   "settings": {
     "title": "Профили сервера",
-    "sectionProfiles": "Профили",
+    "sectionProfiles": "Существующие профили",
+    "sectionCreate": "Создание профиля",
+    "profilesHeading": "Профили сервера",
+    "profilesSearch": "Поиск по имени или домену…",
+    "profilesCount": "Профилей: {{count}}",
     "sectionBackends": "Доп. протоколы",
     "sectionSubscription": "Подписка и TLS",
     "sectionsAria": "Разделы настроек сервера",
