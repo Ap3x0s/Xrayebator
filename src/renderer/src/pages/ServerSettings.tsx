@@ -853,7 +853,7 @@ export function ServerPage({
         )}
       >
         <span className={styles.chipWithIcon}>
-          <CalendarClock size={12} />
+          <CalendarClock size={14} />
           {expired
             ? t('settings.expireExpired')
             : t('settings.expireUntil', { date: info.date })}
@@ -942,7 +942,7 @@ export function ServerPage({
         title={title}
       >
         <span className={styles.chipWithIcon}>
-          <Database size={12} />
+          <Database size={14} />
           {t('settings.trafficShort')}: {label}
         </span>
       </Chip>
@@ -1723,7 +1723,6 @@ export function ServerPage({
                       <Chip size="sm" color="default">{transportLabel(profile)}</Chip>
                       <Chip size="sm" color="default">:{profile.port}</Chip>
                       <span className={styles.profileSni} title={t('settings.sniSelect')}>
-                        <Globe2 size={12} />
                         {t('settings.sniBtn')}: {profile.sni}
                       </span>
                       {expireChip(profile)}

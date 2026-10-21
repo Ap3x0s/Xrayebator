@@ -347,7 +347,7 @@
     "expireCleared": "已取消「{{name}}」的有效期：配置永久有效",
     "expireFailed": "无法保存有效期",
     "expireEnforced": "服务器每 10 分钟检查一次有效期。",
-    "expireUntil": "至 {{date}}",
+    "expireUntil": "有效期至 {{date}}",
     "expireExpired": "已过期",
     "expireHint": "该配置将在这一天自动停用",
     "expireHintSoon": "即将到期——请及时延长，否则配置会被服务器自动停用",

@@ -347,7 +347,7 @@
     "expireCleared": "Expiry of «{{name}}» removed: the profile is unlimited",
     "expireFailed": "Failed to save the expiry date",
     "expireEnforced": "The server checks expiry every 10 minutes.",
-    "expireUntil": "until {{date}}",
+    "expireUntil": "valid until {{date}}",
     "expireExpired": "expired",
     "expireHint": "The profile will be switched off automatically on this date",
     "expireHintSoon": "Expires within days — extend it, otherwise the profile is switched off automatically",
