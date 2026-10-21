@@ -943,7 +943,7 @@ export function ServerPage({
       >
         <span className={styles.chipWithIcon}>
           <Database size={12} />
-          {label}
+          {t('settings.trafficShort')}: {label}
         </span>
       </Chip>
     )
@@ -1724,7 +1724,7 @@ export function ServerPage({
                       <Chip size="sm" color="default">:{profile.port}</Chip>
                       <span className={styles.profileSni} title={t('settings.sniSelect')}>
                         <Globe2 size={12} />
-                        {profile.sni}
+                        {t('settings.sniBtn')}: {profile.sni}
                       </span>
                       {expireChip(profile)}
                       {trafficChip(profile)}
