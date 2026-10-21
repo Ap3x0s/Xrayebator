@@ -1057,18 +1057,19 @@
   text-overflow: ellipsis;
 }
 
-/* Домен — значение, а не текст: моно-бокс с рамкой, выровненный по подписи
-   (тот же левый край, что у label, поэтому «плывущей» строки не остаётся). */
+/* Значение — в боксе на всю ширину колонки: короткие «—» и «6 дн.» больше не
+   выглядят прилипшими к левому краю узкой плашки, все три колонки одинаковы. */
 .subValueBox {
-  align-self: flex-start;
+  align-self: stretch;
+  width: 100%;
   max-width: 100%;
-  min-width: 56px;
   padding: 3px 9px;
   border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--bg-2);
   font-family: var(--font-mono);
   font-size: 12px;
+  text-align: center;
 }
 
 .subValueWarn {
