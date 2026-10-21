@@ -176,10 +176,10 @@ Next `0.6.5` cut: the server manager plus the GUI traffic-limit card.
   screens are one component with a `mode` prop, so switching between them no longer re-runs the SSH
   work — connection, profiles, backends and subscription status are fetched once per opened server.
   Cards gained a transport icon and an `Active`/`Disabled` status (expired or over the traffic limit),
-  and the header gained a search over name/SNI/subscription URL plus an all/active/disabled filter,
-  A "Shown: N" line counts the cards actually rendered (the profile plus one per granted
-  backend). Expiry, traffic and SNI now carry calendar/database/globe
-  icons — "until 2026-11-16" and "182 KB" were readable only by format. From the reference layout
+  and the header gained a search over name/SNI/subscription URL plus an all/active/disabled filter. A
+  "Shown: N" line counts the cards actually rendered (the profile plus one per granted backend).
+  Expiry and traffic now carry calendar/database icons — "valid until 2026-11-16" and "182 KB" were
+  readable only by format. From the reference layout
   the progress bar, pagination and the duplicated footer were deliberately dropped: none of them
   measures or shows anything a handful of profiles does not already show.
 - **`xrayebator backend-start --type hysteria2|awg`** brings an *installed* backend whose unit is not
@@ -192,11 +192,11 @@ Next `0.6.5` cut: the server manager plus the GUI traffic-limit card.
 
 - **The "Subscription and TLS" card became compact and collapsible.** It used to be one long card
   whose status was a run-on line (`mode · domain · provider · cert days`) with the whole DNS-01 form
-  always open underneath. The collapsed card now shows an icon, the mode as a tone-coloured chip and
-  three labelled values, each in a monospace box under its label (domain, provider, certificate days
-  left — amber under two weeks), with the mode as a badge next to the title instead of a fourth
-  cell; clicking the header —
-  or the primary action — expands the form, and the explanatory hint moved into that expanded state.
+  always open underneath. The collapsed card now shows a certificate icon, the mode as a badge next to
+  the title (green for HTTPS modes, amber for `http_tls`), and three labelled values — domain, provider
+  and certificate days left (amber under two weeks) — each in a monospaced box spanning its column.
+  Clicking the header, or the primary action, expands the form, and the explanatory hint moved into
+  that expanded state.
 - **The profile settings window puts the current SNI in the corner of the "Route" box.** It used to hang under the profile name
   in the header: a bare mono line with no caption, which competed with the title in a narrow window (271 px) and read as an
   orphan in a wide one. The header is now exactly two lines — badge, kicker, profile name — and the SNI sits in the top-right

@@ -5,6 +5,7 @@ import {
   Settings2,
   Layers,
   Waypoints,
+  FileBadge,
   Cable,
   Boxes,
   Search,
@@ -2375,7 +2376,7 @@ export function ServerPage({
                 onClick={() => setDns01Open((v) => !v)}
               >
                 <span className={styles.subIcon}>
-                  <Globe2 size={20} />
+                  <FileBadge size={20} />
                 </span>
                 <span className={styles.subHeadText}>
                   <span className={styles.subTitleRow}>
