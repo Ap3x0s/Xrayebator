@@ -77,6 +77,7 @@ What the page shows:
 - the actions «Копировать» (the same URL) and «Настройки» (the profile window described below);
 - per-backend cards for profiles that hold a Hysteria 2 or AmneziaWG grant, with the QR codes and the
   same settings window;
+- a "Shown: N" line under the list: N counts the cards that are actually rendered — each profile plus one card per granted backend (Hysteria 2 / AmneziaWG) — so the number matches the screen.
 
 The page deliberately does not show a progress bar or pagination: neither measures anything useful for
 a handful of profiles, and the reference layout's duplicated footer (domain/expiry/size again) is

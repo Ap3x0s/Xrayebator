@@ -1292,6 +1292,17 @@ export function ServerPage({
     )
   })
 
+  /**
+   * Сколько карточек реально рисуется: сам профиль плюс карточка на каждый
+   * выданный грант бэкенда (Hysteria 2 / AmneziaWG). Считать только профили
+   * нечестно — на сервере из трёх профилей с двумя грантами на экране пять
+   * карточек, а счётчик показывал три.
+   */
+  const visibleCardCount = visibleProfiles.reduce(
+    (n, p) => n + 1 + (p.backends?.hysteria2 ? 1 : 0) + (p.backends?.awg ? 1 : 0),
+    0
+  )
+
   return (
     <div className={styles.root}>
       <header className={styles.header}>
@@ -2120,6 +2131,11 @@ export function ServerPage({
                   )}
                 </Fragment>
               ))}
+              {visibleProfiles.length > 0 && (
+                <p className={styles.profilesFooter}>
+                  {t('settings.profilesShown', { count: visibleCardCount })}
+                </p>
+              )}
             </section>
             )}
 
