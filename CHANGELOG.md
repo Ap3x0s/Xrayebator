@@ -4,7 +4,16 @@ User-facing Xrayebator changes. The server manager and Electron application are 
 
 ## [Unreleased]
 
-Next `0.6.5` cut: the server manager plus the GUI traffic-limit card.
+Nothing yet — the next cut starts here.
+
+## [0.7.0-beta.1] - 2026-10-21
+
+First beta of the `0.7` line: the whole multi-protocol stage in one release — Hysteria 2 and
+AmneziaWG 3.1 backends, PQ on every transport, DNS-01, four subscription bodies from one token,
+per-profile traffic limits and Telegram alerts — plus the GUI wave that came after `0.6.5-beta.2`
+and a long tail of fixes found on live servers. **Still a beta: if you need a proven build, stay
+on 0.6.0.** Validation: 42 Bash scripts, 172 unit tests, a live matrix of 8 deploys across four
+distributions.
 
 ### Added
 
