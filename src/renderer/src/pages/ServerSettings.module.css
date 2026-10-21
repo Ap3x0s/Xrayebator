@@ -980,9 +980,17 @@
   text-overflow: ellipsis;
 }
 
-.subChip {
-  margin-left: auto;
-  padding: 3px 9px;
+/* Режим подписки — бейдж рядом с заголовком, а не подпись в общем ряду:
+   ip_tls/domain_tls читаются как «всё в порядке», http_tls — предупреждение. */
+.subTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.subMode {
+  padding: 2px 9px;
   border-radius: 999px;
   border: 1px solid var(--border);
   background: var(--bg-2);
@@ -990,21 +998,25 @@
   font-family: var(--font-mono);
   font-size: 11px;
   font-weight: 600;
+  letter-spacing: 0.02em;
   white-space: nowrap;
 }
 
-.subChipOk {
+.subModeOk {
   border-color: color-mix(in srgb, var(--success, #3fb950) 45%, var(--border));
+  background: color-mix(in srgb, var(--success, #3fb950) 12%, transparent);
   color: var(--success, #3fb950);
 }
 
-.subChipWarn {
+.subModeWarn {
   border-color: color-mix(in srgb, var(--warning, #d29922) 45%, var(--border));
+  background: color-mix(in srgb, var(--warning, #d29922) 12%, transparent);
   color: var(--warning, #d29922);
 }
 
 .subChevron {
   display: inline-flex;
+  margin-left: auto;
   color: var(--text-2);
   transition: transform 0.15s ease;
 }
@@ -1043,6 +1055,23 @@
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+/* Домен — значение, а не текст: моно-бокс с рамкой, выровненный по подписи
+   (тот же левый край, что у label, поэтому «плывущей» строки не остаётся). */
+.subValueBox {
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 3px 9px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.subValueWarn {
+  color: var(--warning, #d29922);
 }
 
 .subNotice {

@@ -1310,6 +1310,10 @@ export function ServerPage({
         ? 'warn'
         : ''
 
+  /** Сертификат истекает в ближайшие две недели — красим срок, чтобы не проглядеть. */
+  const dns01CertSoon =
+    (dns01Status?.cert_expiry ?? 0) > 0 && (dns01Status?.days_left ?? 0) < 14
+
   return (
     <div className={styles.root}>
       <header className={styles.header}>
@@ -2371,24 +2375,26 @@ export function ServerPage({
                 onClick={() => setDns01Open((v) => !v)}
               >
                 <span className={styles.subIcon}>
-                  <ShieldCheck size={20} />
+                  <Globe2 size={20} />
                 </span>
                 <span className={styles.subHeadText}>
-                  <span className={styles.subTitle}>{t('settings.dns01Title')}</span>
+                  <span className={styles.subTitleRow}>
+                    <span className={styles.subTitle}>{t('settings.dns01Title')}</span>
+                    <span
+                      className={`${styles.subMode} ${
+                        dns01Tone === 'ok'
+                          ? styles.subModeOk
+                          : dns01Tone === 'warn'
+                            ? styles.subModeWarn
+                            : ''
+                      }`}
+                    >
+                      {dns01Status?.tls_mode || t('settings.dns01ModeUnknown')}
+                    </span>
+                  </span>
                   <span className={styles.subSubtitle}>
                     {dns01Status?.domain || t('settings.dns01NoDomain')}
                   </span>
-                </span>
-                <span
-                  className={`${styles.subChip} ${
-                    dns01Tone === 'ok'
-                      ? styles.subChipOk
-                      : dns01Tone === 'warn'
-                        ? styles.subChipWarn
-                        : ''
-                  }`}
-                >
-                  {dns01Status?.tls_mode || t('settings.dns01ModeUnknown')}
                 </span>
                 <span
                   className={`${styles.subChevron} ${dns01Open ? styles.subChevronOpen : ''}`}
@@ -2399,17 +2405,17 @@ export function ServerPage({
               </button>
 
               {/* Раньше статус шёл одной строкой через «·» и читался как предложение.
-                  Теперь это четыре подписанных значения сеткой. */}
+                  Теперь режим — бейджем у заголовка, остальное — подписанными
+                  значениями; домен вынесен в моно-бокс, чтобы читался как значение. */}
               <dl className={styles.subGrid}>
                 <div className={styles.subRow}>
-                  <dt className={styles.subLabel}>{t('settings.dns01Mode')}</dt>
-                  <dd className={styles.subValue}>
-                    {dns01Status?.tls_mode || t('settings.dns01ModeUnknown')}
-                  </dd>
-                </div>
-                <div className={styles.subRow}>
                   <dt className={styles.subLabel}>{t('settings.dns01Domain')}</dt>
-                  <dd className={styles.subValue}>{dns01Status?.domain || '—'}</dd>
+                  <dd
+                    className={`${styles.subValue} ${styles.subValueBox}`}
+                    title={dns01Status?.domain ?? ''}
+                  >
+                    {dns01Status?.domain || '—'}
+                  </dd>
                 </div>
                 <div className={styles.subRow}>
                   <dt className={styles.subLabel}>{t('settings.dns01Provider')}</dt>
@@ -2417,7 +2423,11 @@ export function ServerPage({
                 </div>
                 <div className={styles.subRow}>
                   <dt className={styles.subLabel}>{t('settings.dns01Cert')}</dt>
-                  <dd className={styles.subValue}>
+                  <dd
+                    className={`${styles.subValue} ${
+                      dns01CertSoon ? styles.subValueWarn : ''
+                    }`}
+                  >
                     {(dns01Status?.cert_expiry ?? 0) > 0
                       ? `${dns01Status?.days_left} ${t('settings.dns01Days')}`
                       : '—'}
