@@ -193,8 +193,9 @@ Next `0.6.5` cut: the server manager plus the GUI traffic-limit card.
 - **The "Subscription and TLS" card became compact and collapsible.** It used to be one long card
   whose status was a run-on line (`mode · domain · provider · cert days`) with the whole DNS-01 form
   always open underneath. The collapsed card now shows an icon, the mode as a tone-coloured chip and
-  three labelled values (domain in a monospace box, provider, certificate days left — amber under two
-  weeks), with the mode as a badge next to the title instead of a fourth cell; clicking the header —
+  three labelled values, each in a monospace box under its label (domain, provider, certificate days
+  left — amber under two weeks), with the mode as a badge next to the title instead of a fourth
+  cell; clicking the header —
   or the primary action — expands the form, and the explanatory hint moved into that expanded state.
 - **The profile settings window puts the current SNI in the corner of the "Route" box.** It used to hang under the profile name
   in the header: a bare mono line with no caption, which competed with the title in a narrow window (271 px) and read as an

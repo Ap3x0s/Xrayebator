@@ -2405,8 +2405,9 @@ export function ServerPage({
               </button>
 
               {/* Раньше статус шёл одной строкой через «·» и читался как предложение.
-                  Теперь режим — бейджем у заголовка, остальное — подписанными
-                  значениями; домен вынесен в моно-бокс, чтобы читался как значение. */}
+                  Теперь режим — бейджем у заголовка, а значения — одинаковыми
+                  моно-боксами под подписями: иначе домен выглядел значением, а
+                  провайдер и срок — просто текстом. */}
               <dl className={styles.subGrid}>
                 <div className={styles.subRow}>
                   <dt className={styles.subLabel}>{t('settings.dns01Domain')}</dt>
@@ -2419,12 +2420,14 @@ export function ServerPage({
                 </div>
                 <div className={styles.subRow}>
                   <dt className={styles.subLabel}>{t('settings.dns01Provider')}</dt>
-                  <dd className={styles.subValue}>{dns01Status?.provider || '—'}</dd>
+                  <dd className={`${styles.subValue} ${styles.subValueBox}`}>
+                    {dns01Status?.provider || '—'}
+                  </dd>
                 </div>
                 <div className={styles.subRow}>
                   <dt className={styles.subLabel}>{t('settings.dns01Cert')}</dt>
                   <dd
-                    className={`${styles.subValue} ${
+                    className={`${styles.subValue} ${styles.subValueBox} ${
                       dns01CertSoon ? styles.subValueWarn : ''
                     }`}
                   >

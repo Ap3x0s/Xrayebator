@@ -1062,6 +1062,7 @@
 .subValueBox {
   align-self: flex-start;
   max-width: 100%;
+  min-width: 56px;
   padding: 3px 9px;
   border-radius: 8px;
   border: 1px solid var(--border);
