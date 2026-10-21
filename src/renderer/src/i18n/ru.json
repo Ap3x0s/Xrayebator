@@ -184,7 +184,7 @@
     "profileFilterAll": "Все профили",
     "profileFilterActive": "Активные",
     "profileFilterDisabled": "Отключённые",
-    "profilesShown": "Показано: {{count}}",
+    "profilesShown": "Профилей: {{count}}",
     "profileStatusOn": "Активен",
     "profileStatusOff": "Отключён",
     "profilesNotFound": "Ничего не найдено",

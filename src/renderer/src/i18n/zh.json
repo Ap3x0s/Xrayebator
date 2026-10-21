@@ -184,7 +184,7 @@
     "profileFilterAll": "全部配置档",
     "profileFilterActive": "活跃",
     "profileFilterDisabled": "已停用",
-    "profilesShown": "显示：{{count}}",
+    "profilesShown": "配置档：{{count}}",
     "profileStatusOn": "活跃",
     "profileStatusOff": "已停用",
     "profilesNotFound": "未找到匹配项",
