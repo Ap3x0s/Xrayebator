@@ -4,6 +4,10 @@ import { Button, TextField, Label, Input, Chip, Spinner, AlertDialog, Dropdown, 
 import {
   Settings2,
   Layers,
+  Waypoints,
+  Cable,
+  Boxes,
+  Search,
   Play,
   Trash2,
   Lock,
@@ -255,6 +259,8 @@ function ServerPage({
   // Раздел настроек. Панели скрываются атрибутом hidden (см. styles.sectionPane),
   // поэтому введённое в форме имя и счётчик не теряются при переключении.
   const [section, setSection] = useState<SettingsSection>(initialSection ?? 'create')
+  /** Поиск по странице профилей: имя, SNI или ссылка подписки. */
+  const [profileQuery, setProfileQuery] = useState('')
   const [hostKeyFingerprint, setHostKeyFingerprint] = useState<string | null>(
     server.hostKeyFingerprint ?? null
   )
@@ -1247,6 +1253,28 @@ function ServerPage({
   const transportLabel = (profile: ServerProfile): string =>
     profile.multi_route ? `${profile.transport} · ${profile.routes} ${t('settings.routes')}` : profile.transport
 
+  /** Иконка транспорта у строки профиля; у бэкенд-строк свои логотипы. */
+  const transportIcon = (profile: ServerProfile): React.JSX.Element => {
+    if (profile.transport === 'xhttp') return <Waypoints size={18} />
+    if (profile.transport === 'grpc') return <Boxes size={18} />
+    return <Cable size={18} />
+  }
+
+  /** Профиль отключён сервером: истёк срок или исчерпан лимит трафика. */
+  const profileOff = (profile: ServerProfile): boolean =>
+    profile.expire_disabled === true || profile.traffic_disabled === true
+
+  /** Поиск по странице профилей: имя, SNI или ссылка подписки. */
+  const visibleProfiles = (profiles ?? []).filter((p) => {
+    const q = profileQuery.trim().toLowerCase()
+    if (!q) return true
+    return (
+      p.name.toLowerCase().includes(q) ||
+      (p.sni ?? '').toLowerCase().includes(q) ||
+      (p.subscription_url ?? '').toLowerCase().includes(q)
+    )
+  })
+
   return (
     <div className={styles.root}>
       <header className={styles.header}>
@@ -1586,17 +1614,55 @@ function ServerPage({
 
             {mode === 'profiles' && (
             <section className={styles.listCard}>
-              <h2 className={styles.sectionTitle}>{t('settings.listTitle')}</h2>
+              <div className={styles.profilesHead}>
+                <h2 className={styles.sectionTitle}>{t('settings.profilesHeading')}</h2>
+                <span className={styles.profilesCount}>
+                  {t('settings.profilesCount', { count: visibleProfiles.length })}
+                </span>
+              </div>
+              <div className={styles.profilesToolbar}>
+                <span className={styles.profilesSearchIcon}>
+                  <Search size={15} />
+                </span>
+                <input
+                  className={styles.profilesSearchInput}
+                  value={profileQuery}
+                  onChange={(e) => setProfileQuery(e.target.value)}
+                  placeholder={t('settings.profilesSearch')}
+                  aria-label={t('settings.profilesSearch')}
+                  type="search"
+                />
+              </div>
               {profiles!.length > 0 && !expireSupported && (
                 <p className={styles.serverTooOld}>{t('settings.serverTooOld')}</p>
               )}
               {profiles!.length === 0 && <div className={styles.empty}>{t('settings.empty')}</div>}
-              {profiles!.map((profile) => (
+              {profiles!.length > 0 && visibleProfiles.length === 0 && (
+                <div className={styles.empty}>{t('settings.profilesNotFound')}</div>
+              )}
+              {visibleProfiles.map((profile) => (
                 <Fragment key={profile.name}>
                 <div className={styles.profileCard}>
+                  <span
+                    className={`${styles.profileIcon} ${
+                      profileOff(profile) ? styles.profileIconOff : ''
+                    }`}
+                  >
+                    {transportIcon(profile)}
+                  </span>
                   <div className={styles.profileMain}>
                     <div className={styles.profileNameRow}>
                       <span className={styles.profileName}>{profile.name}</span>
+                      <span
+                        className={`${styles.profileStatus} ${
+                          profileOff(profile) ? styles.profileStatusOff : ''
+                        }`}
+                      >
+                        <span className={styles.profileStatusDot} />
+                        {profileOff(profile)
+                          ? t('settings.profileStatusOff')
+                          : t('settings.profileStatusOn')}
+                      </span>
                       {profile.multi_route && <Chip size="sm" color="accent">{t('settings.happ')}</Chip>}
                       {(profile.pq_enabled || (profile.pq_routes ?? 0) > 0) && (<Chip size="sm" color="default">{(profile.pq_routes ?? 0) > 1 ? `PQ ×${profile.pq_routes}` : 'PQ'}</Chip>)}
                     </div>
