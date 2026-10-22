@@ -22,8 +22,9 @@ User-facing Xrayebator changes. The server manager and Electron application are 
 The `0.7` line: the whole multi-protocol stage in one release — Hysteria 2 and AmneziaWG 3.1
 backends, PQ on every transport, DNS-01, four subscription bodies from one token, per-profile
 traffic limits and Telegram alerts — plus the GUI wave that came after `0.6.5-beta.2` and a long
-tail of stability and security fixes. Validation: 42 Bash scripts, 172 unit tests, control deploys
-on four distributions plus fresh Ubuntu 22.04 runs with every route verified by a real Xray client.
+tail of stability and security fixes. Validation: 42 Bash scripts, 172 unit tests, three live
+deployments (two fresh control runs on Ubuntu 22.04 and a production server) with every route
+verified by a real Xray client, plus control deploys on four distributions.
 
 ### Added
 
