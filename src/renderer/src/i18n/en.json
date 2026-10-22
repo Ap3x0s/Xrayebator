@@ -156,6 +156,8 @@
     "none": "No keys yet",
     "gotoProfiles": "Go to profiles",
     "formatsTitle": "Client links",
+    "formatsToggle": "Clash / sing-box formats",
+    "formatsToggleHint": "Show the same key in Clash/mihomo and sing-box formats. By default the page shows the main set — the HAPP / v2ray subscription and the VLESS links.",
     "formatsNote": "The same subscription token in your client's format: Clash/mihomo takes YAML, sing-box takes JSON. Nothing changes on the server — the link is ready to use.",
     "formatClash": "Clash / mihomo (YAML)",
     "formatSingbox": "sing-box (JSON)",

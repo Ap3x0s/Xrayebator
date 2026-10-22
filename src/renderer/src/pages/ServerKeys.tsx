@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import QRCode from 'qrcode'
 import { Button, Chip, Spinner } from '@heroui/react'
-import { Settings2 } from 'lucide-react'
+import { Braces, Settings2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type {
   ProfileExpiryCache,
@@ -19,6 +19,36 @@ import styles from './ServerKeys.module.css'
 
 /** Форматы одной подписки: порядок фиксирован — Clash сверху, sing-box снизу. */
 const FORMAT_KINDS = ['clash', 'singbox'] as const
+
+/**
+ * Ссылки Clash/mihomo и sing-box — необязательный вид, а не часть основного
+ * набора: по умолчанию страница отдаёт те же ключи, что и раньше (подписка
+ * HAPP/v2ray + VLESS-ссылки). Иначе на каждый профиль печатались три почти
+ * одинаковых URL, и «ключ» выглядел задвоенным. Выбор запоминается, потому что
+ * он про клиент оператора, а не про конкретный сервер.
+ */
+const FORMATS_STORAGE_KEY = 'xrayebator-keys-formats'
+
+/**
+ * Выбор форматов живёт в localStorage, но его может не быть (SSR в тестах,
+ * приватный режим, выключенное хранилище) — тогда вид по умолчанию, без падения.
+ */
+function readFormatsPref(): boolean {
+  if (typeof window === 'undefined') return false
+  try {
+    return window.localStorage.getItem(FORMATS_STORAGE_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+function writeFormatsPref(value: boolean): void {
+  try {
+    window.localStorage.setItem(FORMATS_STORAGE_KEY, value ? '1' : '0')
+  } catch {
+    // Хранилище недоступно — вид просто не запомнится до следующего открытия.
+  }
+}
 
 interface ServerKeysProps {
   server: Server
@@ -39,6 +69,8 @@ export function ServerKeys({ server, onBack, onSettings }: ServerKeysProps): Rea
     server.subscriptionFormats ?? {}
   )
   const [subscriptionUrl, setSubscriptionUrl] = useState(server.subscriptionUrl)
+  // Дополнительный вид ключей (Clash/mihomo, sing-box) — выключен по умолчанию.
+  const [showFormats, setShowFormats] = useState<boolean>(readFormatsPref)
   const [toast, setToast] = useState<string | null>(null)
   const qrModalRef = useRef<HTMLDivElement>(null)
   const [loading, setLoading] = useState(false)
@@ -256,6 +288,14 @@ export function ServerKeys({ server, onBack, onSettings }: ServerKeysProps): Rea
   // Профили, для которых сервер отдал ссылки форматов.
   const formatNames = Object.keys(formats)
 
+  const toggleFormats = (): void => {
+    setShowFormats((prev) => {
+      const next = !prev
+      writeFormatsPref(next)
+      return next
+    })
+  }
+
   return (
     <div className={styles.root}>
       <header className={styles.header}>
@@ -263,6 +303,20 @@ export function ServerKeys({ server, onBack, onSettings }: ServerKeysProps): Rea
           {t('dashboard.back')}
         </Button>
         <h1 className={styles.title}>{server.name}</h1>
+        {formatNames.length > 0 && (
+          <span className={styles.formatsToggleWrap} title={t('keys.formatsToggleHint')}>
+            <Button
+              className={styles.formatsToggle}
+              variant="secondary"
+              size="sm"
+              aria-pressed={showFormats}
+              onPress={toggleFormats}
+            >
+              <Braces size={14} />
+              {t('keys.formatsToggle')}
+            </Button>
+          </span>
+        )}
       </header>
 
       <p className={styles.hint}>{t('keys.hint')}</p>
@@ -403,7 +457,7 @@ export function ServerKeys({ server, onBack, onSettings }: ServerKeysProps): Rea
           )
         })}
 
-        {formatNames.length > 0 && (
+        {showFormats && formatNames.length > 0 && (
           <div className={styles.keyCard}>
             <div className={styles.keyHeader}>
               <Chip size="sm" color="default">

@@ -156,6 +156,8 @@
     "none": "Ключи ещё не получены",
     "gotoProfiles": "Перейти к профилям",
     "formatsTitle": "Ссылки для клиентов",
+    "formatsToggle": "Форматы Clash / sing-box",
+    "formatsToggleHint": "Показать тот же ключ в форматах Clash/mihomo и sing-box. По умолчанию страница отдаёт основной набор — подписку HAPP / v2ray и VLESS-ссылки.",
     "formatsNote": "Тот же токен подписки, но в формате вашего клиента: Clash/mihomo принимает YAML, sing-box — JSON. Сервер ничего не меняет, ссылка уже готова.",
     "formatClash": "Clash / mihomo (YAML)",
     "formatSingbox": "sing-box (JSON)",

@@ -233,6 +233,16 @@ distributions.
 
 ### Fixed
 
+- **The Keys page printed every key three times.** The Clash/mihomo and sing-box links of a
+  subscription were rendered next to the main keys unconditionally, so each profile showed the same
+  token in three shapes and the key list read as duplicated — while the product targets HAPP, Hiddify
+  and v2rayNG, which all use the plain subscription. The formats are now an opt-in view: the page
+  serves the main set (HAPP/v2ray subscription plus the VLESS links) by default, and the
+  «Clash / sing-box formats» toggle in the header adds the second view. The choice is kept in
+  `localStorage`, because it describes the operator's client rather than a particular server, and the
+  toggle only appears when the server actually returns format links. Verified by rendering the page
+  in an offscreen Electron build with a stubbed store: five key cards plus the copy-all button by
+  default, six cards with the toggle on.
 - **`xrayebator-uninstall` left the optional backends running.** It deleted the neutral
   `/usr/local/etc/xrayebator` root but never stopped `hysteria-server.service` or `awg-quick@awg0`,
   so both units stayed enabled with their configs gone and the first reboot produced two failed

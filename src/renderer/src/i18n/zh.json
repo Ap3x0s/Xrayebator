@@ -156,6 +156,8 @@
     "none": "暂无密钥",
     "gotoProfiles": "前往配置档",
     "formatsTitle": "客户端链接",
+    "formatsToggle": "Clash / sing-box 格式",
+    "formatsToggleHint": "以 Clash/mihomo 和 sing-box 格式显示同一个密钥。默认页面显示主集合——HAPP / v2ray 订阅与 VLESS 链接。",
     "formatsNote": "同一个订阅令牌，只是换成你客户端的格式：Clash/mihomo 使用 YAML，sing-box 使用 JSON。服务器不做任何改动，链接已可直接使用。",
     "formatClash": "Clash / mihomo (YAML)",
     "formatSingbox": "sing-box (JSON)",
