@@ -100,7 +100,7 @@ legacy-файлы и блоки, ранее созданные Xrayebator, и с
 | `9` | Собственный домен и self-steal заглушка |
 | `10` | Поднять outbound-сервер, чтобы другой VPS мог использовать этот как зарубежную ноду каскада |
 | `11` | Бэкенд Hysteria 2: установка/статус/ссылка клиента/удаление (быстрый UDP-транспорт) |
-| `12` | Бэкенд AmneziaWG 2.0: установка/статус/конфиг клиента/удаление (системный VPN) |
+| `12` | Бэкенд AmneziaWG (3.1 по умолчанию): установка/статус/конфиг клиента/удаление (системный VPN) |
 | `13` | Статус всех мультипротокольных бэкендов |
 | `14` | Уведомления в Telegram: настройка, тест, включение/выключение, состояние мониторинга |
 | `0` | Выход |
@@ -150,7 +150,7 @@ legacy-файлы и блоки, ранее созданные Xrayebator, и с
 | `sudo xrayebator hysteria2-grant --name N` | Выдать per-profile креденшел Hysteria 2 (в `.backends.hysteria2` профиля); серверный конфиг регенерируется из всех профилей; JSON |
 | `sudo xrayebator hysteria2-subbody --on\|--off` | Килл-свитч строк `hysteria2://` в обоих телах подписки: флаг живёт в реестре бэкендов, обработчик перечитывает его на каждый запрос, без рестарта сервиса; JSON |
 | `sudo xrayebator hysteria2-link --name N` | Ссылка `hysteria2://` профиля с грантом в JSON `{ok, name, link}` (именование как у VLESS-маршрутов, с флагом страны) |
-| `sudo xrayebator awg-install [--grant-all]` | Установить системный VPN-бэкенд AmneziaWG 2.0: kernel-модуль через DKMS (PPA `amnezia/ppa`, фолбэк — сборка), интерфейс `awg0` на случайном высоком UDP-порту, junk-параметры как в дефолте Amnezia, `ip_forward` + MASQUERADE; модуль прописывается в `/etc/modules-load.d/xrayebator-awg.conf` для загрузки при старте ОС (без этого после перезагрузки туннель оставался лежать); повторный запуск на существующей установке ремонтирует рантайм; JSON |
+| `sudo xrayebator awg-install [--grant-all]` | Установить системный VPN-бэкенд AmneziaWG (3.1 по умолчанию): kernel-модуль через DKMS (PPA `amnezia/ppa`, фолбэк — сборка), интерфейс `awg0` на случайном высоком UDP-порту, junk-параметры как в дефолте Amnezia, `ip_forward` + MASQUERADE; модуль прописывается в `/etc/modules-load.d/xrayebator-awg.conf` для загрузки при старте ОС (без этого после перезагрузки туннель оставался лежать); повторный запуск на существующей установке ремонтирует рантайм; JSON |
 | `sudo xrayebator awg-uninstall` | Удалить бэкенд AmneziaWG (интерфейс, конфиг, symlink, правило firewall; пакеты/модуль остаются в системе); JSON |
 | `sudo xrayebator awg-status` | Статус бэкенда AmneziaWG (JSON) |
 | `sudo xrayebator awg-grant --name N` | Выдать per-profile peer (ключевая пара + preshared key + адрес `10.8.1.x` в `.backends.awg` профиля); `awg0.conf` регенерируется; JSON |
@@ -339,7 +339,7 @@ Hysteria и ключи AWG peer-а, истечение срока снимает
 `hysteria2://user:pass@host:port/?sni=…&insecure=0|1#name` добавляются в оба тела подписки (HAPP и
 generic); флаг `sub_body` в реестре — выключатель на случай капризного парсера.
 
-### AmneziaWG 2.0 (системный VPN)
+### AmneziaWG (системный VPN, 3.1 по умолчанию)
 
 `awg-install` собирает kernel-модуль через DKMS (основной путь — PPA `amnezia/ppa`; фолбэк —
 сборка из исходников, для ядер ≥ 5.6 нужен полный `linux-source`) и поднимает интерфейс `awg0`

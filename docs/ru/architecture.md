@@ -182,7 +182,7 @@ URL и способ проверки домена для Let's Encrypt: `dns01-s
   TLS (сертификат подписки Let's Encrypt + deploy-hook на продление, иначе self-signed);
   `auth: userpass` — один credential на профиль и placeholder-пользователь, пока карта пуста
   (Hysteria отвергает пустую карту).
-- **AmneziaWG 2.0** — системный VPN. Kernel-модуль через DKMS (основной путь — PPA `amnezia/ppa`,
+- **AmneziaWG (2.0 / 3.1)** — системный VPN. Kernel-модуль через DKMS (основной путь — PPA `amnezia/ppa`,
   фолбэк — сборка из исходников), интерфейс `awg0` через `awg-quick@awg0`, подсеть `10.8.1.0/24`,
   peer-ы на профиль (ключевая пара + preshared key + адрес), `ip_forward` и MASQUERADE на
   интерфейс default-route. Дистрибутивный юнит читает `/etc/amnezia/amneziawg/awg0.conf` — это

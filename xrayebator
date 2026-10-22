@@ -3563,12 +3563,12 @@ backend_status_menu() {
   done
 }
 
-# Меню 12: AmneziaWG 2.0 (системный VPN).
+# Меню 12: AmneziaWG (системный VPN).
 awg_menu() {
   while true; do
     show_ascii
     echo -e "${BLUE}╔═══════════════════════════════════════════════╗${NC}"
-    echo -e "${BLUE}║         AMNEZIAWG 2.0 (СИСТЕМНЫЙ VPN)         ║${NC}"
+    echo -e "${BLUE}║           AMNEZIAWG (СИСТЕМНЫЙ VPN)           ║${NC}"
     echo -e "${BLUE}╚═══════════════════════════════════════════════╝${NC}"
     echo ""
     if _backend_installed awg; then
@@ -3690,7 +3690,7 @@ hysteria2_menu() {
 # ═══════════════════════════════════════════════════════════
 
 # ═══════════════════════════════════════════════════════════
-# BACKEND: AMNEZIAWG 2.0 (системный VPN) — срезы 4–5
+# BACKEND: AMNEZIAWG (системный VPN) — срезы 4–5
 # ═══════════════════════════════════════════════════════════
 # Решение 2026-10-04: kernel-модуль DKMS, не userspace. Официальный путь —
 # PPA amnezia/ppa (README amneziawg-linux-kernel-module); фолбэк — сборка
@@ -11274,7 +11274,7 @@ main_menu() {
     echo ""
     echo -e "${MAGENTA} MULTI-PROTOCOL BACKENDS:${NC}"
     echo -e "${CYAN}11)${NC} Hysteria 2 (быстрый UDP)"
-    echo -e "${CYAN}12)${NC} AmneziaWG 2.0 (системный VPN)"
+    echo -e "${CYAN}12)${NC} AmneziaWG (системный VPN)"
     echo -e "${CYAN}13)${NC} Статус бэкендов"
     echo ""
     echo -e "${MAGENTA} МОНИТОРИНГ:${NC}"
@@ -18829,7 +18829,7 @@ if [[ "$XRAYEBATOR_SOURCED" -eq 0 ]]; then
       echo -e "  ${CYAN}sudo xrayebator hysteria2-grant --name N${NC} — выдать грант профилю (JSON)"
       echo -e "  ${CYAN}sudo xrayebator hysteria2-subbody --on|--off${NC} — hysteria2-строки в подписке (JSON)"
       echo -e "  ${CYAN}sudo xrayebator hysteria2-link --name N${NC} — hysteria2-ссылка профиля (JSON)"
-      echo -e "  ${CYAN}sudo xrayebator awg-install${NC} — установить AmneziaWG 2.0 (JSON)"
+      echo -e "  ${CYAN}sudo xrayebator awg-install${NC} — установить AmneziaWG (системный VPN, JSON)"
       echo -e "  ${CYAN}sudo xrayebator awg-uninstall${NC} — удалить AmneziaWG (JSON)"
       echo -e "  ${CYAN}sudo xrayebator awg-status${NC} — статус AmneziaWG (JSON)"
       echo -e "  ${CYAN}sudo xrayebator awg-grant --name N${NC} — выдать peer-грант профилю (JSON)"

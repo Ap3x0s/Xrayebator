@@ -98,7 +98,7 @@ The interactive menu uses these exact meanings:
 | `9` | Custom domain and self-steal stub |
 | `10` | Set up an outbound server so another VPS can use this server as a foreign cascade node |
 | `11` | Hysteria 2 backend: install/status/client link/uninstall (fast UDP transport) |
-| `12` | AmneziaWG 2.0 backend: install/status/client conf/uninstall (system VPN) |
+| `12` | AmneziaWG backend (3.1 by default): install/status/client conf/uninstall (system VPN) |
 | `13` | Status of all multi-protocol backends |
 | `14` | Telegram alerts: setup, test, enable/disable, monitoring state |
 | `0` | Exit |
@@ -147,7 +147,7 @@ is a client-side profile/route setting; changing it does not restart Xray or alt
 | `sudo xrayebator hysteria2-grant --name N` | Issue a per-profile Hysteria 2 credential (stored in the profile's `.backends.hysteria2`); the server config is regenerated from all profiles; prints JSON |
 | `sudo xrayebator hysteria2-subbody --on\|--off` | Kill switch for the `hysteria2://` lines in both subscription bodies: the flag lives in the backend registry and the handler re-reads it on every request, no service restart; prints JSON |
 | `sudo xrayebator hysteria2-link --name N` | Print the `hysteria2://` link of a profile with a grant as JSON `{ok, name, link}` (naming mirrors the VLESS routes, with the country flag) |
-| `sudo xrayebator awg-install [--grant-all]` | Install the AmneziaWG 2.0 system-VPN backend: kernel module via DKMS (PPA `amnezia/ppa`, source-build fallback), `awg0` interface with a random high UDP port, junk parameters matching the Amnezia defaults, `ip_forward` + MASQUERADE; the module is registered for boot in `/etc/modules-load.d/xrayebator-awg.conf` (without it a reboot left the tunnel down); re-running on an existing installation repairs the runtime; prints JSON |
+| `sudo xrayebator awg-install [--grant-all]` | Install the AmneziaWG system-VPN backend (3.1 by default): kernel module via DKMS (PPA `amnezia/ppa`, source-build fallback), `awg0` interface with a random high UDP port, junk parameters matching the Amnezia defaults, `ip_forward` + MASQUERADE; the module is registered for boot in `/etc/modules-load.d/xrayebator-awg.conf` (without it a reboot left the tunnel down); re-running on an existing installation repairs the runtime; prints JSON |
 | `sudo xrayebator awg-uninstall` | Remove the AmneziaWG backend (interface, config, symlink, firewall rule; packages/module stay in the system); prints JSON |
 | `sudo xrayebator awg-status` | AmneziaWG backend status as JSON |
 | `sudo xrayebator awg-grant --name N` | Issue a per-profile peer (keypair + preshared key + `10.8.1.x` address in the profile's `.backends.awg`); `awg0.conf` is regenerated; prints JSON |
@@ -336,7 +336,7 @@ like `hysteria2://user:pass@host:port/?sni=…&insecure=0|1#name` and are append
 subscription bodies (HAPP and generic); the registry flag `sub_body` is the kill switch if a client
 parser objects.
 
-### AmneziaWG 2.0 (system VPN)
+### AmneziaWG (system VPN, 3.1 by default)
 
 `awg-install` builds the kernel module via DKMS (primary path: the `amnezia/ppa` PPA; fallback: a
 source build that needs the full `linux-source` tree on kernels ≥ 5.6) and brings up the `awg0`

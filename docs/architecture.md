@@ -187,7 +187,7 @@ propagate through `_backend_apply_profile_lifecycle` to every installed backend.
   subscription Let's Encrypt certificate plus a renewal deploy-hook, or a self-signed certificate);
   `auth: userpass` with one credential per profile and a placeholder user while the map would
   otherwise be empty (Hysteria rejects an empty map).
-- **AmneziaWG 2.0** — system VPN. Kernel module via DKMS (PPA `amnezia/ppa` primary, source build
+- **AmneziaWG (2.0 / 3.1)** — system VPN. Kernel module via DKMS (PPA `amnezia/ppa` primary, source build
   fallback), interface `awg0` through `awg-quick@awg0`, subnet `10.8.1.0/24`, per-profile peers
   (keypair + preshared key + address), `ip_forward` and MASQUERADE on the default-route interface.
   The distro unit reads `/etc/amnezia/amneziawg/awg0.conf`, which is a symlink to the managed file.

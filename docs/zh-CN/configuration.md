@@ -86,7 +86,7 @@ Xrayebator 不会更改主机的 TCP 拥塞控制算法，也不会写入或应�
 | `9` | 自有域名与 self-steal 挡板 |
 | `10` | 部署出站服务器，使本 VPS 成为级联的境外节点 |
 | `11` | Hysteria 2 后端：安装/状态/客户端链接/卸载（高速 UDP 传输） |
-| `12` | AmneziaWG 2.0 后端：安装/状态/客户端配置/卸载（系统级 VPN） |
+| `12` | AmneziaWG 后端（默认 3.1）：安装/状态/客户端配置/卸载（系统级 VPN） |
 | `13` | 所有后端的统一状态 |
 | `14` | Telegram 通知：配置、测试、启用/停用、监控状态 |
 | `0` | 退出 |
@@ -135,7 +135,7 @@ Xrayebator 不会更改主机的 TCP 拥塞控制算法，也不会写入或应�
 | `sudo xrayebator hysteria2-grant --name N` | 为配置档签发 Hysteria 2 凭据（存入配置档的 `.backends.hysteria2`）；服务端配置按全部配置档重新生成；JSON |
 | `sudo xrayebator hysteria2-subbody --on\|--off` | 两个订阅主体中 `hysteria2://` 行的总开关：标志存于后端注册表，处理器每次请求都会重读，无需重启服务；JSON |
 | `sudo xrayebator hysteria2-link --name N` | 以 JSON `{ok, name, link}` 输出持有授权配置档的 `hysteria2://` 链接（命名与 VLESS 路由一致，带国家旗帜） |
-| `sudo xrayebator awg-install [--grant-all]` | 安装 AmneziaWG 2.0 系统级 VPN 后端：DKMS 内核模块（首选 `amnezia/ppa` PPA，回退源码编译）、`awg0` 接口与随机高位 UDP 端口、junk 参数与 Amnezia 默认值一致、`ip_forward` + MASQUERADE；模块会写入 `/etc/modules-load.d/xrayebator-awg.conf` 以便开机加载（否则重启后隧道会一直处于关闭状态）；在已安装的机器上重跑会修复运行时；JSON |
+| `sudo xrayebator awg-install [--grant-all]` | 安装 AmneziaWG 系统级 VPN 后端（默认 3.1）：DKMS 内核模块（首选 `amnezia/ppa` PPA，回退源码编译）、`awg0` 接口与随机高位 UDP 端口、junk 参数与 Amnezia 默认值一致、`ip_forward` + MASQUERADE；模块会写入 `/etc/modules-load.d/xrayebator-awg.conf` 以便开机加载（否则重启后隧道会一直处于关闭状态）；在已安装的机器上重跑会修复运行时；JSON |
 | `sudo xrayebator awg-uninstall` | 移除 AmneziaWG 后端（接口、配置、symlink、防火墙规则；软件包与模块保留在系统中）；JSON |
 | `sudo xrayebator awg-status` | AmneziaWG 后端状态（JSON） |
 | `sudo xrayebator awg-grant --name N` | 为配置档签发 peer（密钥对 + 预共享密钥 + `10.8.1.x` 地址，存入 `.backends.awg`）；重新生成 `awg0.conf`；JSON |
@@ -304,7 +304,7 @@ Hysteria 拒绝空的 userpass 映射。客户端链接形如
 `hysteria2://user:pass@host:port/?sni=…&insecure=0|1#name`，会追加到两个订阅主体（HAPP 与通用）；
 注册表标志 `sub_body` 是客户端解析器出问题时的总开关。
 
-### AmneziaWG 2.0（系统级 VPN）
+### AmneziaWG（系统级 VPN，默认 3.1）
 
 `awg-install` 通过 DKMS 编译内核模块（首选 `amnezia/ppa` PPA；回退为源码编译，内核 ≥ 5.6 需要
 完整 `linux-source`），并通过 `awg-quick@awg0` 拉起 `awg0` 接口：随机高位 UDP 端口、网段

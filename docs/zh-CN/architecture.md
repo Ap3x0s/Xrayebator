@@ -156,7 +156,7 @@ certbot；续期使用标准的 `certbot.timer` 加 reload nginx 的 deploy-hook
   `hysteria` 用户运行并持有 `CAP_NET_BIND_SERVICE`；默认 UDP 443；自适应 TLS（复用订阅的
   Let's Encrypt 证书并附续期 deploy-hook，或自签证书）；`auth: userpass`，每个配置档一个凭据，
   映射可能为空时使用占位用户（Hysteria 拒绝空映射）。
-- **AmneziaWG 2.0** —— 系统级 VPN。通过 DKMS 的内核模块（首选 PPA `amnezia/ppa`，回退源码
+- **AmneziaWG（2.0 / 3.1）** —— 系统级 VPN。通过 DKMS 的内核模块（首选 PPA `amnezia/ppa`，回退源码
   编译），接口 `awg0` 走 `awg-quick@awg0`，网段 `10.8.1.0/24`，按配置档的 peer（密钥对 +
   预共享密钥 + 地址），`ip_forward` 与默认路由接口上的 MASQUERADE。发行版单元读取
   `/etc/amnezia/amneziawg/awg0.conf`——它是指向受管文件的 symlink。
