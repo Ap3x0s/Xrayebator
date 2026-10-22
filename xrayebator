@@ -1554,7 +1554,11 @@ channel_test_command() {
       '. + [{label: $lbl, transport: $transport, port: $port, pq: $pq,
              ok: $ok, http: $code, ms: $ms, client_log_tail: $err}]' <<<"$results")
     if [[ "$ok" == "true" ]]; then
-      echo "  ✓ $label ($transport:$port${pq:+, PQ}): http=$code, ${ms} мс"
+      # $pq — строка "true"/"false", а не флаг: `${pq:+, PQ}` подставляла «, PQ»
+      # и для обычных маршрутов, потому что "false" тоже непустая строка.
+      local pq_note=""
+      [[ "$pq" == "true" ]] && pq_note=", PQ"
+      echo "  ✓ $label ($transport:$port${pq_note}): http=$code, ${ms} мс"
     elif [[ "$started" != "true" ]]; then
       echo "  ✗ $label ($transport:$port): SOCKS-инбаунд клиента не поднялся"
     else
@@ -4071,12 +4075,17 @@ EOF
     [[ "$grant_ans" =~ ^[yYдД]$ ]] && _awg_grant_all_profiles
   fi
 
+  # Баннер не должен называть версию формата сам: 3.1 включён по умолчанию,
+  # а «AMNEZIAWG 2.0» на экране установки 3.1 — прямая дезинформация.
+  local awg_fmt="2.0"
+  [[ "$(_backend_field awg three_enabled 2>/dev/null)" == "true" ]] && awg_fmt="3.1"
   echo ""
   echo -e "${GREEN}╔═══════════════════════════════════════════════╗${NC}"
-  echo -e "${GREEN}║      ✓ AMNEZIAWG 2.0 УСТАНОВЛЕН               ║${NC}"
+  echo -e "${GREEN}║      ✓ AMNEZIAWG УСТАНОВЛЕН                   ║${NC}"
   echo -e "${GREEN}╚═══════════════════════════════════════════════╝${NC}"
   echo ""
   echo -e "${BLUE}Интерфейс:${NC} $AWG_IFACE, порт UDP $port, подсеть $AWG_SUBNET"
+  echo -e "${BLUE}Формат:${NC} AmneziaWG $awg_fmt"
   echo -e "${BLUE}Junk-параметры:${NC} $(jq -c '.junk' "$AWG_PARAMS_FILE")"
   echo -e "${BLUE}Peer-ов выдано:${NC} $(_awg_grants_count)"
   return 0

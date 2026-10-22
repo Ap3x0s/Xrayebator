@@ -4,7 +4,18 @@ User-facing Xrayebator changes. The server manager and Electron application are 
 
 ## [Unreleased]
 
-Nothing yet — the next cut starts here.
+### Fixed
+
+- **`channel-test` labelled every route as post-quantum.** The shell variable holds the string
+  `false` rather than an empty flag, so `${pq:+, PQ}` appended ", PQ" to every successful route. The
+  JSON was correct all along — only the human output lied, and on a live 8/8 run every line claimed
+  PQ. The suffix is now added only when `pq == true`. Verified on two live servers: with the fix only
+  `happ-xhttp-pq` carries the mark (166–272 ms per route), without it all seven routes did.
+- **The AmneziaWG install banner said "2.0" while 3.1 was on.** The banner was hard-coded, but 3.1
+  (`HeaderProtectionKey`, `RandomTrailers`, `S3`/`S4`) has been the default since the 3.1 stage — a
+  live install printed "AMNEZIAWG 2.0 УСТАНОВЛЕН" right next to a junk block that already carried the
+  3.1 fields. The banner no longer names a version; a separate `Формат:` line reports the format from
+  the backend registry (`three_enabled`).
 
 ## [0.7.0-beta.1] - 2026-10-21
 
