@@ -1273,6 +1273,17 @@ else
   echo -e "${CYAN}✓ Xray установлен (запустится при создании профиля)${NC}\n"
 fi
 
+# Защита SSH от перебора: fail2ban + лимиты авторизации. Публичный сервер с
+# root-паролем иначе перебирают тысячами попыток в сутки (замер: ~9 950 за
+# сутки со 115 адресов). Не критично для установки: нет apt/сети — идём дальше,
+# включить можно позже одной командой.
+if command -v xrayebator >/dev/null 2>&1 && xrayebator ssh-protect --enable --quiet >/dev/null 2>&1; then
+  echo -e "${GREEN}✓ SSH защищён от перебора (fail2ban, maxretry=4)${NC}"
+else
+  echo -e "${YELLOW}⚠ Защиту SSH включить не удалось — позже: ${NC}${CYAN}sudo xrayebator ssh-protect --enable${NC}"
+fi
+echo ""
+
 # Финальное сообщение
 clear
 echo -e "${GREEN}"
