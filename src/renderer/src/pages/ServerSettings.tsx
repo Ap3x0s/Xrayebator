@@ -41,7 +41,8 @@ import type {
   Server,
   ServerProfile,
   SniEntry,
-  SshAccessInput
+  SshAccessInput,
+  SshProtectStatusResult
 } from '@shared/types'
 import { isDns01Ready, type Dns01Input, type Dns01Provider } from '@shared/dns01'
 import { describeExpire, isFutureDate, presetDate } from '@shared/expire'
@@ -110,10 +111,11 @@ export const FINGERPRINTS = [
  * переехал на отдельную страницу (решение 2026-10-21), а на его месте осталась
  * форма создания — так вкладка и называется.
  */
-export type SettingsSection = 'create' | 'backends' | 'subscription'
+export type SettingsSection = 'create' | 'backends' | 'security' | 'subscription'
 export const SETTINGS_SECTIONS: { id: SettingsSection; labelKey: string }[] = [
   { id: 'create', labelKey: 'settings.sectionCreate' },
   { id: 'backends', labelKey: 'settings.sectionBackends' },
+  { id: 'security', labelKey: 'settings.sectionSecurity' },
   { id: 'subscription', labelKey: 'settings.sectionSubscription' }
 ]
 
@@ -126,6 +128,7 @@ const SETTINGS_TABS: { id: SettingsSection | 'profiles'; labelKey: string }[] = 
   { id: 'create', labelKey: 'settings.sectionCreate' },
   { id: 'profiles', labelKey: 'settings.sectionProfiles' },
   { id: 'backends', labelKey: 'settings.sectionBackends' },
+  { id: 'security', labelKey: 'settings.sectionSecurity' },
   { id: 'subscription', labelKey: 'settings.sectionSubscription' }
 ]
 
@@ -347,6 +350,10 @@ export function ServerPage({
   const [dns01AwsKeyId, setDns01AwsKeyId] = useState('')
   const [dns01AwsSecret, setDns01AwsSecret] = useState('')
   const [dns01Busy, setDns01Busy] = useState(false)
+  // Защита SSH от перебора: отдельный серверный статус (fail2ban + лимиты sshd).
+  const [sshProtect, setSshProtect] = useState<SshProtectStatusResult | null>(null)
+  const [sshProtectBusy, setSshProtectBusy] = useState(false)
+  const [sshProtectError, setSshProtectError] = useState<string | null>(null)
   const [pqTarget, setPqTarget] = useState<ServerProfile | null>(null)
   const [pqTransport, setPqTransport] = useState<string>('tcp')
   const [pqBusy, setPqBusy] = useState(false)
@@ -406,6 +413,17 @@ export function ServerPage({
         })
         .catch((err: unknown) =>
           setDns01Error(err instanceof Error ? err.message : String(err))
+        )
+      // Защита SSH — тоже best-effort: сервер со старым менеджером её не знает,
+      // и это не должно ронять ни профили, ни подписку.
+      void window.api.security
+        .sshProtectStatus(server.id, access)
+        .then((s) => {
+          setSshProtect(s)
+          setSshProtectError(s.ok ? null : s.error ?? null)
+        })
+        .catch((err: unknown) =>
+          setSshProtectError(err instanceof Error ? err.message : String(err))
         )
       const refreshed = await window.api.servers.get(server.id)
       setHostKeyFingerprint(refreshed?.hostKeyFingerprint ?? null)
@@ -506,6 +524,50 @@ export function ServerPage({
       setDns01Error(err instanceof Error ? err.message : String(err))
     } finally {
       setDns01Busy(false)
+    }
+  }
+
+  /**
+   * Защита SSH: одна кнопка, два направления. Статус после действия приходит тем
+   * же JSON-ответом, поэтому отдельный запрос не нужен. Парольный вход защита не
+   * выключает — иначе GUI перестал бы управлять сервером (он ходит по SSH-паролю).
+   */
+  const toggleSshProtect = async (enable: boolean): Promise<void> => {
+    if (!accessReady) {
+      setError(t('settings.errorPassword'))
+      return
+    }
+    setSshProtectBusy(true)
+    setSshProtectError(null)
+    try {
+      const res = enable
+        ? await window.api.security.sshProtectEnable(server.id, access)
+        : await window.api.security.sshProtectDisable(server.id, access)
+      setSshProtect(res)
+      if (res.ok !== true) {
+        setSshProtectError(res.error ?? t('settings.sshProtectFailed'))
+        return
+      }
+      toastText(enable ? t('settings.sshProtectOnToast') : t('settings.sshProtectOffToast'))
+    } catch (err) {
+      setSshProtectError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSshProtectBusy(false)
+    }
+  }
+
+  /** Перечитать статус защиты (например, после ручного разбана по SSH). */
+  const refreshSshProtect = async (): Promise<void> => {
+    setSshProtectBusy(true)
+    setSshProtectError(null)
+    try {
+      const res = await window.api.security.sshProtectStatus(server.id, access)
+      setSshProtect(res)
+      if (res.ok !== true) setSshProtectError(res.error ?? t('settings.sshProtectFailed'))
+    } catch (err) {
+      setSshProtectError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSshProtectBusy(false)
     }
   }
 
@@ -2365,6 +2427,110 @@ export function ServerPage({
                 )}
               </div>
             </section>
+            </div>
+
+            <div {...sectionPaneProps('security', section)}>
+              <section className={styles.subCard}>
+                <div className={styles.subHead}>
+                  <span className={styles.subIcon}>
+                    <ShieldCheck size={20} />
+                  </span>
+                  <span className={styles.subHeadText}>
+                    <span className={styles.subTitleRow}>
+                      <span className={styles.subTitle}>{t('settings.sshProtectTitle')}</span>
+                      <span
+                        className={`${styles.subMode} ${
+                          sshProtect?.active
+                            ? styles.subModeOk
+                            : sshProtect?.installed
+                              ? styles.subModeWarn
+                              : ''
+                        }`}
+                      >
+                        {sshProtect?.active
+                          ? t('settings.sshProtectOn')
+                          : sshProtect?.installed
+                            ? t('settings.sshProtectOff')
+                            : t('settings.sshProtectNotInstalled')}
+                      </span>
+                    </span>
+                    <span className={styles.subSubtitle}>
+                      {t('settings.sshProtectSubtitle')}
+                    </span>
+                  </span>
+                </div>
+
+                <dl className={styles.subGrid}>
+                  <div className={styles.subRow}>
+                    <dt className={styles.subLabel}>{t('settings.sshProtectLabelService')}</dt>
+                    <dd className={`${styles.subValue} ${styles.subValueBox}`}>
+                      fail2ban · {t('settings.sshProtectLabelJail')}
+                    </dd>
+                  </div>
+                  <div className={styles.subRow}>
+                    <dt className={styles.subLabel}>{t('settings.sshProtectLabelFailed')}</dt>
+                    <dd className={`${styles.subValue} ${styles.subValueBox}`}>
+                      {sshProtect?.failed_24h ?? 0}
+                    </dd>
+                  </div>
+                  <div className={styles.subRow}>
+                    <dt className={styles.subLabel}>{t('settings.sshProtectLabelBanned')}</dt>
+                    <dd className={`${styles.subValue} ${styles.subValueBox}`}>
+                      {sshProtect?.banned_current ?? 0}
+                    </dd>
+                  </div>
+                  <div className={styles.subRow}>
+                    <dt className={styles.subLabel}>{t('settings.sshProtectLabelLimits')}</dt>
+                    <dd className={`${styles.subValue} ${styles.subValueBox}`}>
+                      {sshProtect?.sshd_hardened
+                        ? `MaxAuthTries ${sshProtect?.max_auth_tries || '3'} · LoginGraceTime ${
+                            sshProtect?.login_grace_time || '30'
+                          }`
+                        : t('settings.sshProtectLimitsNone')}
+                    </dd>
+                  </div>
+                </dl>
+
+                {(sshProtect?.banned_ips?.length ?? 0) > 0 && (
+                  <p className={styles.subNotice}>
+                    {t('settings.sshProtectBannedList', {
+                      ips: (sshProtect?.banned_ips ?? []).join(', ')
+                    })}
+                  </p>
+                )}
+                {sshProtect?.password_authentication === 'yes' && (
+                  <p className={styles.subNotice}>{t('settings.sshProtectPasswordKept')}</p>
+                )}
+                {sshProtect && sshProtect.supported === false && (
+                  <p className={styles.subNotice}>{t('settings.sshProtectUnsupported')}</p>
+                )}
+                {sshProtectError && <p className={styles.error}>{sshProtectError}</p>}
+
+                <div className={styles.subActions}>
+                  <Button
+                    size="sm"
+                    variant={sshProtect?.active ? 'secondary' : 'primary'}
+                    isDisabled={sshProtectBusy || sshProtect?.supported === false}
+                    onPress={() => void toggleSshProtect(sshProtect?.active !== true)}
+                  >
+                    {sshProtectBusy
+                      ? t('settings.sshProtectBusy')
+                      : sshProtect?.active
+                        ? t('settings.sshProtectDisable')
+                        : t('settings.sshProtectEnable')}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    isDisabled={sshProtectBusy}
+                    onPress={() => void refreshSshProtect()}
+                  >
+                    <RefreshCw size={14} />
+                    {t('settings.sshProtectRefresh')}
+                  </Button>
+                </div>
+                <p className={styles.fpNote}>{t('settings.sshProtectHint')}</p>
+              </section>
             </div>
 
             <div {...sectionPaneProps('subscription', section)}>

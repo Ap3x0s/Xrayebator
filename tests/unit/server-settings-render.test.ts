@@ -60,16 +60,18 @@ describe('ServerSettings render', () => {
 })
 
 describe('settings sections', () => {
-  it('lists all three sections with distinct ids', () => {
+  it('lists all four sections with distinct ids', () => {
     const ids = SETTINGS_SECTIONS.map((s) => s.id)
-    expect(ids).toEqual(['create', 'backends', 'subscription'])
-    expect(new Set(SETTINGS_SECTIONS.map((s) => s.labelKey)).size).toBe(3)
+    // security появился вместе с защитой SSH от перебора: это серверная настройка,
+    // а не профильная, поэтому у неё своя панель, а не модалка.
+    expect(ids).toEqual(['create', 'backends', 'security', 'subscription'])
+    expect(new Set(SETTINGS_SECTIONS.map((s) => s.labelKey)).size).toBe(4)
   })
 
   it('hides the inactive panes instead of unmounting them', () => {
     // Контракт: панель всегда в DOM (иначе терялись бы введённые значения), неактивная
     // — скрыта атрибутом hidden и связана с вкладкой через aria.
-    for (const id of ['create', 'backends', 'subscription'] as const) {
+    for (const id of ['create', 'backends', 'security', 'subscription'] as const) {
       const active = sectionPaneProps(id, id)
       expect(active.hidden).toBe(false)
       expect(active.id).toBe(`pane-${id}`)
