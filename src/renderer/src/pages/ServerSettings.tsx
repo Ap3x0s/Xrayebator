@@ -111,11 +111,10 @@ export const FINGERPRINTS = [
  * переехал на отдельную страницу (решение 2026-10-21), а на его месте осталась
  * форма создания — так вкладка и называется.
  */
-export type SettingsSection = 'create' | 'backends' | 'security' | 'subscription'
+export type SettingsSection = 'create' | 'backends' | 'subscription'
 export const SETTINGS_SECTIONS: { id: SettingsSection; labelKey: string }[] = [
   { id: 'create', labelKey: 'settings.sectionCreate' },
   { id: 'backends', labelKey: 'settings.sectionBackends' },
-  { id: 'security', labelKey: 'settings.sectionSecurity' },
   { id: 'subscription', labelKey: 'settings.sectionSubscription' }
 ]
 
@@ -128,7 +127,6 @@ const SETTINGS_TABS: { id: SettingsSection | 'profiles'; labelKey: string }[] = 
   { id: 'create', labelKey: 'settings.sectionCreate' },
   { id: 'profiles', labelKey: 'settings.sectionProfiles' },
   { id: 'backends', labelKey: 'settings.sectionBackends' },
-  { id: 'security', labelKey: 'settings.sectionSecurity' },
   { id: 'subscription', labelKey: 'settings.sectionSubscription' }
 ]
 
@@ -2429,7 +2427,7 @@ export function ServerPage({
             </section>
             </div>
 
-            <div {...sectionPaneProps('security', section)}>
+            <div {...sectionPaneProps('subscription', section)}>
               <section className={styles.subCard}>
                 <div className={styles.subHead}>
                   <span className={styles.subIcon}>
@@ -2531,9 +2529,7 @@ export function ServerPage({
                 </div>
                 <p className={styles.fpNote}>{t('settings.sshProtectHint')}</p>
               </section>
-            </div>
 
-            <div {...sectionPaneProps('subscription', section)}>
             <section className={styles.subCard}>
               <button
                 type="button"
