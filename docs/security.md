@@ -133,6 +133,39 @@ ClientAliveCountMax 120
 TCPKeepAlive yes
 ```
 
+### Brute-force protection (fail2ban)
+
+A public VPS with an open SSH port is scanned continuously. Measured on a live deployment
+(2026-10-23): **9 953 failed logins in 24 hours from 115 addresses** — six of them in
+`109.160.32.0/24` with 1 197 attempts each — while `root` was allowed to authenticate by password.
+
+`sudo xrayebator ssh-protect --enable` closes that gap without locking the operator out:
+
+- installs `fail2ban` and enables the `sshd` jail — journald backend, `maxretry = 4` within
+  `findtime = 10m`, `bantime = 30m`, plus `bantime.increment` (repeat offenders escalate up to a day);
+- writes `/etc/ssh/sshd_config.d/99-xrayebator-hardening.conf` with `MaxAuthTries 3` and
+  `LoginGraceTime 30` — fewer attempts inside one connection and less time to complete them;
+- validates the drop-in with `sshd -t` before applying it and reloads `ssh` (not restart), so open
+  sessions — including the one the GUI is working over — survive.
+
+**Password authentication is deliberately not disabled.** The desktop app manages the server as `root`
+over an SSH password (`authMethod: password`); switching to key-only is a separate operator decision,
+and the path is described above in this file. If you do switch to keys, keep `fail2ban`: it costs
+nothing and removes the log noise.
+
+The same operation is available as menu item `15`, as the **Security** tab in the GUI, and
+automatically: `install.sh` and `quickstart` enable it on every deployment. On hosts without `apt` or
+`systemd` the command reports `supported: false` and changes nothing.
+
+To release your own address after several typos:
+
+```bash
+sudo xrayebator ssh-protect --unban <IP>
+```
+
+Without SSH access the ban expires on its own (30 minutes, longer for repeat offenders), and the
+hosting provider's console always remains.
+
 ## Desktop GUI credentials
 
 The active Electron GUI supports SSH passwords and private keys, with direct-root or sudo execution. A

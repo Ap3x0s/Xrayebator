@@ -333,6 +333,15 @@ group Xrayebator installs mirrors the Amnezia defaults (`Jc` 5, `Jmin` 10, `Jmax
 
 ## AWG install fails
 
+> **`apt-get update` reports `NO_PUBKEY …` / `The repository … is not signed`.** Until 0.7.0 the
+> installer could add `ppa:amnezia/ppa` without its signing key, and every later `apt` operation broke
+> (`dns01-setup` included, because it installs a certbot plugin; `apt install amneziawg` also stopped
+> finding the package). Migration `awg_ppa_signed_2026` runs on the next `sudo xrayebator` or
+> `quickstart` and either signs the repository or removes it, so `apt-get update` returns 0 again.
+> Manually: `sudo rm -f /etc/apt/sources.list.d/amneziawg.list && sudo apt-get update`, and re-run
+> `sudo xrayebator awg-install` — the PPA path now refuses to leave an unsigned repo behind and falls
+> back to the source build instead.
+
 - The primary path is the `amnezia/ppa` PPA; on distribution series without PPA builds Xrayebator
   falls back to a source build. For kernels ≥ 5.6 that build needs the **full** `linux-source`
   package — kernel headers alone are not enough (the module build links the whole source tree).

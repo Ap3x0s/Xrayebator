@@ -4,8 +4,33 @@ User-facing Xrayebator changes. The server manager and Electron application are 
 
 ## [Unreleased]
 
+### Added
+
+- **SSH brute-force protection — command, menu, GUI tab and automatic enablement.** A public VPN
+  server with an open SSH port is scanned constantly; measured on the live deployment on 2026-10-23,
+  `root` accepted password logins while **9 953 attempts failed in 24 hours from 115 addresses** (six
+  of them in `109.160.32.0/24` with 1 197 attempts each). `xrayebator ssh-protect` (`--status`,
+  `--enable`, `--disable`, `--unban IP`, `--quiet`) installs `fail2ban` with a journald-backed `sshd`
+  jail (4 failures in 10 minutes → 30-minute ban, repeat offenders escalating up to a day) and writes
+  `sshd_config.d/99-xrayebator-hardening.conf` with `MaxAuthTries 3` / `LoginGraceTime 30`. Password
+  authentication is deliberately kept: the desktop app manages the server as `root` over an SSH
+  password, so key-only access stays a separate operator decision. The drop-in is validated with
+  `sshd -t` before `ssh` is reloaded (not restarted), so open sessions survive. Protection is enabled
+  automatically by `install.sh` and `quickstart` (the deploy JSON reports `ssh_protect`), appears as
+  menu item `15`, and is toggled from the new **Security** tab in the GUI, which also shows the
+  effective limits, failed logins over 24 hours and the addresses currently banned. On the live
+  server the failure rate fell from ~415/hour to ≈72/hour within minutes.
+
 ### Fixed
 
+- **The AmneziaWG installer could leave `apt` broken (`NO_PUBKEY …` / repository not signed).** On
+  systems without `add-apt-repository` the fallback wrote `sources.list.d/amneziawg.list` **without
+  the signing key**, so every later `apt-get update` returned `rc=100` — `dns01-setup` (it installs a
+  certbot plugin) and `apt install amneziawg` both stopped working, and the module on that server only
+  came from the manual source build. The repository is now written only together with its key
+  (`signed-by`), no key means no repository, and `add-apt-repository` is rolled back if it leaves an
+  unsigned PPA behind. Migration `awg_ppa_signed_2026` repairs already-affected servers on the next
+  run: signs the repository or removes it, without touching Xray.
 - **`channel-test` labelled every route as post-quantum.** The shell variable holds the string
   `false` rather than an empty flag, so `${pq:+, PQ}` appended ", PQ" to every successful route. The
   JSON was correct all along — only the human output lied, and on a live 8/8 run every line claimed

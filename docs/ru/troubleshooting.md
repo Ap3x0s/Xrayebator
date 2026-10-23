@@ -312,6 +312,15 @@ Xrayebator, повторяет дефолты Amnezia (`Jc` 5, `Jmin` 10, `Jmax`
 
 ## Установка AWG падает
 
+> **`apt-get update` пишет `NO_PUBKEY …` / `The repository … is not signed`.** До 0.7.0 установщик
+> мог добавить `ppa:amnezia/ppa` без ключа подписи, после чего ломались все apt-операции (в том
+> числе `dns01-setup` — он ставит плагин certbot, — а `apt install amneziawg` переставал находить
+> пакет). Миграция `awg_ppa_signed_2026` отрабатывает при следующем `sudo xrayebator` или
+> `quickstart`: либо подписывает репозиторий, либо убирает его, и `apt-get update` снова возвращает 0.
+> Вручную: `sudo rm -f /etc/apt/sources.list.d/amneziawg.list && sudo apt-get update`, затем
+> `sudo xrayebator awg-install` — теперь PPA-путь не оставляет неподписанный репозиторий, а честно
+> уходит на сборку из исходников.
+
 - Основной путь — PPA `amnezia/ppa`; на сериях дистрибутива без сборок PPA Xrayebator уходит в
   сборку из исходников. Для ядер ≥ 5.6 нужен **полный** пакет `linux-source` — одних заголовков
   недостаточно (сборка модуля линкует всё дерево исходников).

@@ -242,6 +242,13 @@ tcpdump -l -ni <iface> 'udp port <port>'
 
 ## AWG 安装失败
 
+> **`apt-get update` 报 `NO_PUBKEY …` / `The repository … is not signed`。** 0.7.0 之前，安装流程
+> 可能在没有签名密钥的情况下写入 `ppa:amnezia/ppa`，此后所有 apt 操作都会失败（包括安装 certbot
+> 插件的 `dns01-setup`，`apt install amneziawg` 也找不到包）。迁移 `awg_ppa_signed_2026` 会在下一次
+> `sudo xrayebator` 或 `quickstart` 时执行：要么为仓库补上密钥，要么删除它，`apt-get update` 重新
+> 返回 0。手动处理：`sudo rm -f /etc/apt/sources.list.d/amneziawg.list && sudo apt-get update`，再
+> 运行 `sudo xrayebator awg-install` —— PPA 路径现在不会再留下未签名仓库，而是回退到源码编译。
+
 - 首选路径是 `amnezia/ppa` PPA；在没有对应发行版构建的系列上，Xrayebator 回退到源码编译。内核
   ≥ 5.6 时需要**完整的** `linux-source` 包——仅有内核头文件不够（模块构建会链接整个源码树）。
 - 安装后验证：`lsmod | grep amneziawg` 显示模块，`awg --version` 有响应。

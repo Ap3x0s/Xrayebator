@@ -40,6 +40,8 @@ for test_file in validation/*.sh; do bash "$test_file" || exit; done
 | `test-main-menu-numbering.sh` | 主菜单条目编号连续并与处理函数一致（含后端条目与监控的 1..14） |
 | `test-backend-registry.sh` | 后端注册表（多协议阶段）：source-mode 下的注册表 CRUD（经 `safe_jq_write`）、installed/field 读取、生命周期入口的安全 no-op、`backend-status` JSON 结构 |
 | `test-hysteria2-lifecycle.sh` | Hysteria 2 后端：`server.yaml` 渲染（userpass 映射、占位回退）、systemd 单元安全模型、架构映射、TLS 探测、授权/吊销/过期-恢复事件、预删除配置档后的 deleted 重生成、created 为无操作（不自动签发）、纯函数 `hysteria2://` 构造器、CLI 分发与订阅接线 |
+| `test-ssh-protect.sh` | SSH 防爆破：jail 配置（journald、10 分钟内 4 次失败、封禁 30 分钟、递增），sshd drop-in（`MaxAuthTries 3` / `LoginGraceTime 30`），保留密码登录，面向 GUI 的状态 JSON，关闭时的清理，菜单/CLI/quickstart/install.sh 的接线与 `--unban` 校验 |
+| `test-awg-ppa-repo.sh` | `amnezia/ppa` 必须与签名密钥一起添加：`signed-by` 仓库行、先取密钥再写仓库、无密钥不写仓库、修复已损坏的未签名仓库、按标记幂等，以及在 `main_menu`/`quickstart`/`happ-setup` 中的接线 |
 | `test-awg-lifecycle.sh` | AmneziaWG 后端：Amnezia 默认 junk 方言（Jc=5、Jmin=10、Jmax=50、H1–H4=1..4、S1–S4 互不相同）、密钥生成、服务端配置渲染（PostUp MASQUERADE、安装时无 peer）、peer 地址分配、客户端 `.conf` 内容、revoke/expire/restore 事件、预删除配置档后的 deleted 重生成、created 为无操作（不自动签发）、CLI 分发、`/etc/modules-load.d` 的开机模块登记（仅在模块可用时写入）、`backend-start`（「已安装」≠「正在运行」）、以及安装成功判定：内核模块必须针对**当前**内核（`AWG_MODULES_ROOT` 为测试接缝） |
 | `test-main-readiness-regressions.sh` | 审计后的 readiness 回归：certbot manifest、UFW manifest、nginx 回滚、权限与 SSH 端口 |
 | `test-sni-change-cli.sh` | `sni-change` CLI：JSON 输出、Reality、XHTTP host、配置档同步与回滚 |
