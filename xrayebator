@@ -3845,17 +3845,128 @@ EOF
   return 0
 }
 
+# --- PPA amnezia/ppa: репозиторий ставим только вместе с ключом подписи ---------
+# Живой дефект 2026-10-23 (2.26.125.228): ветка без add-apt-repository писала
+# sources.list.d/amneziawg.list БЕЗ ключа. После этого `apt-get update` возвращал
+# rc=100 («NO_PUBKEY 4166F2C257290828 / repository is not signed»), на сервере
+# переставали работать ЛЮБЫЕ apt-операции (включая установку плагина certbot для
+# DNS-01), а `apt install amneziawg` переставал находить пакет. Правило теперь
+# обратное: нет ключа — нет репозитория, apt остаётся рабочим, и установка честно
+# уходит на ручную сборку.
+AWG_PPA_URI="${AWG_PPA_URI:-https://ppa.launchpadcontent.net/amnezia/ppa/ubuntu}"
+AWG_PPA_SUITE="${AWG_PPA_SUITE:-focal}"
+AWG_PPA_KEY_ID="${AWG_PPA_KEY_ID:-4166F2C257290828}"
+AWG_PPA_LIST_FILE="${AWG_PPA_LIST_FILE:-/etc/apt/sources.list.d/amneziawg.list}"
+AWG_PPA_KEYRING="${AWG_PPA_KEYRING:-/etc/apt/keyrings/amnezia-ppa.gpg}"
+
+# Строка репозитория в том виде, в каком apt её принимает: ключ подключён через
+# signed-by, поэтому apt не ищет его в системных доверенных ключах.
+_awg_ppa_sources_line_pure() {
+  printf 'deb [signed-by=%s] %s %s main\n' "$1" "$AWG_PPA_URI" "$AWG_PPA_SUITE"
+}
+
+# Единственная точка запуска apt-get update в этом блоке: тест подменяет её,
+# чтобы не ходить в сеть.
+_awg_ppa_apt_update() {
+  apt-get update -qq >/dev/null 2>&1
+}
+
+# Ключ подписи PPA → брелок в формате, который читает signed-by.
+_awg_ppa_fetch_key() {
+  [[ -s "$AWG_PPA_KEYRING" ]] && return 0
+  local armor rc=1
+  armor=$(mktemp) || return 1
+  if timeout 20 curl -fsSL \
+      "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x${AWG_PPA_KEY_ID}" \
+      -o "$armor" 2>/dev/null \
+     && grep -q 'BEGIN PGP PUBLIC KEY BLOCK' "$armor" 2>/dev/null; then
+    mkdir -p "$(dirname "$AWG_PPA_KEYRING")" 2>/dev/null
+    if gpg --dearmor < "$armor" > "$AWG_PPA_KEYRING" 2>/dev/null && [[ -s "$AWG_PPA_KEYRING" ]]; then
+      rc=0
+    fi
+  fi
+  rm -f "$armor"
+  if [[ $rc -ne 0 ]]; then
+    rm -f "$AWG_PPA_KEYRING" 2>/dev/null
+    return 1
+  fi
+  return 0
+}
+
+# Полностью убрать то, что мы добавили в apt (репозиторий + брелок) и обновить
+# списки. Нужен и при откате, и при ремонте уже испорченных серверов.
+_awg_ppa_remove() {
+  rm -f "$AWG_PPA_LIST_FILE" 2>/dev/null
+  rm -f "$AWG_PPA_KEYRING" 2>/dev/null
+  return 0
+}
+
+# Поставить репозиторий так, чтобы apt остался рабочим. 0 = репозиторий читается.
+_awg_ppa_configure() {
+  if command -v add-apt-repository >/dev/null 2>&1; then
+    # Официальный путь: add-apt-repository сам приносит ключ.
+    if add-apt-repository -y ppa:amnezia/ppa >/dev/null 2>&1 && _awg_ppa_apt_update; then
+      return 0
+    fi
+    # Он умеет оставить за собой неподписанный репозиторий (keyserver недоступен) —
+    # вычищаем, иначе apt снова сломается.
+    add-apt-repository -y --remove ppa:amnezia/ppa >/dev/null 2>&1 || true
+    _awg_ppa_remove
+  fi
+  _awg_ppa_fetch_key || return 1
+  _awg_ppa_sources_line_pure "$AWG_PPA_KEYRING" > "$AWG_PPA_LIST_FILE" 2>/dev/null || {
+    _awg_ppa_remove
+    return 1
+  }
+  if ! _awg_ppa_apt_update; then
+    _awg_ppa_remove
+    return 1
+  fi
+  return 0
+}
+
+# Ремонт серверов, где PPA уже успели добавить без ключа (дефект до 0.7.0):
+# либо подписываем репозиторий, либо убираем его — в обоих случаях apt-get update
+# должен снова возвращать 0. Идемпотентно по маркеру; Xray не перезапускается
+# (правка не касается его конфига), поэтому это не run_migration().
+migrate_awg_ppa_signed_2026() {
+  local marker="${1:-/usr/local/etc/xray/.awg_ppa_signed_2026}"
+  [[ -f "$marker" ]] && return 0
+
+  if [[ ! -f "$AWG_PPA_LIST_FILE" ]]; then
+    touch "$marker" 2>/dev/null && chown root:root "$marker" 2>/dev/null
+    return 0
+  fi
+  if grep -q 'signed-by=' "$AWG_PPA_LIST_FILE" 2>/dev/null; then
+    touch "$marker" 2>/dev/null && chown root:root "$marker" 2>/dev/null
+    return 0
+  fi
+
+  echo -e "${MAGENTA}[migration] PPA amnezia/ppa: восстановление ключа подписи${NC}"
+  if _awg_ppa_fetch_key; then
+    _awg_ppa_sources_line_pure "$AWG_PPA_KEYRING" > "$AWG_PPA_LIST_FILE" 2>/dev/null || true
+    echo -e "${GREEN}  ✓ Репозиторий amnezia/ppa подписан (signed-by=${AWG_PPA_KEYRING})${NC}"
+  else
+    _awg_ppa_remove
+    echo -e "${YELLOW}  ⚠ Ключ PPA недоступен — репозиторий amnezia/ppa убран, apt снова рабочий${NC}"
+  fi
+  if ! _awg_ppa_apt_update; then
+    _awg_ppa_remove
+    echo -e "${YELLOW}  ⚠ apt-get update всё ещё не чистый — проверьте /etc/apt/sources.list.d${NC}"
+  fi
+  touch "$marker" 2>/dev/null && chown root:root "$marker" 2>/dev/null
+  return 0
+}
+
 # Установка модуля+tools: PPA (официальный путь) → apt amneziawg.
 # Возвращает 0 только если awg-бинарник на месте.
 _awg_install_packages() {
   echo -e "${CYAN}  → Ставлю amneziawg из PPA amnezia/ppa (может занять несколько минут: DKMS)...${NC}"
   _apt_wait_lock
-  if command -v add-apt-repository >/dev/null 2>&1; then
-    add-apt-repository -y ppa:amnezia/ppa >/dev/null 2>&1 || true
-  else
-    echo "deb https://ppa.launchpadcontent.net/amnezia/ppa/ubuntu focal main" > /etc/apt/sources.list.d/amneziawg.list
+  if ! _awg_ppa_configure; then
+    echo -e "${YELLOW}  ⚠ PPA amnezia/ppa недоступен (нет ключа или сети) — репозиторий не добавлен, apt остался чистым${NC}" >&2
+    return 1
   fi
-  apt-get update -qq >/dev/null 2>&1 || true
   apt-get "${APT_LOCK_OPTS[@]}" install -y --no-install-recommends amneziawg >/dev/null 2>&1
   command -v awg >/dev/null 2>&1 || return 1
   # Наличие `awg` в PATH — НЕ признак успеха: бинарник остаётся от прежней ручной
@@ -11157,6 +11268,12 @@ main_menu() {
     ((migration_failures++))
   fi
 
+  # Репозиторий amnezia/ppa без ключа ломал apt-get update (rc=100) на серверах,
+  # где AWG ставили до 0.7.0: чиним/убираем один раз, Xray не перезапускаем.
+  if ! migrate_awg_ppa_signed_2026; then
+    ((migration_failures++))
+  fi
+
   run_migration "xhttp_migrated"                       "XHTTP host/SNI sync"             migrate_xhttp_profiles             || ((migration_failures++))
   run_migration "routing_v132_migrated"                "Routing default direct rule"      migrate_routing_config             || ((migration_failures++))
   run_migration "legacy_udp443_block_removed_v3"       "Remove legacy UDP/443 block (Telegram)" migrate_legacy_managed_udp443_block_v3 || ((migration_failures++))
@@ -14833,6 +14950,7 @@ quickstart_command() {
   echo "=== Миграции ===" >&2
   migrate_remove_legacy_tcp_tuning_v3 >/dev/null 2>&1 || true
   migrate_client_fingerprint_state_2026 >/dev/null 2>&1 || true
+  migrate_awg_ppa_signed_2026 >/dev/null 2>&1 || true
   run_migration "xhttp_migrated" "XHTTP host/SNI sync" migrate_xhttp_profiles >/dev/null 2>&1 || true
   run_migration "routing_v132_migrated" "Routing default direct rule" migrate_routing_config >/dev/null 2>&1 || true
   run_migration "legacy_udp443_block_removed_v3" "Remove legacy UDP/443 block" migrate_legacy_managed_udp443_block_v3 >/dev/null 2>&1 || true
@@ -15468,6 +15586,7 @@ happ_setup_command() {
   run_migration "alerts_monitor_2026" "Telegram alerts monitor timer" _migrate_alerts_monitor_2026 >/dev/null 2>&1 || true
   run_migration "subhttp_formats_2026" "Subhttp Clash/sing-box formats" _migrate_subhttp_formats_2026 >/dev/null 2>&1 || true
   run_migration "awg_module_2026" "AWG kernel module load at boot" _migrate_awg_module_2026 >/dev/null 2>&1 || true
+  migrate_awg_ppa_signed_2026 >/dev/null 2>&1 || true
   fix_xray_permissions >/dev/null 2>&1 || true
 
   # 1. Убедиться, что subscription server установлен и запущен
