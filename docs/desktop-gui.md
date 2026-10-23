@@ -148,7 +148,7 @@ xrayebator awg-install [--grant-all] / awg-uninstall / awg-grant --name N / awg-
 xrayebator ssh-protect [--status|--enable|--disable] [--unban IP]
 ```
 
-SSH brute-force protection is managed by `ssh-protect` and exposed in the **Security** tab: it shows
+SSH brute-force protection is managed by `ssh-protect` and exposed in the **Security and TLS** tab: it shows
 whether `fail2ban` is installed and running, the effective `sshd` limits, the number of failed logins
 over 24 hours and the addresses currently banned, and toggles protection on and off. Password
 authentication is deliberately kept — the app itself logs in with an SSH password.

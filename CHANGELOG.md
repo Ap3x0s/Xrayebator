@@ -17,7 +17,7 @@ User-facing Xrayebator changes. The server manager and Electron application are 
   password, so key-only access stays a separate operator decision. The drop-in is validated with
   `sshd -t` before `ssh` is reloaded (not restarted), so open sessions survive. Protection is enabled
   automatically by `install.sh` and `quickstart` (the deploy JSON reports `ssh_protect`), appears as
-  menu item `15`, and is toggled from the new **Security** tab in the GUI, which also shows the
+  menu item `15`, and is toggled from the **Security and TLS** tab in the GUI, which also shows the
   effective limits, failed logins over 24 hours and the addresses currently banned. On the live
   server the failure rate fell from ~415/hour to ≈72/hour within minutes.
 

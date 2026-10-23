@@ -139,7 +139,7 @@ xrayebator awg-install [--grant-all] / awg-uninstall / awg-grant --name N / awg-
 xrayebator ssh-protect [--status|--enable|--disable] [--unban IP]
 ```
 
-SSH 防爆破由 `ssh-protect` 管理，并显示在**安全**选项卡中：是否安装并运行 `fail2ban`、生效的
+SSH 防爆破由 `ssh-protect` 管理，并显示在**安全与 TLS**选项卡中：是否安装并运行 `fail2ban`、生效的
 `sshd` 限制、24 小时失败次数、当前封禁地址，以及一键开关保护。密码登录被有意保留 —— 应用本身
 就用 SSH 密码登录。
 

@@ -153,7 +153,7 @@ over an SSH password (`authMethod: password`); switching to key-only is a separa
 and the path is described above in this file. If you do switch to keys, keep `fail2ban`: it costs
 nothing and removes the log noise.
 
-The same operation is available as menu item `15`, as the **Security** tab in the GUI, and
+The same operation is available as menu item `15`, as the **Security and TLS** tab in the GUI, and
 automatically: `install.sh` and `quickstart` enable it on every deployment. On hosts without `apt` or
 `systemd` the command reports `supported: false` and changes nothing.
 
