@@ -213,6 +213,7 @@
     "sshProtectLabelLimits": "sshd limits",
     "sshProtectLimitsNone": "not set",
     "sshProtectUnsupported": "Not available on this server: apt and systemd are required (Debian/Ubuntu).",
+    "backendActionFailed": "The backend operation failed",
     "sectionsAria": "Server settings sections",
     "language": "Interface language",
     "hint": "Choose how to access the server. Root + password remains the fast default; SSH keys and sudo are also supported.",

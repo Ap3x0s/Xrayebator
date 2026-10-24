@@ -213,6 +213,7 @@
     "sshProtectLabelLimits": "sshd 限制",
     "sshProtectLimitsNone": "未设置",
     "sshProtectUnsupported": "此服务器不支持：需要 apt 和 systemd（Debian/Ubuntu）。",
+    "backendActionFailed": "后端操作失败",
     "sectionsAria": "服务器设置分区",
     "language": "界面语言",
     "hint": "选择服务器访问方式。Root + 密码仍是默认快捷方式，同时支持 SSH 密钥和 sudo。",

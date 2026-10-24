@@ -213,6 +213,7 @@
     "sshProtectLabelLimits": "Лимиты sshd",
     "sshProtectLimitsNone": "не заданы",
     "sshProtectUnsupported": "На этом сервере защита недоступна: нужны apt и systemd (Debian/Ubuntu).",
+    "backendActionFailed": "Операция с бэкендом не выполнена",
     "sectionsAria": "Разделы настроек сервера",
     "language": "Язык интерфейса",
     "hint": "Выберите способ SSH-доступа. Root + пароль остаётся быстрым вариантом по умолчанию; также поддерживаются SSH-ключи и sudo.",

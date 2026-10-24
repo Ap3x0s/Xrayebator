@@ -58,6 +58,7 @@ import { isSshAccessReady, SshAccessForm } from '../components/SshAccessForm'
 import { CalendarPicker } from '../components/CalendarPicker'
 import { copyText } from '../lib/clipboard'
 import { shouldAutoConnectServer } from './server-access'
+import { backendActionFailure } from './backend-action'
 import styles from './ServerSettings.module.css'
 import hystLogo from '../assets/hysteria-logo.svg'
 import amneziaLogo from '../assets/amnezia-logo.jpg'
@@ -1066,7 +1067,15 @@ export function ServerPage({
     setBackendBusy(id)
     setError(null)
     try {
-      await action()
+      const result = await action()
+      // Отказ может прийти и без исключения — `{ok:false, error}`. Без этой
+      // проверки клик по «Установить» выглядел как «ничего не произошло»
+      // (живой случай: awg-install вернул reboot_required с объяснением).
+      const outcome = backendActionFailure(result)
+      if (outcome.failed) {
+        setError(outcome.error ?? t('settings.backendActionFailed'))
+        return
+      }
       await reloadBackends()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
