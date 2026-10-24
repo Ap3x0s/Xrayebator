@@ -479,6 +479,16 @@ certificate: it is signed by the test root, the state is reported as `staging:tr
 
 ## An error appeared during installation or use
 
+### `Сгенерированный config.json не прошёл валидацию — live-конфиг не изменён`
+
+On a clean server with Xray 26.10.21+ the install could stop right after the kernel was downloaded.
+The config itself was fine — the **temp file name** was not: since 26.10 Xray infers the config
+format from the file extension and ignores `-format json`, so `config.json.tmp.XXXXXX` was rejected
+with `main/confloader/external: unsupported config file extension`. Fixed after 0.7.0 (branch `dev`):
+the installer creates the temp config as `*.json` and prints the kernel's own reason on any future
+validation failure. `update.sh` had the same defect in its two temp configs, where the DNS update was
+skipped silently. On an older build, install from a branch that contains the fix.
+
 Copy the full error text from the terminal. For installation failures, include the relevant
 `/tmp/xrayebator-*.log` file and the output of `systemctl status xray --no-pager -l`. If the problem is
 in Xrayebator code, open an issue.

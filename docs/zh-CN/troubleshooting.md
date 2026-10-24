@@ -363,4 +363,13 @@ dig +short TXT _acme-challenge.sub.example.com   # 签发期间应出现 TXT 记
 
 ## 安装或使用过程中出现报错
 
+### `Сгенерированный config.json не прошёл валидацию — live-конфиг не изменён`
+
+在 Xray 26.10.21+ 的干净服务器上，安装可能在内核下载完成后立即中断。配置本身没有问题——问题在
+**临时文件名**：自 26.10 起，Xray 按文件扩展名判断格式并忽略 `-format json`，因此
+`config.json.tmp.XXXXXX` 会被以 `main/confloader/external: unsupported config file extension`
+拒绝。0.7.0 之后（`dev` 分支）已修复：安装程序把临时配置命名为 `*.json`，并在任何校验失败时打印
+内核给出的原因。`update.sh` 的两个临时配置也有同样缺陷，导致 DNS 更新被静默跳过。旧版本请从包含
+修复的分支安装。
+
 请完整复制终端中的报错文本。如果问题出在 Xrayebator 代码上，请提交 issue。

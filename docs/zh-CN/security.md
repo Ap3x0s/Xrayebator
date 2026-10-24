@@ -125,7 +125,8 @@ TCPKeepAlive yes
 `sudo xrayebator ssh-protect --enable` 在不把运营者锁在门外的前提下堵住这个洞：
 
 - 安装 `fail2ban` 并启用 `sshd` 规则——journald 后端，`findtime = 10m` 内 `maxretry = 4`，
-  `bantime = 30m`，另加 `bantime.increment`（屡犯最长一天）；
+  `bantime = 30m`，另加 `bantime.increment`（屡犯最长一天）；所有参数都位于 `[sshd]` 段内，
+  因此运营者已有的其他 fail2ban 规则保持原有默认值；
 - 写入 `/etc/ssh/sshd_config.d/99-xrayebator-hardening.conf`（`MaxAuthTries 3` /
   `LoginGraceTime 30`）——单个连接内尝试次数更少，可用时间也更短；
 - 应用前用 `sshd -t` 校验 drop-in，并且只 `reload` 而不 `restart`，因此已打开的会话（包括 GUI

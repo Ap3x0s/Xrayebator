@@ -143,6 +143,8 @@ A public VPS with an open SSH port is scanned continuously. Measured on a live d
 
 - installs `fail2ban` and enables the `sshd` jail — journald backend, `maxretry = 4` within
   `findtime = 10m`, `bantime = 30m`, plus `bantime.increment` (repeat offenders escalate up to a day);
+  every knob sits inside the `[sshd]` section, so a pre-existing fail2ban setup with other jails keeps
+  its own defaults;
 - writes `/etc/ssh/sshd_config.d/99-xrayebator-hardening.conf` with `MaxAuthTries 3` and
   `LoginGraceTime 30` — fewer attempts inside one connection and less time to complete them;
 - validates the drop-in with `sshd -t` before applying it and reloads `ssh` (not restart), so open

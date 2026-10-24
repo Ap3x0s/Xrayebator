@@ -136,7 +136,8 @@ TCPKeepAlive yes
 `sudo xrayebator ssh-protect --enable` закрывает эту дыру, не запирая оператора:
 
 - ставит `fail2ban` и включает джейл `sshd` — бэкенд journald, `maxretry = 4` за `findtime = 10m`,
-  `bantime = 30m`, плюс `bantime.increment` (повторным — до суток);
+  `bantime = 30m`, плюс `bantime.increment` (повторным — до суток); все ключи лежат внутри секции
+  `[sshd]`, поэтому уже настроенный оператором fail2ban с другими джейлами сохраняет свои значения;
 - пишет `/etc/ssh/sshd_config.d/99-xrayebator-hardening.conf` с `MaxAuthTries 3` и
   `LoginGraceTime 30` — меньше попыток в одном соединении и меньше времени на них;
 - проверяет drop-in через `sshd -t` до применения и перечитывает конфиг (`reload`, не `restart`),
