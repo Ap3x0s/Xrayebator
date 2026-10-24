@@ -2430,8 +2430,18 @@ export function ServerPage({
             <div {...sectionPaneProps('subscription', section)}>
               <section className={styles.subCard}>
                 <div className={styles.subHead}>
-                  <span className={styles.subIcon}>
-                    <ShieldCheck size={20} />
+                  {/* Щит говорит о состоянии сам: зелёный — защита работает,
+                      перечёркнутый — выключена или не установлена. */}
+                  <span
+                    className={`${styles.subIcon} ${
+                      sshProtect?.active
+                        ? styles.subIconOk
+                        : sshProtect?.installed
+                          ? styles.subIconOff
+                          : styles.subIconIdle
+                    }`}
+                  >
+                    {sshProtect?.active ? <ShieldCheck size={20} /> : <ShieldOff size={20} />}
                   </span>
                   <span className={styles.subHeadText}>
                     <span className={styles.subTitleRow}>
@@ -2453,18 +2463,14 @@ export function ServerPage({
                       </span>
                     </span>
                     <span className={styles.subSubtitle}>
-                      {t('settings.sshProtectSubtitle')}
+                      {sshProtect?.active
+                        ? t('settings.sshProtectRule')
+                        : t('settings.sshProtectSubtitle')}
                     </span>
                   </span>
                 </div>
 
                 <dl className={styles.subGrid}>
-                  <div className={styles.subRow}>
-                    <dt className={styles.subLabel}>{t('settings.sshProtectLabelService')}</dt>
-                    <dd className={`${styles.subValue} ${styles.subValueBox}`}>
-                      fail2ban · {t('settings.sshProtectLabelJail')}
-                    </dd>
-                  </div>
                   <div className={styles.subRow}>
                     <dt className={styles.subLabel}>{t('settings.sshProtectLabelFailed')}</dt>
                     <dd className={`${styles.subValue} ${styles.subValueBox}`}>
@@ -2496,8 +2502,8 @@ export function ServerPage({
                     })}
                   </p>
                 )}
-                {sshProtect?.password_authentication === 'yes' && (
-                  <p className={styles.subNotice}>{t('settings.sshProtectPasswordKept')}</p>
+                {sshProtect && sshProtect.active !== true && sshProtect.supported !== false && (
+                  <p className={styles.subNotice}>{t('settings.sshProtectDisabledNote')}</p>
                 )}
                 {sshProtect && sshProtect.supported === false && (
                   <p className={styles.subNotice}>{t('settings.sshProtectUnsupported')}</p>
@@ -2527,7 +2533,7 @@ export function ServerPage({
                     {t('settings.sshProtectRefresh')}
                   </Button>
                 </div>
-                <p className={styles.fpNote}>{t('settings.sshProtectHint')}</p>
+                <p className={styles.fpNote}>{t('settings.sshProtectUnbanHint')}</p>
               </section>
 
             <section className={styles.subCard}>
