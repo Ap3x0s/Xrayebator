@@ -309,7 +309,9 @@ Hysteria 拒绝空的 userpass 映射。客户端链接形如
 
 `awg-install` 通过 DKMS 编译内核模块（首选 `amnezia/ppa` PPA；回退为源码编译，内核 ≥ 5.6 需要
 完整 `linux-source`），并通过 `awg-quick@awg0` 拉起 `awg0` 接口：随机高位 UDP 端口、网段
-`10.8.1.0/24`、`ip_forward` 与默认路由接口上的 MASQUERADE。junk 参数与 Amnezia 默认值一致——
+`10.8.1.0/24`、`ip_forward` 与默认路由接口上的 MASQUERADE。DKMS 需要内核头文件：安装器会自行安装；
+若运行中的内核比仓库更旧、其头文件已不存在，则针对最新可用内核编译模块、同时安装其镜像，并返回
+`reboot_required: true`；重启后再次执行该命令即可完成配置。junk 参数与 Amnezia 默认值一致——
 这是所有官方 AmneziaVPN 客户端（手机与桌面）都能可靠应用的方言：`Jc` 5、`Jmin` 10、`Jmax` 50、
 `H1`–`H4` = 1..4（WireGuard 魔数）、`S1`/`S2` 随机 12..150、`S3`/`S4` 随机 12..64
 （均互不相同，`S1+56 ≠ S2`）。每个配置档 peer 获得密钥对、预共享密钥与首个空闲地址；客户端 `.conf`（菜单项 12 或

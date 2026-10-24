@@ -249,6 +249,11 @@ tcpdump -l -ni <iface> 'udp port <port>'
 > 返回 0。手动处理：`sudo rm -f /etc/apt/sources.list.d/amneziawg.list && sudo apt-get update`，再
 > 运行 `sudo xrayebator awg-install` —— PPA 路径现在不会再留下未签名仓库，而是回退到源码编译。
 
+- **`dkms status` 显示 `amneziawg/1.0.0: added`，但没有模块。** DKMS 未能编译：Debian 与 Ubuntu
+  默认不安装内核头文件，而当内核比仓库更旧时，精确的 `linux-headers-$(uname -r)` 包可能已不存在
+  （实测 2026-10-24：Debian 12，运行 `6.1.0-45`，仓库只有 `47/50/53/54`）。修复后（0.7.0 之后的
+  `dev`）安装器会自行安装头文件；若只有更新的内核可用，则针对该内核编译模块、安装其镜像，并返回
+  `reboot_required: true` —— 重启服务器后再执行 `sudo xrayebator awg-install` 完成配置。
 - 首选路径是 `amnezia/ppa` PPA；在没有对应发行版构建的系列上，Xrayebator 回退到源码编译。内核
   ≥ 5.6 时需要**完整的** `linux-source` 包——仅有内核头文件不够（模块构建会链接整个源码树）。
 - 安装后验证：`lsmod | grep amneziawg` 显示模块，`awg --version` 有响应。

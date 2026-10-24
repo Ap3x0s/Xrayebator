@@ -342,6 +342,13 @@ group Xrayebator installs mirrors the Amnezia defaults (`Jc` 5, `Jmin` 10, `Jmax
 > `sudo xrayebator awg-install` — the PPA path now refuses to leave an unsigned repo behind and falls
 > back to the source build instead.
 
+- **`dkms status` shows `amneziawg/1.0.0: added` but no module appears.** DKMS could not build: Debian
+  and Ubuntu do not install kernel headers by default, and on a kernel older than the repository the
+  exact `linux-headers-$(uname -r)` package may be gone (live case 2026-10-24: Debian 12, running
+  `6.1.0-45`, the repo ships `47/50/53/54`). Since the fix after 0.7.0 the installer fetches the
+  headers itself, and when only newer ones exist it builds against that kernel, installs its image and
+  answers `reboot_required: true` — reboot the server and re-run `sudo xrayebator awg-install`, which
+  finishes the setup.
 - The primary path is the `amnezia/ppa` PPA; on distribution series without PPA builds Xrayebator
   falls back to a source build. For kernels ≥ 5.6 that build needs the **full** `linux-source`
   package — kernel headers alone are not enough (the module build links the whole source tree).

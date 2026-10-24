@@ -26,6 +26,15 @@ User-facing Xrayebator changes. The server manager and Electron application are 
 
 ### Fixed
 
+- **AmneziaWG install failed on Debian 12 with a generic "не удалось установить amneziawg".** The
+  `amneziawg` package from the PPA was installed, but DKMS never built the module: Debian and Ubuntu
+  do not install kernel headers by default, and on a kernel older than the repository the exact
+  `linux-headers-$(uname -r)` package is gone (live case: running `6.1.0-45`, the repo ships
+  `47/50/53/54`), so `dkms status` stayed at `added`. The installer now installs the headers itself
+  (exact package, then the `linux-headers-<arch>` meta), and when only a newer kernel has headers it
+  builds against that kernel **and** installs its image so the reboot actually lands there; the result
+  is reported as `reboot_required: true` with both kernel names instead of a dead end. The manual
+  source build no longer symlinks the `linux-source` **archive** — it extracts the tree first.
 - **A fresh install aborted on Xray 26.10.21 with "Сгенерированный config.json не прошёл валидацию".**
   The installer validated a `mktemp` file named `config.json.tmp.XXXXXX`; since 26.10 the kernel
   infers the config format from the **file extension** and ignores `-format json`, so it answered

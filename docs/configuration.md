@@ -342,7 +342,10 @@ parser objects.
 `awg-install` builds the kernel module via DKMS (primary path: the `amnezia/ppa` PPA; fallback: a
 source build that needs the full `linux-source` tree on kernels ≥ 5.6) and brings up the `awg0`
 interface through `awg-quick@awg0` with a random high UDP port, subnet `10.8.1.0/24`, `ip_forward`
-and MASQUERADE on the default-route interface. Junk parameters mirror the Amnezia defaults — the
+and MASQUERADE on the default-route interface. DKMS needs kernel headers: the installer fetches them
+itself, and when the running kernel is older than the repository and its headers are gone, it builds
+against the newest available kernel, installs its image and answers `reboot_required: true` — after a
+reboot the same command finishes the setup. Junk parameters mirror the Amnezia defaults — the
 dialect every official AmneziaVPN client (phone and desktop) applies reliably: `Jc` 5, `Jmin` 10,
 `Jmax` 50, `H1`–`H4` = 1..4 (the WireGuard magic headers), `S1`/`S2` random 12..150 and `S3`/`S4`
 random 12..64 (all unique, `S1+56 ≠ S2`). Each profile peer gets a keypair, a preshared key and the
