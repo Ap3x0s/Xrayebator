@@ -36,7 +36,7 @@ Linux-машину. Проверки lifecycle должны также убеж�
 
 ## Что покрывают тесты
 
-В `validation/` ровно 42 скрипта. Запускайте каждый `validation/test-*.sh`; текущий набор:
+В `validation/` ровно 45 скриптов. Запускайте каждый `validation/test-*.sh`; текущий набор:
 
 | Тест | Что проверяет |
 |---|---|
@@ -59,6 +59,7 @@ Linux-машину. Проверки lifecycle должны также убеж�
 | `test-happ-subscription-static.sh` | Обработчик HAPP-подписки (плейсхолдеры routing, порядок валидации) |
 | `test-happ-client-routing.sh` | HAPP клиентский split-профиль: генератор из bypass-наборов (258 доменов, плейсхолдеры, `geoip:ru`), nginx-буферы, проводка меню |
 | `test-legacy-profile-port-sync.sh` | Легаси-профили без `routes` получают обновления SNI/порта |
+| `test-config-temp-json-suffix.sh` | Валидация конфига в установщике и обновлении: временный конфиг для `xray run -test` обязан заканчиваться на `.json` (Xray ≥ 26.10 определяет формат по расширению и игнорирует `-format json`), провал печатает вывод ядра, а `mktemp --suffix=.json` проверяется функционально |
 | `test-installer-network-fallbacks.sh` | Сетевые fallback'и установщика |
 | `test-legacy-udp443-migration.sh` | Одноразовое удаление legacy правила блокировки UDP/443 |
 | `test-main-menu-numbering.sh` | Нумерацию пунктов меню и их соответствие обработчикам (1..14 с бэкенд-пунктами и мониторингом) |
@@ -194,7 +195,7 @@ npm run build
 
 - `.github/workflows/ci-linux.yml` — гейт Bash-ядра на `ubuntu-24.04`: ставит `jq`, `uuid-runtime`
   и `ripgrep`, прогоняет все четыре проверки синтаксиса Bash, затем запускает каждый
-  `validation/test-*.sh` (на момент написания — 42).
+  `validation/test-*.sh` (на момент написания — 45).
 - `.github/workflows/release.yml` — активный путь релиза Electron для тегов `v*` и ручных запусков.
   Сначала job `preflight` проверяет, что файл релизных заметок `docs/releases/<tag>.en.md` существует
   и что секрет репозитория `AP3X0` (если задан) действительно может создавать релизы — проверка идёт

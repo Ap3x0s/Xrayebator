@@ -15,7 +15,7 @@ for test_file in validation/*.sh; do bash "$test_file" || exit; done
 
 ## 测试覆盖范围
 
-`validation/` 中有 42 个静态与本地回归测试：
+`validation/` 中有 45 个静态与本地回归测试：
 
 | 测试 | 检查内容 |
 |---|---|
@@ -34,6 +34,7 @@ for test_file in validation/*.sh; do bash "$test_file" || exit; done
 | `test-update-branch-pinning.sh` | `update <branch>` 在 `.current_branch` 固定分支；GUI 更新不会切回其它分支 |
 | `test-update-xray-core-sync.sh` | Xray-core 更新同步 |
 | `test-vless-url-generation.sh` | `vless://` 链接生成 |
+| `test-config-temp-json-suffix.sh` | 安装与更新时的配置校验：交给 `xray run -test` 的临时配置必须以 `.json` 结尾（Xray ≥ 26.10 按扩展名判断格式并忽略 `-format json`），失败时打印内核输出，并功能性验证 `mktemp --suffix=.json` |
 | `test-installer-network-fallbacks.sh` | 安装脚本网络回退 |
 | `test-bbr-removal-migration.sh` | 已删除 BBR/TCP 调优在所有路径上的安全清理 |
 | `test-legacy-udp443-migration.sh` | 一次性清理旧版 UDP/443 阻断规则 |
@@ -154,7 +155,7 @@ npm test              # Vitest 单元测试
 
 三个独立 workflow：
 
-- **ci-linux.yml** — Bash validation：在 ubuntu-24.04 上对所有脚本执行 `bash -n`，并运行全部 42 个
+- **ci-linux.yml** — Bash validation：在 ubuntu-24.04 上对所有脚本执行 `bash -n`，并运行全部 45 个
   `validation/test-*.sh`；在 push 到 `main`、`dev`、`experimental` 以及 pull request 时运行。
 - **release.yml** — Electron 构建（Windows/macOS/Linux）。只在 `v*` tag 和手动触发时运行；先由
   `preflight` 检查发布说明 `docs/releases/<tag>.en.md` 是否存在，以及仓库密钥 `AP3X0`（若已设置）

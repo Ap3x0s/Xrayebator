@@ -23,6 +23,15 @@ User-facing Xrayebator changes. The server manager and Electron application are 
 
 ### Fixed
 
+- **A fresh install aborted on Xray 26.10.21 with "Сгенерированный config.json не прошёл валидацию".**
+  The installer validated a `mktemp` file named `config.json.tmp.XXXXXX`; since 26.10 the kernel
+  infers the config format from the **file extension** and ignores `-format json`, so it answered
+  `main/confloader/external: unsupported config file extension` and the install stopped on every
+  clean server (production still runs 26.3.27, where the flag worked — that is why the defect stayed
+  invisible). The temp config is now created with `--suffix=.json` (with a rename fallback), the same
+  fix is applied to both temp configs in `update.sh` (the DNS update there was silently skipped for
+  the same reason), and a validation failure now prints the kernel's own reason instead of only
+  "not validated".
 - **The AmneziaWG installer could leave `apt` broken (`NO_PUBKEY …` / repository not signed).** On
   systems without `add-apt-repository` the fallback wrote `sources.list.d/amneziawg.list` **without
   the signing key**, so every later `apt-get update` returned `rc=100` — `dns01-setup` (it installs a

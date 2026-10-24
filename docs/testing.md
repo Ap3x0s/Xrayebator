@@ -36,7 +36,7 @@ promise that installer and updater paths behave identically.
 
 ## Validation suite
 
-`validation/` contains exactly 42 scripts. Run every `validation/test-*.sh`; the current set is:
+`validation/` contains exactly 45 scripts. Run every `validation/test-*.sh`; the current set is:
 
 | Script | What it checks |
 |---|---|
@@ -59,6 +59,7 @@ promise that installer and updater paths behave identically.
 | `test-happ-subscription-static.sh` | Static HAPP subscription handler behavior (routing placeholders, schema validation order) |
 | `test-happ-client-routing.sh` | HAPP client split-profile: generator from bypass bundles (258 domains, placeholders, `geoip:ru`), nginx proxy buffers, menu wiring |
 | `test-legacy-profile-port-sync.sh` | Legacy profiles without `routes` still receive SNI/port sync updates |
+| `test-config-temp-json-suffix.sh` | Installer/update config validation: the temp config handed to `xray run -test` must end in `.json` (Xray ≥ 26.10 infers the format from the extension and ignores `-format json`), the failure path prints the kernel output, and `mktemp --suffix=.json` is verified functionally |
 | `test-installer-network-fallbacks.sh` | Installer network and resolver fallbacks |
 | `test-legacy-udp443-migration.sh` | One-time removal of the legacy UDP/443 block |
 | `test-main-menu-numbering.sh` | Consecutive menu numbering and matching handlers (1..14 including the backend items and monitoring) |
@@ -193,7 +194,7 @@ The workflows have separate responsibilities:
 
 - `.github/workflows/ci-linux.yml` is the Bash core gate on `ubuntu-24.04`: it installs `jq`,
   `uuid-runtime` and `ripgrep`, runs all four Bash syntax checks, then runs every
-  `validation/test-*.sh` script (42 at the time of writing).
+  `validation/test-*.sh` script (45 at the time of writing).
 - `.github/workflows/release.yml` is the active Electron release path for `v*` tags or manual runs.
   A `preflight` job first checks that the release notes file `docs/releases/<tag>.en.md` exists and
   that the `AP3X0` repository secret (if set) can actually create releases — it probes with a draft
