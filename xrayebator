@@ -18753,11 +18753,21 @@ SSH_PROTECT_JAIL="sshd"
 SSH_PROTECT_BANTIME="${SSH_PROTECT_BANTIME:-30m}"
 SSH_PROTECT_FINDTIME="${SSH_PROTECT_FINDTIME:-10m}"
 SSH_PROTECT_MAXRETRY="${SSH_PROTECT_MAXRETRY:-4}"
+# Сколько действует исключение для адреса, с которого шла установка/деплой.
+# Смысл: 4 опечатки в пароле не должны запирать оператора (и GUI, который ходит
+# с того же адреса) на 30 минут. Через сутки исключение снимается само.
+SSH_PROTECT_IGNORE_TTL="${SSH_PROTECT_IGNORE_TTL:-86400}"
+SSH_PROTECT_IGNORE_UNIT="${SSH_PROTECT_IGNORE_UNIT:-/etc/systemd/system/xrayebator-ssh-ignoreip.service}"
+SSH_PROTECT_IGNORE_TIMER="${SSH_PROTECT_IGNORE_TIMER:-/etc/systemd/system/xrayebator-ssh-ignoreip.timer}"
 
 # Конфиг джейла: journald-backend (Ubuntu/Debian с systemd), бан 30 минут,
 # 4 неудачи за 10 минут. bantime.increment растягивает наказание повторным
 # нарушителям до суток — иначе один и тот же бот возвращается каждые полчаса.
 _ssh_protect_jail_conf_pure() {
+  # $1 — адрес, исключённый из банов (необязательно), $2 — epoch, до которого
+  # исключение действует. Строка ignoreip пишется только вместе с датой: таймер
+  # xrayebator-ssh-ignoreip снимает её по истечении срока.
+  local ignore_ip="${1:-}" ignore_until="${2:-}"
   cat <<EOF
 # Managed by xrayebator — защита SSH от перебора. Парольный вход оставлен.
 # Настройки живут ВНУТРИ джейла [${SSH_PROTECT_JAIL}], а не в [DEFAULT]: защита
@@ -18773,6 +18783,105 @@ bantime.increment = true
 bantime.factor = 2
 bantime.maxtime = 1d
 EOF
+  if [[ -n "$ignore_ip" ]]; then
+    cat <<EOF
+
+# Адрес, с которого шла установка/деплой: исключён из банов, чтобы серия
+# опечаток в пароле не заперла оператора. Срок — ${SSH_PROTECT_IGNORE_TTL} с,
+# дальше строка снимается автоматически (xrayebator-ssh-ignoreip.timer).
+# xrayebator-ignore-until: ${ignore_until}
+ignoreip = 127.0.0.1/8 ::1 ${ignore_ip}
+EOF
+  else
+    # Loopback не банится никогда — как в дефолтах fail2ban. Строку пишем
+    # всегда: если джейл её не содержит, политика ignoreip становится пустой.
+    cat <<'EOF'
+
+# Loopback не банится (как в дефолтах fail2ban); адрес деплоя сюда добавляется
+# на 24 часа и снимается таймером xrayebator-ssh-ignoreip.
+ignoreip = 127.0.0.1/8 ::1
+EOF
+  fi
+}
+
+# Адрес клиента текущей SSH-сессии: с него пришёл деплой/установка. sshd кладёт
+# его в SSH_CONNECTION даже для неинтерактивных команд (`ssh host bash x.sh`),
+# поэтому GUI-деплой тоже виден.
+_ssh_protect_client_ip() {
+  local ip=""
+  if [[ -n "${SSH_CONNECTION:-}" ]]; then
+    ip="${SSH_CONNECTION%% *}"
+  elif [[ -n "${SSH_CLIENT:-}" ]]; then
+    ip="${SSH_CLIENT%% *}"
+  fi
+  [[ "$ip" =~ ^[0-9a-fA-F:.]+$ ]] || return 1
+  [[ "$ip" == "127.0.0.1" || "$ip" == "::1" ]] && return 1
+  printf '%s\n' "$ip"
+}
+
+_ssh_protect_ignore_until_file() {
+  sed -n 's/^# xrayebator-ignore-until: \([0-9][0-9]*\)$/\1/p' "$SSH_PROTECT_JAIL_FILE" 2>/dev/null | head -1
+}
+
+_ssh_protect_ignore_ip_file() {
+  sed -n 's/^ignoreip = 127\.0\.0\.1\/8 ::1 \(.*\)$/\1/p' "$SSH_PROTECT_JAIL_FILE" 2>/dev/null | head -1
+}
+
+_ssh_protect_reload_fail2ban() {
+  fail2ban-client reload "$SSH_PROTECT_JAIL" >/dev/null 2>&1 \
+    || systemctl restart fail2ban >/dev/null 2>&1 || true
+}
+
+# Раз в 30 минут и при загрузке: снять истёкшее исключение.
+_ssh_protect_install_ignore_timer() {
+  [[ -f "$SSH_PROTECT_IGNORE_TIMER" ]] && return 0
+  cat > "$SSH_PROTECT_IGNORE_UNIT" 2>/dev/null <<'EOF'
+[Unit]
+Description=Xrayebator: снятие истёкшего исключения из банов SSH
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/xrayebator ssh-protect --prune-ignore
+Nice=10
+EOF
+  cat > "$SSH_PROTECT_IGNORE_TIMER" 2>/dev/null <<'EOF'
+[Unit]
+Description=Xrayebator: проверка срока исключения из банов SSH
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=30min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+  systemctl daemon-reload >/dev/null 2>&1 || true
+  systemctl enable --now xrayebator-ssh-ignoreip.timer >/dev/null 2>&1 || true
+}
+
+_ssh_protect_remove_ignore_timer() {
+  systemctl disable --now xrayebator-ssh-ignoreip.timer >/dev/null 2>&1 || true
+  rm -f "$SSH_PROTECT_IGNORE_TIMER" "$SSH_PROTECT_IGNORE_UNIT" 2>/dev/null
+  systemctl daemon-reload >/dev/null 2>&1 || true
+}
+
+# Снять исключение, если срок вышел. Коды: 0 — снял, 1 — ещё действует,
+# 2 — исключения нет. Время можно подставить (SSH_PROTECT_NOW) — для теста.
+_ssh_protect_prune_ignore() {
+  local now="${SSH_PROTECT_NOW:-$(date +%s)}"
+  local until
+  until=$(_ssh_protect_ignore_until_file)
+  if [[ -z "$until" ]]; then
+    _ssh_protect_remove_ignore_timer
+    return 2
+  fi
+  [[ "$until" -gt "$now" ]] && return 1
+  _ssh_protect_jail_conf_pure > "$SSH_PROTECT_JAIL_FILE" 2>/dev/null || return 2
+  _ssh_protect_reload_fail2ban
+  _ssh_protect_remove_ignore_timer
+  return 0
 }
 
 # Drop-in для sshd. Только лимиты: сам запрет делает fail2ban, а полный запрет
@@ -18843,6 +18952,10 @@ _ssh_protect_status_json() {
   failed=$(_ssh_protect_failed_24h)
   [[ "$banned_cur" =~ ^[0-9]+$ ]] || banned_cur=0
   [[ "$banned_total" =~ ^[0-9]+$ ]] || banned_total=0
+  local ignore_ip ignore_until
+  ignore_ip=$(_ssh_protect_ignore_ip_file)
+  ignore_until=$(_ssh_protect_ignore_until_file)
+  [[ "$ignore_until" =~ ^[0-9]+$ ]] || ignore_until=0
   jq -n \
     --argjson supported "$supported" \
     --argjson installed "$installed" \
@@ -18857,6 +18970,8 @@ _ssh_protect_status_json() {
     --argjson banned_cur "$banned_cur" \
     --argjson banned_total "$banned_total" \
     --argjson ips "$ips" \
+    --arg ignore_ip "$ignore_ip" \
+    --argjson ignore_until "$ignore_until" \
     --arg jail "$SSH_PROTECT_JAIL_FILE" \
     --arg sshd "$SSH_PROTECT_SSHD_FILE" \
     '{ok:true, supported:$supported, installed:$installed, active:$active,
@@ -18864,7 +18979,8 @@ _ssh_protect_status_json() {
       max_auth_tries:$mat, login_grace_time:$lgt,
       password_authentication:$pw, permit_root_login:$prl,
       failed_24h:$failed, banned_current:$banned_cur, banned_total:$banned_total,
-      banned_ips:$ips, jail_file:$jail, sshd_file:$sshd}'
+      banned_ips:$ips, ignore_ip:$ignore_ip, ignore_until:$ignore_until,
+      jail_file:$jail, sshd_file:$sshd}'
 }
 
 # Включить защиту. Идемпотентно: можно звать повторно — файлы перезапишутся,
@@ -18887,10 +19003,30 @@ _ssh_protect_enable() {
   fi
 
   mkdir -p "$(dirname "$SSH_PROTECT_JAIL_FILE")" 2>/dev/null
-  _ssh_protect_jail_conf_pure > "$SSH_PROTECT_JAIL_FILE" 2>/dev/null || {
+  # Исключение для адреса, с которого пришла установка/деплой: сутки он не
+  # банится, чтобы серия опечаток в пароле не заперла оператора (и GUI, который
+  # ходит с того же адреса). Если сейчас мы не по SSH (консоль хостера) —
+  # сохраняем ещё действующее исключение, а не выкидываем его.
+  local ignore_ip='' ignore_until='' client_ip='' prev_until=''
+  client_ip=$(_ssh_protect_client_ip 2>/dev/null || true)
+  prev_until=$(_ssh_protect_ignore_until_file)
+  if [[ -n "$client_ip" ]]; then
+    ignore_ip="$client_ip"
+    ignore_until=$(( $(date +%s) + SSH_PROTECT_IGNORE_TTL ))
+  elif [[ -n "$prev_until" && "$prev_until" -gt "$(date +%s)" ]]; then
+    ignore_ip=$(_ssh_protect_ignore_ip_file)
+    ignore_until="$prev_until"
+  fi
+  _ssh_protect_jail_conf_pure "$ignore_ip" "$ignore_until" > "$SSH_PROTECT_JAIL_FILE" 2>/dev/null || {
     echo "не удалось записать ${SSH_PROTECT_JAIL_FILE}" >&2
     return 1
   }
+  if [[ -n "$ignore_ip" ]]; then
+    _ssh_protect_install_ignore_timer
+    echo "  адрес ${ignore_ip} исключён из банов на ${SSH_PROTECT_IGNORE_TTL} с" >&2
+  else
+    _ssh_protect_remove_ignore_timer
+  fi
 
   # sshd: пишем → проверяем синтаксис → при отказе возвращаем как было. Битый
   # drop-in без проверки означал бы «ssh не поднимется после перезагрузки».
@@ -18926,6 +19062,7 @@ _ssh_protect_enable() {
 # (его удаление — отдельное решение: без пакета пропадут и логи банов).
 _ssh_protect_disable() {
   systemctl disable --now fail2ban >/dev/null 2>&1 || true
+  _ssh_protect_remove_ignore_timer
   rm -f "$SSH_PROTECT_JAIL_FILE" 2>/dev/null
   rm -f "$SSH_PROTECT_SSHD_FILE" 2>/dev/null
   rm -f "$SSH_PROTECT_MARKER" 2>/dev/null
@@ -18952,6 +19089,7 @@ ssh_protect_command() {
       --enable) action="enable" ;;
       --disable) action="disable" ;;
       --unban) shift; unban_ip="${1:-}"; action="unban" ;;
+      --prune-ignore) action="prune-ignore" ;;
       --quiet) quiet=1 ;;
       -h|--help) action="help" ;;
       *) echo "ssh-protect: неизвестный аргумент: $1" >&2; return 2 ;;
@@ -18962,6 +19100,7 @@ ssh_protect_command() {
   if [[ "$action" == "help" ]]; then
     echo "sudo xrayebator ssh-protect [--status|--enable|--disable] [--quiet]"
     echo "sudo xrayebator ssh-protect --unban IP"
+    echo "sudo xrayebator ssh-protect --prune-ignore   # снять истёкшее 24-часовое исключение"
     return 0
   fi
 
@@ -19003,6 +19142,18 @@ ssh_protect_command() {
         rc=1
         payload=$(jq -nc --arg ip "$unban_ip" '{ok:false, error:("адрес " + $ip + " не был забанен")}')
       fi
+      ;;
+    prune-ignore)
+      # Вызывается таймером xrayebator-ssh-ignoreip каждые 30 минут.
+      _ssh_protect_prune_ignore
+      case $? in
+        0)
+          echo "[ssh-protect] исключение из банов снято по сроку" >&2
+          payload='{"ok":true,"pruned":true}'
+          ;;
+        1) payload='{"ok":true,"pruned":false,"active":true}' ;;
+        *) payload='{"ok":true,"pruned":false,"active":false}' ;;
+      esac
       ;;
   esac
 
@@ -19298,8 +19449,8 @@ if [[ "$XRAYEBATOR_SOURCED" -eq 0 ]]; then
       echo -e "  ${CYAN}sudo xrayebator alerts-test${NC} — тестовое сообщение в Telegram (JSON)"
       echo -e "  ${CYAN}sudo xrayebator alerts-enable|alerts-disable${NC} — включить/выключить алерты (JSON)"
       echo -e "  ${CYAN}sudo xrayebator monitor-check [--force-sni]${NC} — одна итерация мониторинга (--force-sni: probe SNI вне расписания) (JSON)"
-      echo -e "  ${CYAN}sudo xrayebator ssh-protect [--status|--enable|--disable|--unban IP] [--quiet]${NC}"
-      echo -e "                               — защита SSH от перебора: fail2ban + лимиты sshd (JSON)"
+      echo -e "  ${CYAN}sudo xrayebator ssh-protect [--status|--enable|--disable|--unban IP|--prune-ignore] [--quiet]${NC}"
+      echo -e "                               — защита SSH от перебора: fail2ban + лимиты sshd; адрес деплоя не банится 24 ч (JSON)"
       echo -e "  ${CYAN}sudo xrayebator dns01-setup --domain sub.example.com --provider cloudflare|route53 [--staging]${NC}"
       echo -e "                               — HTTPS-подписка по домену без порта 80 (DNS-01) (JSON)"
       echo -e "  ${CYAN}sudo xrayebator dns01-test --domain sub.example.com --provider cloudflare|route53${NC}"
