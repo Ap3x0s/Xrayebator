@@ -2,7 +2,12 @@
 
 User-facing Xrayebator changes. The server manager and Electron application are published from the canonical `howdeploy/Xrayebator` repository.
 
-## [Unreleased]
+## [0.7.1] - 2026-10-24
+
+The `0.7.1` patch: SSH brute-force protection (command, menu, GUI and automatic enablement) plus the
+fixes without which a fresh install and AmneziaWG broke on the newest Xray-core and on Debian 12.
+Validation: 45 Bash scripts, 174 unit tests; live runs on Ubuntu 22.04 (production), Ubuntu 24.04 (a
+clean install with 8/8 routes verified) and Debian 12 (AWG install with the reboot path).
 
 ### Added
 
@@ -26,6 +31,12 @@ User-facing Xrayebator changes. The server manager and Electron application are 
 
 ### Fixed
 
+- **The GUI silently threw away a backend failure returned as `{ok:false, error}`.** Backend actions
+  only reacted to thrown exceptions, so a command that reported the problem inside its JSON looked
+  like "clicked — nothing happened": on a live Debian 12 box `awg-install` answered
+  `{ok:false, reboot_required:true, error:"…reboot the server…"}` and the card simply stayed at
+  "Not installed". Every backend operation now goes through a shared result check and shows the
+  server's own reason.
 - **AmneziaWG install failed on Debian 12 with a generic "не удалось установить amneziawg".** The
   `amneziawg` package from the PPA was installed, but DKMS never built the module: Debian and Ubuntu
   do not install kernel headers by default, and on a kernel older than the repository the exact
