@@ -37,6 +37,15 @@ grep -q '^bantime.increment = true' <<< "$jail" \
   || fail "repeat offenders must get progressively longer bans"
 grep -q '^\[sshd\]' <<< "$jail" || fail "jail must target [sshd]"
 grep -q '^enabled = true' <<< "$jail" || fail "the sshd jail must be enabled"
+# Защита включается автоматически, поэтому чужие джейлы fail2ban трогать нельзя:
+# настройки обязаны быть внутри [sshd], а не в [DEFAULT].
+if grep -q '^\[DEFAULT\]' <<< "$jail"; then
+  fail "jail must not override [DEFAULT]: settings belong to the [sshd] section"
+fi
+section_line=$(grep -n '^\[' <<< "$jail" | head -1 | cut -d: -f1)
+maxretry_line=$(grep -n '^maxretry = ' <<< "$jail" | head -1 | cut -d: -f1)
+[[ -n "$section_line" && -n "$maxretry_line" && "$maxretry_line" -gt "$section_line" ]] \
+  || fail "jail settings must be scoped inside the [sshd] section"
 pass "jail bans after 4 failures for 30m and escalates repeat offenders"
 
 # --- 2. Парольный вход остаётся ------------------------------------------------

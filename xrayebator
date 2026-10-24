@@ -18760,7 +18760,11 @@ SSH_PROTECT_MAXRETRY="${SSH_PROTECT_MAXRETRY:-4}"
 _ssh_protect_jail_conf_pure() {
   cat <<EOF
 # Managed by xrayebator — защита SSH от перебора. Парольный вход оставлен.
-[DEFAULT]
+# Настройки живут ВНУТРИ джейла [${SSH_PROTECT_JAIL}], а не в [DEFAULT]: защита
+# включается автоматически при установке, и она не должна менять поведение
+# чужих джейлов fail2ban на сервере, где оператор уже настроил свои.
+[${SSH_PROTECT_JAIL}]
+enabled = true
 backend = systemd
 bantime = ${SSH_PROTECT_BANTIME}
 findtime = ${SSH_PROTECT_FINDTIME}
@@ -18768,9 +18772,6 @@ maxretry = ${SSH_PROTECT_MAXRETRY}
 bantime.increment = true
 bantime.factor = 2
 bantime.maxtime = 1d
-
-[${SSH_PROTECT_JAIL}]
-enabled = true
 EOF
 }
 
