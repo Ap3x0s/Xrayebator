@@ -217,6 +217,14 @@ profile JSON, and the timer only applies it.
   a separate message, and an undelivered alert is retried on the next tick. The bot token is stored
   in a `0600` `alerts.json` in the neutral root: this is not Xray state, and the
   `/usr/local/etc/xray` path stays Xray-only. Migration: `alerts_monitor_2026`.
+- **SSH brute-force protection.** `ssh-protect` writes `jail.d/xrayebator-sshd.local` with every knob
+  inside `[sshd]`, so an existing fail2ban setup keeps its own defaults. When the call arrives over
+  SSH, the caller's address is added to `ignoreip` with an epoch stamp
+  (`# xrayebator-ignore-until: …`), and `xrayebator-ssh-ignoreip.timer` (30 minutes) runs
+  `ssh-protect --prune-ignore`: an expired stamp is removed, the jail is reloaded and the timer units
+  are deleted, while the loopback baseline `ignoreip = 127.0.0.1/8 ::1` always stays. The same
+  operation is available in the GUI (**Security and TLS** tab) and is enabled automatically by
+  `install.sh` and `quickstart`.
 
 Every migration named in this section is registered in all three entry paths — `main_menu`,
 `quickstart` and `happ-setup`.

@@ -19,7 +19,10 @@ User-facing Xrayebator changes. The server manager and Electron application are 
   automatically by `install.sh` and `quickstart` (the deploy JSON reports `ssh_protect`), appears as
   menu item `15`, and is toggled from the **Security and TLS** tab in the GUI, which also shows the
   effective limits, failed logins over 24 hours and the addresses currently banned. On the live
-  server the failure rate fell from ~415/hour to ≈72/hour within minutes.
+  server the failure rate fell from ~415/hour to ≈72/hour within minutes. The address the install or
+  deploy was run from is exempt from bans for 24 hours (`ignoreip` with an expiry stamp, pruned by
+  `xrayebator-ssh-ignoreip.timer`), so a run of typos cannot lock the operator — or the GUI, which
+  connects from the same address — out for half an hour; the loopback baseline stays permanently.
 
 ### Fixed
 

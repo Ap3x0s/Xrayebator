@@ -132,6 +132,13 @@ TCPKeepAlive yes
 - 应用前用 `sshd -t` 校验 drop-in，并且只 `reload` 而不 `restart`，因此已打开的会话（包括 GUI
   正在使用的那个）不会被断开。
 
+执行安装或部署的地址**在 24 小时内免于封禁**：它连同 `# xrayebator-ignore-until: <epoch>` 一起写入
+`ignoreip`，而 `xrayebator-ssh-ignoreip.timer`（每 30 分钟、开机后 10 分钟）调用
+`ssh-protect --prune-ignore`，到期后移除该记录。因此连续输错不会把运营者——以及从同一地址访问的
+GUI——锁在外面 30 分钟，而其他人仍会被过滤。该例外可在 `ssh-protect --status` 的
+`ignore_ip` / `ignore_until` 中查看；回环基线 `ignoreip = 127.0.0.1/8 ::1` 永久保留。这是命令行与
+JSON 的细节，桌面 GUI 不展示。
+
 **密码登录被有意保留。** 桌面应用以 `root` 身份通过 SSH 密码管理服务器（`authMethod: password`）；
 改用密钥属于运营者的独立决定，该路径已在上文描述。即便改用密钥，也建议保留 `fail2ban`：它没有
 代价，还能清掉日志噪音。
