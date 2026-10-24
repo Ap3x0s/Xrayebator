@@ -18850,8 +18850,12 @@ EOF
 Description=Xrayebator: проверка срока исключения из банов SSH
 
 [Timer]
+# Календарное расписание, а не только OnUnitActiveSec: относительное правило
+# считается от последней активации сервиса, и после пересоздания таймера
+# (prune → повторный --enable) systemd оставлял next_elapse=infinity, то есть
+# таймер замолкал навсегда. Живая находка 2026-10-24 на Ubuntu 24.04.
+OnCalendar=*:0/30
 OnBootSec=10min
-OnUnitActiveSec=30min
 Persistent=true
 
 [Install]

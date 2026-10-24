@@ -147,6 +147,10 @@ grep -q -- '--prune-ignore' xrayebator || fail "CLI must expose --prune-ignore"
 grep -q '_ssh_protect_install_ignore_timer' xrayebator \
   || fail "enable must install the 24h exemption timer"
 grep -q 'xrayebator-ssh-ignoreip.timer' xrayebator || fail "timer unit name is missing"
+# Относительное OnUnitActiveSec после пересоздания таймера давало
+# next_elapse=infinity (таймер замолкал) — расписание должно быть календарным.
+grep -q 'OnCalendar=\*:0/30' xrayebator \
+  || fail "prune timer must use a wall-clock OnCalendar schedule"
 pass "wired into main menu, CLI, quickstart and install.sh"
 
 # --- 6. --unban валидирует адрес и отвечает JSON -------------------------------
