@@ -3960,6 +3960,37 @@ migrate_awg_ppa_signed_2026() {
 
 # Установка модуля+tools: PPA (официальный путь) → apt amneziawg.
 # Возвращает 0 только если awg-бинарник на месте.
+# Заголовки ядра для сборки модуля. Их часто нет вовсе (Debian/Ubuntu не ставят
+# linux-headers по умолчанию), а если ядро на сервере старше репозитория, точного
+# пакета `linux-headers-$(uname -r)` может уже не быть: живой случай 2026-10-24 —
+# Debian 12, запущено 6.1.0-45, в репо только 6.1.0-47/50/53/54, DKMS молча
+# оставлял «amneziawg/1.0.0: added» и модуль не появлялся.
+# 0 — headers для текущего ядра на месте; 1 — поставить не удалось.
+_awg_install_kernel_headers() {
+  local krel arch
+  krel="$(uname -r)"
+  [[ -d "/lib/modules/$krel/build" ]] && return 0
+  _apt_wait_lock 2>/dev/null || true
+
+  # 1) точный пакет текущего ядра
+  apt-get "${APT_LOCK_OPTS[@]}" install -y --no-install-recommends \
+    "linux-headers-$krel" >/dev/null 2>&1 || true
+  [[ -d "/lib/modules/$krel/build" ]] && return 0
+
+  # 2) метапакеты: точного пакета нет (ядро старше репозитория). Вместе с
+  #    заголовками ставим и образ — иначе DKMS соберёт модуль под ядро, в
+  #    которое сервер никогда не загрузится, и перезагрузка ничего не изменит.
+  arch=$(dpkg --print-architecture 2>/dev/null || echo amd64)
+  apt-get "${APT_LOCK_OPTS[@]}" install -y --no-install-recommends \
+    "linux-headers-$arch" "linux-image-$arch" >/dev/null 2>&1 || true
+  if ! ls -d /usr/src/linux-headers-* >/dev/null 2>&1; then
+    apt-get "${APT_LOCK_OPTS[@]}" install -y --no-install-recommends \
+      linux-headers-generic linux-image-generic >/dev/null 2>&1 || true
+  fi
+  [[ -d "/lib/modules/$krel/build" ]] && return 0
+  return 1
+}
+
 _awg_install_packages() {
   echo -e "${CYAN}  → Ставлю amneziawg из PPA amnezia/ppa (может занять несколько минут: DKMS)...${NC}"
   _apt_wait_lock
@@ -3976,9 +4007,20 @@ _awg_install_packages() {
   # модуль собран именно под текущее ядро, и если нет — пересобираем через DKMS.
   _awg_module_for_kernel && return 0
   if command -v dkms >/dev/null 2>&1 && dkms status 2>/dev/null | grep -qi amnezia; then
-    echo -e "${CYAN}  → Модуля нет для ядра $(uname -r) — пересобираю DKMS...${NC}"
+    echo -e "${CYAN}  → Модуль не собран для ядра $(uname -r) — проверяю заголовки и пересобираю DKMS...${NC}"
+    if ! _awg_install_kernel_headers; then
+      echo -e "${YELLOW}  ⚠ Заголовков для ядра $(uname -r) нет в репозитории — DKMS не соберёт модуль для него${NC}" >&2
+    fi
     dkms autoinstall >/dev/null 2>&1 || true
     _awg_module_for_kernel && return 0
+    # Заголовки метапакета могли дать ДРУГОЕ ядро: модуль собран, но не для
+    # запущенного. Это не провал установки, а требование перезагрузки.
+    local built_for
+    built_for=$(_awg_module_kernels)
+    if [[ -n "$built_for" && "$built_for" != *"$(uname -r)"* ]]; then
+      echo -e "${YELLOW}  ⚠ Модуль собран для ядра ${built_for% }, запущено $(uname -r) — нужна перезагрузка${NC}" >&2
+      return 2
+    fi
   fi
   return 1
 }
@@ -3989,16 +4031,29 @@ _awg_install_packages_manual() {
   echo -e "${CYAN}  → PPA недоступен — ручная сборка amneziawg из исходников...${NC}"
   _apt_wait_lock
   apt-get "${APT_LOCK_OPTS[@]}" install -y --no-install-recommends \
-    build-essential dkms git "linux-headers-$(uname -r)" linux-source >/dev/null 2>&1 || true
+    build-essential git linux-source >/dev/null 2>&1 || true
+  _awg_install_kernel_headers >/dev/null 2>&1 || true
   local work
   work=$(mktemp -d) || return 1
   git clone --depth 1 "https://github.com/${AWG_REPO_MODULE}.git" "$work/module" >/dev/null 2>&1 || { rm -rf "$work"; return 1; }
   git clone --depth 1 "https://github.com/${AWG_REPO_TOOLS}.git" "$work/tools" >/dev/null 2>&1 || { rm -rf "$work"; return 1; }
   # Полное дерево исходников ядра для ядер ≥5.6 (README: нужны именно sources).
+  # Debian и Ubuntu кладут linux-source АРХИВОМ (/usr/src/linux-source-6.1.tar.xz),
+  # поэтому его надо распаковать: симлинк на архив модуль не соберёт (живой
+  # случай 2026-10-24 — ручная сборка падала на этом месте).
   local ks
   ks=$(ls -d /usr/src/linux-source-* 2>/dev/null | head -1)
-  if [[ -n "$ks" ]]; then
+  if [[ -n "$ks" && -d "$ks" ]]; then
     ln -sfn "$(readlink -f "$ks")" "$work/module/src/kernel"
+  elif [[ -n "$ks" ]]; then
+    if tar -xf "$ks" -C "$work" >/dev/null 2>&1; then
+      local tree
+      tree=$(find "$work" -maxdepth 1 -type d -name 'linux-source-*' | head -1)
+      [[ -n "$tree" ]] && ln -sfn "$tree" "$work/module/src/kernel"
+    fi
+    if [[ ! -e "$work/module/src/kernel" ]]; then
+      echo -e "${YELLOW}  ⚠ Не удалось распаковать $(basename "$ks") — сборка модуля может упасть${NC}"
+    fi
   else
     echo -e "${YELLOW}  ⚠ linux-source не найден — сборка модуля на ядре ≥5.6 может упасть${NC}"
   fi
@@ -4081,7 +4136,19 @@ _awg_install() {
   }
 
   # 1) Пакеты: PPA → ручная сборка. Оба шага честно логируются.
-  if ! _awg_install_packages; then
+  local pkgs_rc=0
+  _awg_install_packages || pkgs_rc=$?
+  if [[ $pkgs_rc -eq 2 ]]; then
+    # Модуль собран, но под другое ядро: останется только перезагрузиться.
+    local built_for
+    built_for=$(_awg_module_kernels)
+    echo -e "${YELLOW}⚠ AmneziaWG собран для ядра ${built_for% }, а запущено $(uname -r).${NC}"
+    echo -e "${YELLOW}  Заголовков для текущего ядра в репозитории нет, поэтому DKMS собрал модуль${NC}"
+    echo -e "${YELLOW}  для нового ядра и поставил его образ. Перезагрузите сервер и повторите:${NC}"
+    echo -e "${YELLOW}  sudo xrayebator awg-install${NC}"
+    return 3
+  fi
+  if [[ $pkgs_rc -ne 0 ]]; then
     if ! _awg_install_packages_manual; then
       echo -e "${RED}✗ Не удалось установить amneziawg (PPA и ручная сборка)${NC}"
       echo -e "${YELLOW}  Проверьте ядро/headers: uname -r; dpkg -l | grep linux-headers${NC}"
@@ -4258,6 +4325,17 @@ awg_install_command() {
   elif [[ $rc == 2 ]]; then
     jq -n '{ok: true, already: true}'
     rc=0
+  elif [[ $rc == 3 ]]; then
+    # Установка «наполовину»: модуль собран под новое ядро, нужен ребут.
+    # Отдаём ok:false с человеческой причиной, но код 0 — иначе GUI покажет
+    # первую строку stderr (прогресс установки) вместо этой причины.
+    local built_for
+    built_for=$(_awg_module_kernels)
+    jq -n --arg cur "$(uname -r)" --arg built "${built_for% }" \
+      '{ok:false, reboot_required:true, running_kernel:$cur, built_for:$built,
+        error:("Модуль AmneziaWG собран для ядра " + $built + ", запущено " + $cur +
+               ": заголовков для текущего ядра нет в репозитории. Перезагрузите сервер и повторите awg-install — он завершит настройку")}'
+    return 0
   else
     jq -n --argjson code "$rc" '{ok: false, code: $code}'
   fi
