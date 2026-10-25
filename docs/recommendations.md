@@ -48,16 +48,18 @@ LTS release and publish no headers for it turn AmneziaWG into a lottery.
 | Parameter | Minimal | Medium |
 |---|---|---|
 | CPU | 1 vCPU | 2 vCPU |
-| RAM | 1 GB | 4 GB |
-| Disk | 10 GB | 15 GB |
-| Devices | 6–8 | 8–16 |
+| RAM | 1 GB | 2–4 GB |
+| Disk | 10 GB | 15–20 GB |
+| Devices | 6–8 | 8–20 |
+| Bandwidth | 100 Mbit/s | 300 Mbit/s |
 
 The minimal one is verified live: on 1 vCPU and 1 GB, Xray, nginx, Hysteria 2 and AmneziaWG run at the same
 time (production carries 4 profiles and 13 inbounds, using ~224 MB of RAM and 5 GB of disk). The medium one
 is a recommendation we have not tested on.
 
-The device counts in both rows are guidance from operating experience, not a measurement. The ceiling is CPU
-and bandwidth, not memory: Xray itself takes ~54 MB.
+The device counts are guidance from operating experience, not a measurement; the bandwidth row is the
+recommended link, and on a narrower one the channel becomes the bottleneck before the CPU does. Xray itself
+takes ~54 MB.
 
 ### What to check before paying
 
