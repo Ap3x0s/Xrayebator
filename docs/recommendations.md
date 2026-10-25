@@ -43,30 +43,21 @@ the one in the repository, the module is built for the newer kernel and the inst
 Practical conclusion: pick a server whose kernel you can update. Hosters that freeze the kernel on an old
 LTS release and publish no headers for it turn AmneziaWG into a lottery.
 
-### Resources: what we tested on
+### Resources
 
-Below are not "minimum requirements from the top of our heads" but the characteristics of the machines the
-project actually ran on, and what was running on them at the same time.
+| Parameter | Minimal | Medium |
+|---|---|---|
+| CPU | 1 vCPU | 2 vCPU |
+| RAM | 1 GB | 4 GB |
+| Disk | 10 GB | 15 GB |
+| Devices | 6–8 | 8–16 |
 
-| Configuration | CPU | RAM | Disk | What was running | Device guidance |
-|---|---|---|---|---|---|
-| Production on Ubuntu 22.04.5 | 1 vCPU | 1 GB, ~224 MB used | 10 GB, 5 GB used | Xray 26.3.27, `nginx`, Hysteria 2, AmneziaWG, `fail2ban`; 4 profiles and 13 inbounds | 4–5 |
-| Test on Debian 12 | 1 vCPU | 1 GB, ~333 MB used | 10 GB, 3 GB used | Xray 26.10.21, Hysteria 2, AmneziaWG 3.1: module build, reboot, tunnel up | 4–5 |
-| Medium configuration | 2 vCPU | 2–4 GB | 20+ GB | the same plus headroom for `certbot` and module rebuilds | 8–12 |
+The minimal one is verified live: on 1 vCPU and 1 GB, Xray, nginx, Hysteria 2 and AmneziaWG run at the same
+time (production carries 4 profiles and 13 inbounds, using ~224 MB of RAM and 5 GB of disk). The medium one
+is a recommendation we have not tested on.
 
-What follows from this:
-
-- memory is almost never the limit: the production box uses ~224 MB, of which Xray itself is ~54 MB,
-  `nginx` ~19 MB, `hysteria` ~21 MB, and the rest is the system and `fail2ban`;
-- the ceiling is CPU and bandwidth: every device keeps its own TLS/QUIC sessions, and on a single core that
-  is what starts lagging first;
-- disk matters for AmneziaWG: building the module needs a compiler and room for the kernel source tree.
-  It fits in 10 GB, but half of the disk is already gone;
-- if you run Hysteria 2 and AmneziaWG on one server, leave headroom instead of sizing it exactly for Xray.
-
-Honest caveat: the device numbers are guidance, not a measurement. We never measured the parallel load of N
-devices on purpose; the figures come from operating experience. If your devices hit the ceiling earlier,
-the cause is bandwidth or CPU, not memory.
+The device counts in both rows are guidance from operating experience, not a measurement. The ceiling is CPU
+and bandwidth, not memory: Xray itself takes ~54 MB.
 
 ### What to check before paying
 
