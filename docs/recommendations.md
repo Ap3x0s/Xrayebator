@@ -32,21 +32,6 @@ decide whether a server fits.
 A container without `systemd` is rejected right away: a partially configured server is worse than an
 unconfigured one.
 
-### Ports
-
-| Port | Purpose | When it is needed |
-|---|---|---|
-| `443/tcp` | Reality routes and the public subscription | always |
-| `80/tcp` | Let's Encrypt over http-01 (`ip_tls`, subscription by domain, self-steal) | unless you use DNS-01 |
-| `443/udp` | Hysteria 2 (default port, changeable with `--port`) | if you install the Hysteria 2 backend |
-| a free UDP port | AmneziaWG picks one itself during installation | if you install the AmneziaWG backend |
-| SSH | server management and the desktop GUI | always |
-
-Some hosters filter UDP entirely, or only `443/udp`. The symptom is misleading: TCP routes are green,
-`channel-test` passes, and Hysteria 2 stays silent. We have hit exactly this class of problem in our own
-history — a routing rule once blocked `443/udp` and had to be rolled back by a dedicated migration. If you
-need Hysteria 2, ask support about UDP before paying.
-
 ### Kernel and AmneziaWG
 
 The `amneziawg` module is built through DKMS, so the headers of the running kernel
@@ -58,12 +43,30 @@ the one in the repository, the module is built for the newer kernel and the inst
 Practical conclusion: pick a server whose kernel you can update. Hosters that freeze the kernel on an old
 LTS release and publish no headers for it turn AmneziaWG into a lottery.
 
-### Resources
+### Resources: what we tested on
 
-Xray itself and `nginx` are undemanding; the weight comes from `certbot`, the backends and the module build.
-Building AmneziaWG from source needs a compiler and room for a kernel source tree — on tiny plans with a
-small disk that is what runs out first. If you plan Hysteria 2 and AmneziaWG on one server, leave headroom
-in RAM and disk instead of sizing it exactly for Xray.
+Below are not "minimum requirements from the top of our heads" but the characteristics of the machines the
+project actually ran on, and what was running on them at the same time.
+
+| Configuration | CPU | RAM | Disk | What was running | Device guidance |
+|---|---|---|---|---|---|
+| Production on Ubuntu 22.04.5 | 1 vCPU | 1 GB, ~224 MB used | 10 GB, 5 GB used | Xray 26.3.27, `nginx`, Hysteria 2, AmneziaWG, `fail2ban`; 4 profiles and 13 inbounds | 4–5 |
+| Test on Debian 12 | 1 vCPU | 1 GB, ~333 MB used | 10 GB, 3 GB used | Xray 26.10.21, Hysteria 2, AmneziaWG 3.1: module build, reboot, tunnel up | 4–5 |
+| Medium configuration | 2 vCPU | 2–4 GB | 20+ GB | the same plus headroom for `certbot` and module rebuilds | 8–12 |
+
+What follows from this:
+
+- memory is almost never the limit: the production box uses ~224 MB, of which Xray itself is ~54 MB,
+  `nginx` ~19 MB, `hysteria` ~21 MB, and the rest is the system and `fail2ban`;
+- the ceiling is CPU and bandwidth: every device keeps its own TLS/QUIC sessions, and on a single core that
+  is what starts lagging first;
+- disk matters for AmneziaWG: building the module needs a compiler and room for the kernel source tree.
+  It fits in 10 GB, but half of the disk is already gone;
+- if you run Hysteria 2 and AmneziaWG on one server, leave headroom instead of sizing it exactly for Xray.
+
+Honest caveat: the device numbers are guidance, not a measurement. We never measured the parallel load of N
+devices on purpose; the figures come from operating experience. If your devices hit the ceiling earlier,
+the cause is bandwidth or CPU, not memory.
 
 ### What to check before paying
 
